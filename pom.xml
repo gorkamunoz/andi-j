@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        pom-scijava is the standard parent for all Fiji plugins.
+        It manages all ImageJ/Fiji dependency versions in a tested BOM,
+        and configures the annotation processor that registers @Plugin classes.
+    -->
+    <parent>
+        <groupId>org.scijava</groupId>
+        <artifactId>pom-scijava</artifactId>
+        <version>36.0.0</version>
+        <relativePath />
+    </parent>
+
+    <groupId>sc.fiji</groupId>
+    <artifactId>andi-fiji</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>AnDi Fiji</name>
+    <description>Anomalous Diffusion trajectory analysis plugin for Fiji</description>
+    <url>https://github.com/your-username/andi-fiji</url>
+    <inceptionYear>2026</inceptionYear>
+
+    <organization>
+        <name>AnDi Fiji</name>
+        <url>https://github.com/your-username/andi-fiji</url>
+    </organization>
+
+    <licenses>
+        <license>
+            <name>GNU General Public License v3+</name>
+            <url>https://www.gnu.org/licenses/gpl-3.0.html</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>your-username</id>
+            <name>Your Name</name>
+            <email>your@email.com</email>
+        </developer>
+    </developers>
+
+    <contributors>
+        <contributor>
+            <name>none</name>
+        </contributor>
+    </contributors>
+
+    <mailingLists>
+        <mailingList>
+            <name>none</name>
+        </mailingList>
+    </mailingLists>
+
+    <scm>
+        <connection>scm:git:git://github.com/your-username/andi-fiji</connection>
+        <developerConnection>scm:git:git@github.com:your-username/andi-fiji</developerConnection>
+        <url>https://github.com/your-username/andi-fiji</url>
+    </scm>
+
+    <issueManagement>
+        <system>GitHub Issues</system>
+        <url>https://github.com/your-username/andi-fiji/issues</url>
+    </issueManagement>
+
+    <ciManagement>
+        <system>none</system>
+    </ciManagement>
+
+    <properties>
+        <license.licenseName>gpl_v3</license.licenseName>
+        <license.copyrightOwners>AnDi Fiji contributors</license.copyrightOwners>
+        <!-- Target Java 8 for maximum Fiji compatibility -->
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <!-- ImageJ1 core: IJ, Plot, GenericDialog, PlugIn, etc. -->
+        <dependency>
+            <groupId>net.imagej</groupId>
+            <artifactId>ij</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <repositories>
+        <repository>
+            <id>scijava.public</id>
+            <url>https://maven.scijava.org/content/groups/public</url>
+        </repository>
+    </repositories>
+</project>

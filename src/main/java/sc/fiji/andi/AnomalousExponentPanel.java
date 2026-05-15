@@ -61,7 +61,7 @@ public class AnomalousExponentPanel extends JPanel {
         }
 
         // ── parameter bar (North) ────────────────────────────────────────
-        tLagsField = new JTextField("[1, 20]", 8);
+        tLagsField = new JTextField("[1, 0.1]", 8);
         binsField  = new JTextField("20",      4);
         JButton computeBtn = new JButton("Compute α");   // α
         JButton saveBtn    = new JButton("Save α…"); // α…
@@ -164,6 +164,7 @@ public class AnomalousExponentPanel extends JPanel {
         deselectAll.addActionListener(e -> {
             for (ExperimentData exp : experiments) componentSelection.get(exp).clear();
             for (JToggleButton btn : allCompButtons) btn.setSelected(false);
+            histPanel.resetViewport();
             histPanel.repaint();
         });
         panel.add(deselectAll);
@@ -199,9 +200,9 @@ public class AnomalousExponentPanel extends JPanel {
         styleToggle(btn2D); styleToggle(btnX); styleToggle(btnY);
 
         Set<Integer> sel = componentSelection.get(exp);
-        btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); histPanel.repaint(); });
-        btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); histPanel.repaint(); });
-        btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); histPanel.repaint(); });
+        btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); histPanel.resetViewport(); histPanel.repaint(); });
+        btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); histPanel.resetViewport(); histPanel.repaint(); });
+        btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); histPanel.resetViewport(); histPanel.repaint(); });
 
         allCompButtons.add(btn2D);
         allCompButtons.add(btnX);
@@ -225,11 +226,11 @@ public class AnomalousExponentPanel extends JPanel {
     // -----------------------------------------------------------------------
 
     private void recompute() {
-        int[] tLags = DiffusionCoeffPanel.parseTLags(tLagsField.getText());
-        int   nBins = parseIntOr(binsField.getText(), 20);
+        LagSpec lagSpec = DiffusionCoeffPanel.parseTLags(tLagsField.getText());
+        int     nBins   = parseIntOr(binsField.getText(), 20);
 
         for (ExperimentData exp : experiments)
-            exp.computeAnomalousExponents(tLags);
+            exp.computeAnomalousExponents(lagSpec);
 
         histPanel.resetViewport();
         histPanel.setNBins(nBins);
@@ -337,6 +338,9 @@ public class AnomalousExponentPanel extends JPanel {
         private int     panX0, panY0;
         private double  panInitXMin, panInitXMax, panInitYMax;
 
+        // Hover position (-1 = outside plot)
+        private int hoverPx = -1, hoverPy = -1;
+
         private static final int ML = 62, MR = 22, MT = 22, MB = 50;
 
         private static Color compColor(Color base, int comp) {
@@ -432,6 +436,16 @@ public class AnomalousExponentPanel extends JPanel {
                 public void mouseClicked(MouseEvent e) {
                     if (e.getClickCount() == 2) { viewport = null; repaint(); }
                 }
+
+                @Override
+                public void mouseMoved(MouseEvent e) {
+                    hoverPx = e.getX(); hoverPy = e.getY(); repaint();
+                }
+
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    hoverPx = -1; repaint();
+                }
             };
             addMouseListener(ma);
             addMouseMotionListener(ma);
@@ -505,7 +519,7 @@ public class AnomalousExponentPanel extends JPanel {
             for (HistEntry he : entries)
                 for (double[] a : he.exp.alphaCoeffs.values()) {
                     double v = a[he.component];
-                    if (Double.isFinite(v)) {
+                    if (Double.isFinite(v) && v >= 0 && v <= 2) {
                         globalXMin = Math.min(globalXMin, v);
                         globalXMax = Math.max(globalXMax, v);
                     }
@@ -530,7 +544,7 @@ public class AnomalousExponentPanel extends JPanel {
                 double sum = 0; int n = 0;
                 for (double[] a : he.exp.alphaCoeffs.values()) {
                     double v = a[he.component];
-                    if (!Double.isFinite(v)) continue;
+                    if (!Double.isFinite(v) || v < 0 || v > 2) continue;
                     int bin = Math.min(nBins - 1, Math.max(0,
                                 (int) ((v - globalXMin) / binW)));
                     he.counts[bin]++;
@@ -597,6 +611,14 @@ public class AnomalousExponentPanel extends JPanel {
                 g2.setColor(new Color(0, 100, 255, 200));
                 g2.setStroke(new BasicStroke(1f));
                 g2.drawRect(rx, ry, rw, rh);
+            }
+
+            // ── Hover tooltip ─────────────────────────────────────────────
+            if (hoverPx >= px && hoverPx <= px + pw
+                    && hoverPy >= py && hoverPy <= py + ph) {
+                double dataX = pxToDataX(hoverPx);
+                drawHoverTooltip(g2, String.format("α = %.3f", dataX),
+                                 hoverPx, hoverPy, W, H);
             }
 
             g2.dispose();
@@ -747,6 +769,24 @@ public class AnomalousExponentPanel extends JPanel {
             g2.drawString(msg,
                 px + (pw - fm.stringWidth(msg)) / 2,
                 py + ph / 2 + fm.getAscent() / 2);
+        }
+
+        private static void drawHoverTooltip(Graphics2D g2, String text,
+                                             int mx, int my, int W, int H) {
+            g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            FontMetrics fm = g2.getFontMetrics();
+            int tw = fm.stringWidth(text), th = fm.getAscent();
+            int pad = 4, bw = tw + pad * 2, bh = th + pad * 2;
+            int bx = mx + 14, by = my - bh - 4;
+            if (bx + bw > W - 4) bx = mx - bw - 6;
+            if (by < 4) by = my + 10;
+            g2.setColor(new Color(255, 255, 220, 230));
+            g2.fillRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(160, 160, 100));
+            g2.setStroke(new BasicStroke(0.5f));
+            g2.drawRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(30, 30, 30));
+            g2.drawString(text, bx + pad, by + pad + th - 1);
         }
 
         private static double niceStep(double range, int target) {

@@ -136,10 +136,18 @@ public class ExperimentData {
      * @param tLags         frame lags to use (e.g. {1, 2})
      * @param frameInterval real time per frame
      */
-    public void computeDiffusionCoefficients(int[] tLags, double frameInterval) {
+    /** Compute D using a {@link LagSpec} (supports per-trajectory fractional lags). */
+    public void computeDiffusionCoefficients(LagSpec lagSpec, double frameInterval) {
         dCoeffs = new LinkedHashMap<>();
-        for (Map.Entry<Integer, List<double[]>> e : tracks.entrySet())
-            dCoeffs.put(e.getKey(), computeSingleD(e.getValue(), tLags, frameInterval));
+        for (Map.Entry<Integer, List<double[]>> e : tracks.entrySet()) {
+            int[] lags = lagSpec.lagsFor(e.getValue().size());
+            dCoeffs.put(e.getKey(), computeSingleD(e.getValue(), lags, frameInterval));
+        }
+    }
+
+    /** Convenience overload – wraps a fixed lag array. */
+    public void computeDiffusionCoefficients(int[] tLags, double frameInterval) {
+        computeDiffusionCoefficients(LagSpec.fixed(tLags), frameInterval);
     }
 
     /** Returns {D_2D, D_X, D_Y} for one trajectory. */
@@ -193,10 +201,18 @@ public class ExperimentData {
      *
      * @param tLags  frame lags to use
      */
-    public void computeAnomalousExponents(int[] tLags) {
+    /** Compute α using a {@link LagSpec} (supports per-trajectory fractional lags). */
+    public void computeAnomalousExponents(LagSpec lagSpec) {
         alphaCoeffs = new LinkedHashMap<>();
-        for (Map.Entry<Integer, List<double[]>> e : tracks.entrySet())
-            alphaCoeffs.put(e.getKey(), computeSingleAlpha(e.getValue(), tLags));
+        for (Map.Entry<Integer, List<double[]>> e : tracks.entrySet()) {
+            int[] lags = lagSpec.lagsFor(e.getValue().size());
+            alphaCoeffs.put(e.getKey(), computeSingleAlpha(e.getValue(), lags));
+        }
+    }
+
+    /** Convenience overload – wraps a fixed lag array. */
+    public void computeAnomalousExponents(int[] tLags) {
+        computeAnomalousExponents(LagSpec.fixed(tLags));
     }
 
     /** Returns {alpha_2D, alpha_X, alpha_Y} for one trajectory. */

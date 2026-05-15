@@ -59,8 +59,8 @@ public class DiffusionCoeffPanel extends JPanel {
         // ── parameter bar (North) ────────────────────────────────────────
         tLagsField    = new JTextField("[1,2]",                             8);
         binsField     = new JTextField("20",                                4);
-        intervalField = new JTextField(String.format("%.3f", initInterval), 6);
-        unitField     = new JTextField("frames",                            6);
+        intervalField = new JTextField("1",      6);
+        unitField     = new JTextField("second", 6);
         JButton computeBtn = new JButton("Compute D");
         JButton saveDBtn   = new JButton("Save D…");
 
@@ -168,6 +168,7 @@ public class DiffusionCoeffPanel extends JPanel {
         deselectAll.addActionListener(e -> {
             for (ExperimentData exp : experiments) componentSelection.get(exp).clear();
             for (JToggleButton btn : allCompButtons) btn.setSelected(false);
+            histPanel.resetViewport();
             histPanel.repaint();
         });
         panel.add(deselectAll);
@@ -203,9 +204,9 @@ public class DiffusionCoeffPanel extends JPanel {
         styleToggle(btn2D); styleToggle(btnX); styleToggle(btnY);
 
         Set<Integer> sel = componentSelection.get(exp);
-        btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); histPanel.repaint(); });
-        btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); histPanel.repaint(); });
-        btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); histPanel.repaint(); });
+        btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); histPanel.resetViewport(); histPanel.repaint(); });
+        btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); histPanel.resetViewport(); histPanel.repaint(); });
+        btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); histPanel.resetViewport(); histPanel.repaint(); });
 
         allCompButtons.add(btn2D);
         allCompButtons.add(btnX);
@@ -229,14 +230,14 @@ public class DiffusionCoeffPanel extends JPanel {
     // -----------------------------------------------------------------------
 
     private void recompute() {
-        int[]  tLags    = parseTLags(tLagsField.getText());
-        int    nBins    = parseIntOr(binsField.getText(), 20);
-        double interval = parseDblOr(intervalField.getText(), 1.0);
-        String unit     = unitField.getText().trim().isEmpty()
-                          ? "frames" : unitField.getText().trim();
+        LagSpec lagSpec  = parseTLags(tLagsField.getText());
+        int     nBins    = parseIntOr(binsField.getText(), 20);
+        double  interval = parseDblOr(intervalField.getText(), 1.0);
+        String  unit     = unitField.getText().trim().isEmpty()
+                           ? "frames" : unitField.getText().trim();
 
         for (ExperimentData exp : experiments)
-            exp.computeDiffusionCoefficients(tLags, interval);
+            exp.computeDiffusionCoefficients(lagSpec, interval);
 
         histPanel.resetViewport();
         histPanel.setNBins(nBins);
@@ -310,21 +311,48 @@ public class DiffusionCoeffPanel extends JPanel {
     // Parsers
     // -----------------------------------------------------------------------
 
-    static int[] parseTLags(String s) {
+    /**
+     * Parses the time-lag field text into a {@link LagSpec}.
+     *
+     * Syntax rules (brackets and spaces are stripped first):
+     *   [a, b]  where b < 1  → fractional: lags [a, a+1, …, floor(b × traj_length)]
+     *   [a, b]  where b ≥ 1  → fixed range: [a, a+1, …, b]
+     *   a,b,c,… (≥1 values)  → fixed list of individual lags
+     *   (empty / invalid)    → fixed fallback [1, 2]
+     */
+    static LagSpec parseTLags(String s) {
         s = s.trim().replaceAll("[\\[\\]\\s]", "");
-        List<Integer> lags = new ArrayList<>();
-        for (String p : s.split(","))
-            try { int v = Integer.parseInt(p); if (v > 0) lags.add(v); }
-            catch (NumberFormatException ignored) {}
-        if (lags.isEmpty()) return new int[]{1, 2};
-        // Range expansion: exactly 2 values AND first < second → [a, a+1, ..., b]
-        if (lags.size() == 2 && lags.get(0) < lags.get(1)) {
-            int a = lags.get(0), b = lags.get(1);
-            int[] range = new int[b - a + 1];
-            for (int i = 0; i < range.length; i++) range[i] = a + i;
-            return range;
+        String[] parts = s.split(",");
+
+        if (parts.length == 2) {
+            try {
+                int    a = Integer.parseInt(parts[0].trim());
+                double b = Double.parseDouble(parts[1].trim());
+                if (a > 0) {
+                    if (b > 0 && b < 1.0) {
+                        // [a, frac] – fractional max lag per trajectory
+                        return LagSpec.fractional(a, b);
+                    }
+                    if (b >= 1.0) {
+                        int bInt = (int) Math.round(b);
+                        if (bInt > a) {
+                            // [a, b] – expand to integer range
+                            int[] range = new int[bInt - a + 1];
+                            for (int i = 0; i < range.length; i++) range[i] = a + i;
+                            return LagSpec.fixed(range);
+                        }
+                    }
+                }
+            } catch (NumberFormatException ignored) {}
         }
-        return lags.stream().mapToInt(Integer::intValue).toArray();
+
+        // Comma-separated individual positive integers
+        List<Integer> lags = new ArrayList<>();
+        for (String p : parts)
+            try { int v = Integer.parseInt(p.trim()); if (v > 0) lags.add(v); }
+            catch (NumberFormatException ignored) {}
+        if (lags.isEmpty()) return LagSpec.fixed(new int[]{1, 2});
+        return LagSpec.fixed(lags.stream().mapToInt(Integer::intValue).toArray());
     }
     private static int    parseIntOr(String s, int    d) { try { return Integer.parseInt(s.trim());   } catch (Exception e) { return d; } }
     private static double parseDblOr(String s, double d) { try { return Double.parseDouble(s.trim()); } catch (Exception e) { return d; } }
@@ -358,6 +386,9 @@ public class DiffusionCoeffPanel extends JPanel {
         private boolean panning  = false;
         private int     panX0, panY0;
         private double  panInitXMin, panInitXMax, panInitYMax;
+
+        // Hover position (-1 = outside plot)
+        private int hoverPx = -1, hoverPy = -1;
 
         private static final int ML = 62, MR = 22, MT = 22, MB = 50;
 
@@ -455,6 +486,16 @@ public class DiffusionCoeffPanel extends JPanel {
                 public void mouseClicked(MouseEvent e) {
                     if (e.getClickCount() == 2) { viewport = null; repaint(); }
                 }
+
+                @Override
+                public void mouseMoved(MouseEvent e) {
+                    hoverPx = e.getX(); hoverPy = e.getY(); repaint();
+                }
+
+                @Override
+                public void mouseExited(MouseEvent e) {
+                    hoverPx = -1; repaint();
+                }
             };
             addMouseListener(ma);
             addMouseMotionListener(ma);
@@ -527,7 +568,7 @@ public class DiffusionCoeffPanel extends JPanel {
             for (HistEntry he : entries)
                 for (double[] d : he.exp.dCoeffs.values()) {
                     double v = d[he.component];
-                    if (Double.isFinite(v)) {
+                    if (Double.isFinite(v) && v >= 0) {
                         globalXMin = Math.min(globalXMin, v);
                         globalXMax = Math.max(globalXMax, v);
                     }
@@ -552,7 +593,7 @@ public class DiffusionCoeffPanel extends JPanel {
                 double sum = 0; int n = 0;
                 for (double[] d : he.exp.dCoeffs.values()) {
                     double v = d[he.component];
-                    if (!Double.isFinite(v)) continue;
+                    if (!Double.isFinite(v) || v < 0) continue;
                     int bin = Math.min(nBins - 1, Math.max(0,
                                 (int) ((v - globalXMin) / binW)));
                     he.counts[bin]++;
@@ -619,6 +660,14 @@ public class DiffusionCoeffPanel extends JPanel {
                 g2.setColor(new Color(0, 100, 255, 200));
                 g2.setStroke(new BasicStroke(1f));
                 g2.drawRect(rx, ry, rw, rh);
+            }
+
+            // ── Hover tooltip ─────────────────────────────────────────────
+            if (hoverPx >= px && hoverPx <= px + pw
+                    && hoverPy >= py && hoverPy <= py + ph) {
+                double dataX = pxToDataX(hoverPx);
+                drawHoverTooltip(g2, "D = " + fmtTick(dataX),
+                                 hoverPx, hoverPy, W, H);
             }
 
             g2.dispose();
@@ -768,6 +817,24 @@ public class DiffusionCoeffPanel extends JPanel {
             g2.drawString(msg,
                 px + (pw - fm.stringWidth(msg)) / 2,
                 py + ph / 2 + fm.getAscent() / 2);
+        }
+
+        private static void drawHoverTooltip(Graphics2D g2, String text,
+                                             int mx, int my, int W, int H) {
+            g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            FontMetrics fm = g2.getFontMetrics();
+            int tw = fm.stringWidth(text), th = fm.getAscent();
+            int pad = 4, bw = tw + pad * 2, bh = th + pad * 2;
+            int bx = mx + 14, by = my - bh - 4;
+            if (bx + bw > W - 4) bx = mx - bw - 6;
+            if (by < 4) by = my + 10;
+            g2.setColor(new Color(255, 255, 220, 230));
+            g2.fillRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(160, 160, 100));
+            g2.setStroke(new BasicStroke(0.5f));
+            g2.drawRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(30, 30, 30));
+            g2.drawString(text, bx + pad, by + pad + th - 1);
         }
 
         private static double niceStep(double range, int target) {

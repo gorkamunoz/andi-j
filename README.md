@@ -36,7 +36,8 @@ Required columns (case-insensitive): `TRACK_ID`, `POSITION_X`, `POSITION_Y`, `FR
 
 ### For users
 
-1. Go to the [**Releases**](https://github.com/gorkamunoz/andi_fiji/releases) page of this repository.
+1. During beta testing: go to folder [**Target**](https://github.com/gorkamunoz/andi_fiji/tree/main/target)
+1. (When released, no beta testing) Go to the [**Releases**](https://github.com/gorkamunoz/andi_fiji/releases) page of this repository.
 2. Under the latest release, download the file **`andi-fiji-X.Y.Z.jar`**.
 3. Drag the `.jar` file into the **`Fiji.app/plugins/`** folder  
    *(on Windows: `C:\Users\<you>\Fiji.app\plugins\`)*

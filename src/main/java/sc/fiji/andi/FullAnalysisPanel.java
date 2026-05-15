@@ -44,8 +44,8 @@ public class FullAnalysisPanel extends JPanel {
 
         // ── parameter bar (North) ────────────────────────────────────────
         dLagsField     = new JTextField("[1,2]",                              8);
-        intervalField  = new JTextField(String.format("%.3f", initInterval),  6);
-        unitField      = new JTextField("frames",                             5);
+        intervalField  = new JTextField("1",      6);
+        unitField      = new JTextField("second", 5);
         alphaLagsField = new JTextField("[1, 20]",                            8);
         JButton computeBtn = new JButton("Compute");
         computeBtn.setFont(computeBtn.getFont().deriveFont(Font.BOLD));
@@ -121,6 +121,7 @@ public class FullAnalysisPanel extends JPanel {
         deselectAll.addActionListener(e -> {
             for (ExperimentData exp : experiments) componentSelection.get(exp).clear();
             for (JToggleButton btn : allCompButtons) btn.setSelected(false);
+            scatterPanel.resetViewport();
             scatterPanel.repaint();
         });
         panel.add(deselectAll);
@@ -156,9 +157,9 @@ public class FullAnalysisPanel extends JPanel {
         styleToggle(btn2D); styleToggle(btnX); styleToggle(btnY);
 
         Set<Integer> sel = componentSelection.get(exp);
-        btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); scatterPanel.repaint(); });
-        btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); scatterPanel.repaint(); });
-        btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); scatterPanel.repaint(); });
+        btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); scatterPanel.resetViewport(); scatterPanel.repaint(); });
+        btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); scatterPanel.resetViewport(); scatterPanel.repaint(); });
+        btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); scatterPanel.resetViewport(); scatterPanel.repaint(); });
         allCompButtons.add(btn2D); allCompButtons.add(btnX); allCompButtons.add(btnY);
 
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
@@ -179,15 +180,15 @@ public class FullAnalysisPanel extends JPanel {
     // -----------------------------------------------------------------------
 
     private void recompute() {
-        int[]  dLags    = DiffusionCoeffPanel.parseTLags(dLagsField.getText());
-        int[]  aLags    = DiffusionCoeffPanel.parseTLags(alphaLagsField.getText());
-        double interval = parseDblOr(intervalField.getText(), 1.0);
-        String unit     = unitField.getText().trim().isEmpty()
-                          ? "frames" : unitField.getText().trim();
+        LagSpec dSpec   = DiffusionCoeffPanel.parseTLags(dLagsField.getText());
+        LagSpec aSpec   = DiffusionCoeffPanel.parseTLags(alphaLagsField.getText());
+        double  interval = parseDblOr(intervalField.getText(), 1.0);
+        String  unit     = unitField.getText().trim().isEmpty()
+                           ? "frames" : unitField.getText().trim();
 
         for (ExperimentData exp : experiments) {
-            exp.computeDiffusionCoefficients(dLags, interval);
-            exp.computeAnomalousExponents(aLags);
+            exp.computeDiffusionCoefficients(dSpec, interval);
+            exp.computeAnomalousExponents(aSpec);
         }
         scatterPanel.resetViewport();
         scatterPanel.setTimeUnit(unit);
@@ -227,6 +228,9 @@ public class FullAnalysisPanel extends JPanel {
         private boolean panning      = false;
         private int     panX0,  panY0;
         private double  panInitXMin, panInitXMax, panInitYMin, panInitYMax;
+
+        // hover position (-1 = outside plot)
+        private int hoverPx = -1, hoverPy = -1;
 
         private static final int ML   = 72, MR = 22, MT = 22, MB = 50;
         private static final int PT_R = 4;   // scatter point radius (px)
@@ -329,6 +333,14 @@ public class FullAnalysisPanel extends JPanel {
                 @Override public void mouseClicked(MouseEvent e) {
                     if (e.getClickCount() == 2) { viewport = null; repaint(); }
                 }
+
+                @Override public void mouseMoved(MouseEvent e) {
+                    hoverPx = e.getX(); hoverPy = e.getY(); repaint();
+                }
+
+                @Override public void mouseExited(MouseEvent e) {
+                    hoverPx = -1; repaint();
+                }
             };
             addMouseListener(ma);
             addMouseMotionListener(ma);
@@ -386,6 +398,7 @@ public class FullAnalysisPanel extends JPanel {
                         if (a == null) continue;
                         double dv = d[comp], av = a[comp];
                         if (Double.isFinite(dv) && Double.isFinite(av)
+                                && dv >= 0 && av >= 0 && av <= 2
                                 && (!logY || dv > 0))
                             s.pts.add(new double[]{av, dv});
                     }
@@ -471,6 +484,15 @@ public class FullAnalysisPanel extends JPanel {
                 g2.setColor(new Color(0, 100, 255, 200));
                 g2.setStroke(new BasicStroke(1f));
                 g2.drawRect(rx, ry, rw, rh);
+            }
+
+            // ── Hover tooltip ─────────────────────────────────────────────
+            if (hoverPx >= px && hoverPx <= px + pw
+                    && hoverPy >= py && hoverPy <= py + ph) {
+                double dataX = pxToDataX(hoverPx);
+                double dataY = pxToDataY(hoverPy);
+                String tip = String.format("α = %.3f     D = %s", dataX, fmtTick(dataY));
+                drawHoverTooltip(g2, tip, hoverPx, hoverPy, W, H);
             }
 
             g2.dispose();
@@ -682,6 +704,24 @@ public class FullAnalysisPanel extends JPanel {
                 Math.min(255, base.getBlue()  + 55));
             if (comp == 2) return base.darker();
             return base;
+        }
+
+        private static void drawHoverTooltip(Graphics2D g2, String text,
+                                             int mx, int my, int W, int H) {
+            g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            FontMetrics fm = g2.getFontMetrics();
+            int tw = fm.stringWidth(text), th = fm.getAscent();
+            int pad = 4, bw = tw + pad * 2, bh = th + pad * 2;
+            int bx = mx + 14, by = my - bh - 4;
+            if (bx + bw > W - 4) bx = mx - bw - 6;
+            if (by < 4) by = my + 10;
+            g2.setColor(new Color(255, 255, 220, 230));
+            g2.fillRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(160, 160, 100));
+            g2.setStroke(new BasicStroke(0.5f));
+            g2.drawRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(30, 30, 30));
+            g2.drawString(text, bx + pad, by + pad + th - 1);
         }
 
         private static double niceStep(double range, int target) {

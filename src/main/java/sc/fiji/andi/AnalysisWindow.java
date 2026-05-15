@@ -21,8 +21,10 @@ public class AnalysisWindow extends JFrame {
             new DiffusionCoeffPanel(experiments, initInterval));
         tabs.addTab("Anomalous exponent",
             new AnomalousExponentPanel(experiments));
-        tabs.addTab("Full analysis",
+        tabs.addTab("D vs α",
             new FullAnalysisPanel(experiments, initInterval));
+        tabs.addTab("Turning Angles",
+            new AnglesPanel(experiments));
 
         setContentPane(tabs);
         setSize(980, 660);

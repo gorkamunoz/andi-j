@@ -34,7 +34,7 @@ Required columns (case-insensitive): `TRACK_ID`, `POSITION_X`, `POSITION_Y`, `FR
 
 ## Installation
 
-### For users (no coding needed)
+### For users
 
 1. Go to the [**Releases**](https://github.com/gorkamunoz/andi_fiji/releases) page of this repository.
 2. Under the latest release, download the file **`andi-fiji-X.Y.Z.jar`**.

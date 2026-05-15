@@ -3,6 +3,7 @@ package sc.fiji.andi;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.*;
 import java.awt.geom.AffineTransform;
 import java.util.*;
 import java.util.List;
@@ -16,12 +17,16 @@ import java.util.List;
  *   Center : JSplitPane
  *              Left  – per-experiment compact grid: two rows (Avg / All),
  *                      each with three independent [2D] [X] [Y] toggle buttons
- *              Right – custom plot canvas (log-log or linear depending on checkbox)
+ *              Right – plot area
+ *                        North : plot toolbar (Draw line / Clear lines)
+ *                        Center: custom plot canvas (log-log or linear)
  *
- * Component colour convention (same as DiffusionCoeffPanel):
- *   2D = experiment base colour
- *   X  = lighter shade  (+55 on each channel)
- *   Y  = darker shade   (.darker())
+ * Line-drawing tool
+ * ─────────────────
+ *   Press ✏ Draw line to enter draw mode.  Click-drag on the canvas to draw a
+ *   reference line; the slope is shown live while dragging and stays after
+ *   release.  In log-log mode the slope is labelled "α"; in linear mode
+ *   "slope".  Multiple lines can be drawn.  ✕ Clear lines removes them all.
  */
 public class TmsdPanel extends JPanel {
 
@@ -60,7 +65,7 @@ public class TmsdPanel extends JPanel {
         minLagField   = new JTextField(String.valueOf(1),          4);
         maxLagField   = new JTextField(String.valueOf(initMaxLag), 4);
         nLagsField    = new JTextField("15",                       4);
-        logSpacedBox  = new JCheckBox("Log-spaced", false);          // default: LINEAR
+        logSpacedBox  = new JCheckBox("Log-spaced", false);
         intervalField = new JTextField(String.format("%.3f", initInterval), 6);
         unitField     = new JTextField("frames",                   6);
         JButton computeBtn = new JButton("Compute tMSD");
@@ -76,6 +81,23 @@ public class TmsdPanel extends JPanel {
         paramBar.add(computeBtn);
         add(paramBar, BorderLayout.NORTH);
 
+        // ── plot toolbar ─────────────────────────────────────────────────
+        JToggleButton drawLineBtn  = new JToggleButton("✏ Draw line", false);
+        JButton       clearLinesBtn = new JButton("✕ Clear lines");
+        for (AbstractButton b : new AbstractButton[]{drawLineBtn, clearLinesBtn}) {
+            b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
+            b.setFocusPainted(false);
+        }
+        JPanel plotToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        plotToolbar.add(drawLineBtn);
+        plotToolbar.add(clearLinesBtn);
+        drawLineBtn .addActionListener(e -> plotPanel.setDrawMode(drawLineBtn.isSelected()));
+        clearLinesBtn.addActionListener(e -> plotPanel.clearLines());
+
+        JPanel plotArea = new JPanel(new BorderLayout(0, 0));
+        plotArea.add(plotToolbar, BorderLayout.NORTH);
+        plotArea.add(plotPanel,   BorderLayout.CENTER);
+
         // ── split pane (Center) ──────────────────────────────────────────
         JPanel leftPanel = buildExperimentsPanel();
         JScrollPane leftScroll = new JScrollPane(leftPanel);
@@ -83,7 +105,7 @@ public class TmsdPanel extends JPanel {
         leftScroll.setBorder(BorderFactory.createTitledBorder("Experiments"));
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                                          leftScroll, plotPanel);
+                                          leftScroll, plotArea);
         split.setDividerLocation(200);
         split.setResizeWeight(0.0);
         add(split, BorderLayout.CENTER);
@@ -101,7 +123,6 @@ public class TmsdPanel extends JPanel {
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(new EmptyBorder(4, 4, 4, 4));
 
-        // "Deselect all" clears every Avg/All × 2D/X/Y toggle
         JButton deselectAll = new JButton("Deselect all");
         deselectAll.setFont(deselectAll.getFont().deriveFont(Font.PLAIN, 10f));
         deselectAll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
@@ -125,12 +146,6 @@ public class TmsdPanel extends JPanel {
         return panel;
     }
 
-    /**
-     * One row per experiment (vertical stack):
-     *   ■ exp_name
-     *   Avg  [2D] [X] [Y]     ← primary: average curve
-     *   All  [2D] [X] [Y]     ← secondary: individual trajectories
-     */
     private JPanel makeExpRow(ExperimentData exp) {
         JPanel row = new JPanel();
         row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
@@ -152,7 +167,6 @@ public class TmsdPanel extends JPanel {
         return row;
     }
 
-    /** One row: label + [2D] [X] [Y] independent toggle buttons. */
     private JPanel makeCompToggleRow(String label, Set<Integer> sel, boolean[] defaults) {
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
         JLabel lbl = new JLabel(label);
@@ -200,10 +214,6 @@ public class TmsdPanel extends JPanel {
     private static int    parseIntOr(String s, int    d) { try { return Integer.parseInt(s.trim());   } catch (Exception e) { return d; } }
     private static double parseDblOr(String s, double d) { try { return Double.parseDouble(s.trim()); } catch (Exception e) { return d; } }
 
-    // -----------------------------------------------------------------------
-    // Component colour helper (shared with DiffusionCoeffPanel)
-    // -----------------------------------------------------------------------
-
     static Color compColor(Color base, int comp) {
         if (comp == 1) return new Color(
             Math.min(255, base.getRed()   + 55),
@@ -221,19 +231,121 @@ public class TmsdPanel extends JPanel {
 
         private final List<ExperimentData> experiments;
         private String  timeUnit = "frames";
-        private boolean logScale = false;   // default: linear axes
+        private boolean logScale = false;
 
-        // Plot margins
         private static final int ML = 68, MR = 22, MT = 22, MB = 52;
+
+        // ── Line-drawing state ───────────────────────────────────────────
+        /** Each entry: {x1, y1, x2, y2} in data coordinates. */
+        private final List<double[]> drawnLines = new ArrayList<>();
+
+        private boolean drawMode  = false;
+        private boolean isDrawing = false;
+
+        // Pixel coordinates tracked during a drag
+        private int linePx0, linePy0, linePx1, linePy1;
+
+        // Render state saved every paint – used for pixel ↔ data transforms
+        private double  savedXMin, savedXMax, savedYMin, savedYMax;
+        private int     savedPx, savedPy, savedPw, savedPh;
+        private boolean savedBoundsValid = false;
+
+        // ────────────────────────────────────────────────────────────────
 
         TmsdPlotPanel(List<ExperimentData> exps) {
             this.experiments = exps;
             setBackground(new Color(240, 240, 240));
             setPreferredSize(new Dimension(560, 420));
+            addMouseInteraction();
         }
 
-        void setTimeUnit(String u) { this.timeUnit = u; }
+        void setTimeUnit(String u)  { this.timeUnit = u; }
         void setLogScale(boolean b) { this.logScale = b; }
+
+        void setDrawMode(boolean on) {
+            drawMode = on;
+            isDrawing = false;
+            setCursor(on ? Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR)
+                         : Cursor.getDefaultCursor());
+        }
+
+        void clearLines() {
+            drawnLines.clear();
+            repaint();
+        }
+
+        // ── Mouse: line drawing ──────────────────────────────────────────
+
+        private void addMouseInteraction() {
+            MouseAdapter ma = new MouseAdapter() {
+
+                @Override public void mousePressed(MouseEvent e) {
+                    if (!drawMode || !savedBoundsValid) return;
+                    isDrawing = true;
+                    linePx0 = linePx1 = e.getX();
+                    linePy0 = linePy1 = e.getY();
+                }
+
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (!isDrawing) return;
+                    linePx1 = e.getX();
+                    linePy1 = e.getY();
+                    repaint();
+                }
+
+                @Override public void mouseReleased(MouseEvent e) {
+                    if (!isDrawing) return;
+                    isDrawing = false;
+                    int dx = Math.abs(linePx1 - linePx0);
+                    int dy = Math.abs(linePy1 - linePy0);
+                    if (dx > 4 || dy > 4) {         // ignore accidental micro-drags
+                        double x1 = pixToDataX(linePx0), y1 = pixToDataY(linePy0);
+                        double x2 = pixToDataX(linePx1), y2 = pixToDataY(linePy1);
+                        drawnLines.add(new double[]{x1, y1, x2, y2});
+                    }
+                    repaint();
+                }
+            };
+            addMouseListener(ma);
+            addMouseMotionListener(ma);
+        }
+
+        // ── Pixel ↔ data transforms (use saved render state) ─────────────
+
+        private double pixToDataX(int px) {
+            if (!savedBoundsValid || savedPw <= 0) return 0;
+            double frac = (double)(px - savedPx) / savedPw;
+            if (logScale) {
+                double lMin = Math.log10(savedXMin), lMax = Math.log10(savedXMax);
+                return Math.pow(10, lMin + frac * (lMax - lMin));
+            }
+            return savedXMin + frac * (savedXMax - savedXMin);
+        }
+
+        private double pixToDataY(int py) {
+            if (!savedBoundsValid || savedPh <= 0) return 0;
+            double frac = (double)(savedPy + savedPh - py) / savedPh;
+            if (logScale) {
+                double lMin = Math.log10(savedYMin), lMax = Math.log10(savedYMax);
+                return Math.pow(10, lMin + frac * (lMax - lMin));
+            }
+            return savedYMin + frac * (savedYMax - savedYMin);
+        }
+
+        // ── Slope for a drawn line ────────────────────────────────────────
+
+        private double computeSlope(double x1, double y1, double x2, double y2) {
+            if (logScale) {
+                if (x1 <= 0 || x2 <= 0 || y1 <= 0 || y2 <= 0) return Double.NaN;
+                double dlx = Math.log10(x2) - Math.log10(x1);
+                return Math.abs(dlx) < 1e-12 ? Double.NaN
+                       : (Math.log10(y2) - Math.log10(y1)) / dlx;
+            }
+            double dx = x2 - x1;
+            return Math.abs(dx) < 1e-300 ? Double.NaN : (y2 - y1) / dx;
+        }
+
+        // ── Paint ────────────────────────────────────────────────────────
 
         @Override
         protected void paintComponent(Graphics g) {
@@ -250,20 +362,33 @@ public class TmsdPanel extends JPanel {
             g2.fillRect(px, py, pw, ph);
 
             double[] bounds = computeBounds();
+
             if (bounds == null) {
+                savedBoundsValid = false;
                 drawNoDataMessage(g2, px, py, pw, ph);
             } else {
                 double xMin = bounds[0], xMax = bounds[1];
                 double yMin = bounds[2], yMax = bounds[3];
 
+                // Save for pixel ↔ data transforms
+                savedXMin = xMin; savedXMax = xMax;
+                savedYMin = yMin; savedYMax = yMax;
+                savedPx = px; savedPy = py; savedPw = pw; savedPh = ph;
+                savedBoundsValid = true;
+
                 drawGrid(g2, xMin, xMax, yMin, yMax, px, py, pw, ph);
 
                 g2.setClip(px, py, pw, ph);
                 drawCurves(g2, xMin, xMax, yMin, yMax, px, py, pw, ph);
+                // Draw all annotation line segments (clipped to plot area)
+                drawAnnotationLineSegments(g2, xMin, xMax, yMin, yMax, px, py, pw, ph);
                 g2.setClip(null);
 
                 drawTicks(g2, xMin, xMax, yMin, yMax, px, py, pw, ph);
                 drawLegend(g2, px, py, pw, ph);
+
+                // Slope labels drawn on top, unclipped
+                drawSlopeLabels(g2, xMin, xMax, yMin, yMax, px, py, pw, ph);
             }
 
             g2.setColor(Color.BLACK);
@@ -271,6 +396,81 @@ public class TmsdPanel extends JPanel {
             g2.drawRect(px, py, pw, ph);
             drawAxisTitles(g2, px, py, pw, ph);
             g2.dispose();
+        }
+
+        // ── Annotation: line segments (inside plot clip) ──────────────────
+
+        private void drawAnnotationLineSegments(Graphics2D g2,
+                                                 double xMin, double xMax,
+                                                 double yMin, double yMax,
+                                                 int px, int py, int pw, int ph) {
+            Stroke dash = new BasicStroke(1.8f, BasicStroke.CAP_BUTT,
+                BasicStroke.JOIN_MITER, 1f, new float[]{6f, 4f}, 0f);
+            g2.setStroke(dash);
+            g2.setColor(new Color(50, 50, 50));
+
+            for (double[] ln : drawnLines) {
+                int lx1 = mapX(ln[0], xMin, xMax, px, pw);
+                int ly1 = mapY(ln[1], yMin, yMax, py, ph);
+                int lx2 = mapX(ln[2], xMin, xMax, px, pw);
+                int ly2 = mapY(ln[3], yMin, yMax, py, ph);
+                g2.drawLine(lx1, ly1, lx2, ly2);
+            }
+
+            // Live line during drag (pixel coords, no transform needed)
+            if (isDrawing) {
+                g2.drawLine(linePx0, linePy0, linePx1, linePy1);
+            }
+            g2.setStroke(new BasicStroke(1f));
+        }
+
+        // ── Annotation: slope labels (unclipped, drawn on top) ────────────
+
+        private void drawSlopeLabels(Graphics2D g2,
+                                      double xMin, double xMax,
+                                      double yMin, double yMax,
+                                      int px, int py, int pw, int ph) {
+            for (double[] ln : drawnLines) {
+                double slope = computeSlope(ln[0], ln[1], ln[2], ln[3]);
+                if (!Double.isFinite(slope)) continue;
+                int lx1 = mapX(ln[0], xMin, xMax, px, pw);
+                int ly1 = mapY(ln[1], yMin, yMax, py, ph);
+                int lx2 = mapX(ln[2], xMin, xMax, px, pw);
+                int ly2 = mapY(ln[3], yMin, yMax, py, ph);
+                drawSlopeLabel(g2, (lx1 + lx2) / 2, (ly1 + ly2) / 2, slope);
+            }
+
+            if (isDrawing) {
+                double x1 = pixToDataX(linePx0), y1 = pixToDataY(linePy0);
+                double x2 = pixToDataX(linePx1), y2 = pixToDataY(linePy1);
+                double slope = computeSlope(x1, y1, x2, y2);
+                if (Double.isFinite(slope)) {
+                    drawSlopeLabel(g2, (linePx0 + linePx1) / 2, (linePy0 + linePy1) / 2, slope);
+                }
+            }
+        }
+
+        private void drawSlopeLabel(Graphics2D g2, int cx, int cy, double slope) {
+            String text = logScale
+                ? String.format("α = %.2f", slope)
+                : String.format("slope = %.3g", slope);
+
+            Font   font = new Font(Font.SANS_SERIF, Font.BOLD, 11);
+            g2.setFont(font);
+            FontMetrics fm = g2.getFontMetrics();
+            int tw = fm.stringWidth(text);
+            int th = fm.getHeight();
+            int pad = 3;
+            int bx = cx - tw / 2 - pad;
+            int by = cy - th - pad - 4;   // a little above the midpoint
+
+            g2.setColor(new Color(255, 255, 220, 220));
+            g2.fillRoundRect(bx, by, tw + pad * 2, th + pad, 5, 5);
+            g2.setColor(new Color(120, 120, 80));
+            g2.setStroke(new BasicStroke(0.6f));
+            g2.drawRoundRect(bx, by, tw + pad * 2, th + pad, 5, 5);
+            g2.setColor(new Color(40, 40, 40));
+            g2.drawString(text, bx + pad, by + pad + fm.getAscent() - 1);
         }
 
         // ------------------------------------------------------------------
@@ -411,7 +611,6 @@ public class TmsdPanel extends JPanel {
                 drawLogTicksForAxis(g2, fm, xMin, xMax, true,  xMin, xMax, yMin, yMax, px, py, pw, ph);
                 drawLogTicksForAxis(g2, fm, yMin, yMax, false, xMin, xMax, yMin, yMax, px, py, pw, ph);
             } else {
-                // X ticks
                 double xStep = niceStep(xMax - xMin, 6);
                 for (double t = Math.ceil(xMin / xStep) * xStep; t <= xMax + xStep * 0.01; t += xStep) {
                     int p = mapX(t, xMin, xMax, px, pw);
@@ -419,7 +618,6 @@ public class TmsdPanel extends JPanel {
                     String lbl = fmtLinear(t);
                     g2.drawString(lbl, p - fm.stringWidth(lbl) / 2, py + ph + 17);
                 }
-                // Y ticks
                 double yStep = niceStep(yMax - yMin, 5);
                 for (double t = Math.floor(yMin / yStep) * yStep; t <= yMax + yStep * 0.01; t += yStep) {
                     if (t < yMin) continue;
@@ -465,13 +663,12 @@ public class TmsdPanel extends JPanel {
         }
 
         // ------------------------------------------------------------------
-        // Curves – All (secondary) then Avg (primary)
+        // Curves
         // ------------------------------------------------------------------
 
         private void drawCurves(Graphics2D g2,
                                   double xMin, double xMax, double yMin, double yMax,
                                   int px, int py, int pw, int ph) {
-            // Pass 1 – individual trajectories (semi-transparent)
             for (ExperimentData exp : experiments) {
                 if (!exp.hasTamsd()) continue;
                 Set<Integer> al = allComps.getOrDefault(exp, Collections.emptySet());
@@ -487,7 +684,6 @@ public class TmsdPanel extends JPanel {
                 }
                 g2.setComposite(save);
             }
-            // Pass 2 – averages (full opacity, thick)
             for (ExperimentData exp : experiments) {
                 if (!exp.hasTamsd()) continue;
                 Set<Integer> av = avgComps.getOrDefault(exp, Collections.emptySet());
@@ -521,11 +717,11 @@ public class TmsdPanel extends JPanel {
         }
 
         // ------------------------------------------------------------------
-        // Legend – top-left, one entry per visible (exp, component) pair
+        // Legend
         // ------------------------------------------------------------------
 
         private void drawLegend(Graphics2D g2, int px, int py, int pw, int ph) {
-            List<int[]> entries = new ArrayList<>();  // {expIdx, comp}
+            List<int[]> entries = new ArrayList<>();
             for (int ei = 0; ei < experiments.size(); ei++) {
                 ExperimentData exp = experiments.get(ei);
                 if (!exp.hasTamsd()) continue;
@@ -546,7 +742,7 @@ public class TmsdPanel extends JPanel {
             }
             int boxW = maxW + 30 + pad * 2;
             int boxH = entries.size() * lineH + pad * 2;
-            int lx = px + 6, ly = py + 6;   // TOP-LEFT
+            int lx = px + 6, ly = py + 6;
 
             g2.setColor(new Color(255, 255, 255, 210));
             g2.fillRoundRect(lx, ly, boxW, boxH, 6, 6);

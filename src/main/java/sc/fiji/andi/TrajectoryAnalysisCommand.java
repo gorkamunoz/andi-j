@@ -41,7 +41,7 @@ public class TrajectoryAnalysisCommand implements PlugIn {
         JFileChooser chooser = new JFileChooser();
         chooser.setMultiSelectionEnabled(true);
         chooser.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
-        chooser.setDialogTitle("Select TrackMate CSV export(s)");
+        chooser.setDialogTitle("Select Experiments CSV");
         if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return;
 
         File[] files = chooser.getSelectedFiles();

@@ -74,9 +74,15 @@ public class TrajectoryAnalysisCommand implements PlugIn {
         int    defaultMaxLag  = Math.max(1, maxLen / 4);
         double defaultInterval = experiments.get(0).estimatedInterval;
 
+        // Default alpha lags: [1, 2, ..., min(20, defaultMaxLag)]
+        int alphaMaxLag = Math.min(20, defaultMaxLag);
+        int[] alphaLags = new int[alphaMaxLag];
+        for (int i = 0; i < alphaMaxLag; i++) alphaLags[i] = i + 1;
+
         for (ExperimentData exp : experiments) {
-            exp.computeTamsd(1, defaultMaxLag, 15, true, defaultInterval);
+            exp.computeTamsd(1, defaultMaxLag, 15, false, defaultInterval);
             exp.computeDiffusionCoefficients(new int[]{1, 2}, defaultInterval);
+            exp.computeAnomalousExponents(alphaLags);
         }
 
         // 4. Open the analysis window on the Swing EDT

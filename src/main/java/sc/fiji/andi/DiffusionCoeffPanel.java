@@ -1,10 +1,14 @@
 package sc.fiji.andi;
 
+import ij.IJ;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.event.*;
 import java.awt.geom.AffineTransform;
+import java.io.*;
 import java.util.*;
 import java.util.List;
 
@@ -17,6 +21,9 @@ import java.util.List;
  *
  * The 2D / X / Y toggle buttons are independent – any combination can
  * be displayed simultaneously.
+ *
+ * The histogram canvas supports zoom (drag rectangle) and pan (drag in
+ * pan mode).  Double-click resets to the full view.
  */
 public class DiffusionCoeffPanel extends JPanel {
 
@@ -25,11 +32,14 @@ public class DiffusionCoeffPanel extends JPanel {
     // Per-experiment selected components: Set may contain {0=2D, 1=X, 2=Y}
     private final Map<ExperimentData, Set<Integer>> componentSelection = new LinkedHashMap<>();
 
+    // All 2D/X/Y toggle buttons – used by "Deselect all"
+    private final List<JToggleButton> allCompButtons = new ArrayList<>();
+
     // Parameter fields
     private final JTextField tLagsField, binsField, intervalField, unitField;
 
     // Sub-panels
-    private final HistogramPanel histPanel;
+    private final HistogramPanel  histPanel;
     private final DefaultTableModel tableModel;
 
     // -----------------------------------------------------------------------
@@ -47,22 +57,46 @@ public class DiffusionCoeffPanel extends JPanel {
         }
 
         // ── parameter bar (North) ────────────────────────────────────────
-        tLagsField    = new JTextField("[1,2]",                              8);
-        binsField     = new JTextField("20",                                 4);
+        tLagsField    = new JTextField("[1,2]",                             8);
+        binsField     = new JTextField("20",                                4);
         intervalField = new JTextField(String.format("%.3f", initInterval), 6);
-        unitField     = new JTextField("frames",                             6);
+        unitField     = new JTextField("frames",                            6);
         JButton computeBtn = new JButton("Compute D");
+        JButton saveDBtn   = new JButton("Save D…");
 
         JPanel paramBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        paramBar.add(new JLabel("Time lags:"));      paramBar.add(tLagsField);
-        paramBar.add(new JLabel("Bins:"));           paramBar.add(binsField);
+        paramBar.add(new JLabel("Time lags:"));     paramBar.add(tLagsField);
+        paramBar.add(new JLabel("Bins:"));          paramBar.add(binsField);
         paramBar.add(new JLabel("Frame interval:")); paramBar.add(intervalField);
-        paramBar.add(new JLabel("Unit:"));           paramBar.add(unitField);
+        paramBar.add(new JLabel("Unit:"));          paramBar.add(unitField);
         paramBar.add(computeBtn);
+        paramBar.add(saveDBtn);
         add(paramBar, BorderLayout.NORTH);
 
         // ── histogram panel ──────────────────────────────────────────────
         histPanel = new HistogramPanel(experiments, componentSelection);
+
+        // ── zoom / pan toolbar ───────────────────────────────────────────
+        JToggleButton zoomBtn    = new JToggleButton("⊕ Zoom", true);
+        JToggleButton panBtn     = new JToggleButton("✥ Pan",  false);
+        ButtonGroup   viewBG     = new ButtonGroup();
+        viewBG.add(zoomBtn); viewBG.add(panBtn);
+        JButton resetViewBtn = new JButton("↺ Reset view");
+        for (AbstractButton b : new AbstractButton[]{zoomBtn, panBtn, resetViewBtn}) {
+            b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
+            b.setFocusPainted(false);
+        }
+        JPanel histToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        histToolbar.add(zoomBtn);
+        histToolbar.add(panBtn);
+        histToolbar.add(resetViewBtn);
+        zoomBtn.addActionListener(e -> histPanel.setPanMode(false));
+        panBtn .addActionListener(e -> histPanel.setPanMode(true));
+        resetViewBtn.addActionListener(e -> { histPanel.resetViewport(); histPanel.repaint(); });
+
+        JPanel histArea = new JPanel(new BorderLayout(0, 2));
+        histArea.add(histToolbar, BorderLayout.NORTH);
+        histArea.add(histPanel,   BorderLayout.CENTER);
 
         // ── averages table ───────────────────────────────────────────────
         String[] cols = {"Experiment", "2D", "X", "Y"};
@@ -74,14 +108,28 @@ public class DiffusionCoeffPanel extends JPanel {
         table.getTableHeader().setFont(
             table.getTableHeader().getFont().deriveFont(Font.BOLD, 11f));
         table.setRowHeight(20);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
         JScrollPane tableScroll = new JScrollPane(table);
-        tableScroll.setPreferredSize(new Dimension(0, 100));
         tableScroll.setBorder(
             BorderFactory.createTitledBorder("Average diffusion coefficients"));
 
-        JPanel rightPanel = new JPanel(new BorderLayout(0, 4));
-        rightPanel.add(histPanel,   BorderLayout.CENTER);
-        rightPanel.add(tableScroll, BorderLayout.SOUTH);
+        // Preferred height = exactly the data rows (no blank space below last row)
+        //   rowHeight × nRows  +  table header (~20)  +  titled border + insets (~38)
+        int tableNaturalH = table.getRowHeight() * experiments.size() + 20 + 38;
+        tableScroll.setPreferredSize(new Dimension(0, tableNaturalH));
+
+        // Vertical split: histogram (top, resizable) and table (bottom, resizable)
+        JSplitPane rightSplit = new JSplitPane(
+            JSplitPane.VERTICAL_SPLIT, histArea, tableScroll);
+        rightSplit.setResizeWeight(1.0);        // extra space always goes to histogram
+        rightSplit.setOneTouchExpandable(true);
+        // Reset to preferred sizes the first time the panel becomes visible,
+        // so that the table shows exactly the data rows and no more.
+        rightSplit.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0
+                    && rightSplit.isShowing())
+                SwingUtilities.invokeLater(rightSplit::resetToPreferredSizes);
+        });
 
         // ── experiment selector panel (Left) ─────────────────────────────
         JPanel leftPanel = buildExperimentsPanel();
@@ -90,13 +138,14 @@ public class DiffusionCoeffPanel extends JPanel {
         leftScroll.setBorder(BorderFactory.createTitledBorder("Experiments"));
 
         JSplitPane split = new JSplitPane(
-            JSplitPane.HORIZONTAL_SPLIT, leftScroll, rightPanel);
+            JSplitPane.HORIZONTAL_SPLIT, leftScroll, rightSplit);
         split.setDividerLocation(180);
         split.setResizeWeight(0.0);
         add(split, BorderLayout.CENTER);
 
-        // ── Compute action ───────────────────────────────────────────────
+        // ── Actions ──────────────────────────────────────────────────────
         computeBtn.addActionListener(e -> recompute());
+        saveDBtn  .addActionListener(e -> saveD());
 
         // If D was pre-computed before the tab was built, populate immediately
         if (experiments.stream().anyMatch(ExperimentData::hasD)) refreshTable();
@@ -110,6 +159,20 @@ public class DiffusionCoeffPanel extends JPanel {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(new EmptyBorder(4, 4, 4, 4));
+
+        // "Deselect all" turns off every 2D/X/Y toggle across all experiments
+        JButton deselectAll = new JButton("Deselect all");
+        deselectAll.setFont(deselectAll.getFont().deriveFont(Font.PLAIN, 10f));
+        deselectAll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
+        deselectAll.setFocusPainted(false);
+        deselectAll.addActionListener(e -> {
+            for (ExperimentData exp : experiments) componentSelection.get(exp).clear();
+            for (JToggleButton btn : allCompButtons) btn.setSelected(false);
+            histPanel.repaint();
+        });
+        panel.add(deselectAll);
+        panel.add(Box.createVerticalStrut(6));
+
         for (ExperimentData exp : experiments) {
             panel.add(makeExpRow(exp));
             panel.add(Box.createVerticalStrut(6));
@@ -123,7 +186,6 @@ public class DiffusionCoeffPanel extends JPanel {
         row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
 
-        // Colour swatch + name
         JPanel nameRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         JPanel swatch = new JPanel();
         swatch.setBackground(exp.color);
@@ -135,7 +197,6 @@ public class DiffusionCoeffPanel extends JPanel {
         nameRow.add(lbl);
         row.add(nameRow);
 
-        // Independent toggle buttons – no ButtonGroup
         JToggleButton btn2D = new JToggleButton("2D", true);
         JToggleButton btnX  = new JToggleButton("X",  false);
         JToggleButton btnY  = new JToggleButton("Y",  false);
@@ -145,6 +206,10 @@ public class DiffusionCoeffPanel extends JPanel {
         btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); histPanel.repaint(); });
         btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); histPanel.repaint(); });
         btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); histPanel.repaint(); });
+
+        allCompButtons.add(btn2D);
+        allCompButtons.add(btnX);
+        allCompButtons.add(btnY);
 
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         btnRow.add(btn2D); btnRow.add(btnX); btnRow.add(btnY);
@@ -173,6 +238,7 @@ public class DiffusionCoeffPanel extends JPanel {
         for (ExperimentData exp : experiments)
             exp.computeDiffusionCoefficients(tLags, interval);
 
+        histPanel.resetViewport();
         histPanel.setNBins(nBins);
         histPanel.setTimeUnit(unit);
         histPanel.repaint();
@@ -192,14 +258,73 @@ public class DiffusionCoeffPanel extends JPanel {
         return String.format("%.3e", v);
     }
 
-    private static int[] parseTLags(String s) {
+    // -----------------------------------------------------------------------
+    // Save D
+    // -----------------------------------------------------------------------
+
+    private void saveD() {
+        if (experiments.stream().noneMatch(ExperimentData::hasD)) {
+            JOptionPane.showMessageDialog(this,
+                "No D values computed yet. Click «Compute D» first.",
+                "Save D", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
+        fc.setDialogTitle("Save diffusion coefficients");
+        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+
+        File f = fc.getSelectedFile();
+        if (!f.getName().toLowerCase().endsWith(".csv"))
+            f = new File(f.getParent(), f.getName() + ".csv");
+
+        boolean multiExp = experiments.stream().filter(ExperimentData::hasD).count() > 1;
+
+        try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
+            if (multiExp) pw.println("experiment,traj_idx,D_2d,D_x,D_y");
+            else          pw.println("traj_idx,D_2d,D_x,D_y");
+
+            for (ExperimentData exp : experiments) {
+                if (!exp.hasD()) continue;
+                for (Map.Entry<Integer, double[]> entry : exp.dCoeffs.entrySet()) {
+                    int    id = entry.getKey();
+                    double[] d = entry.getValue();
+                    if (multiExp)
+                        pw.printf("%s,%d,%.6e,%.6e,%.6e%n",
+                                  exp.name, id, d[0], d[1], d[2]);
+                    else
+                        pw.printf("%d,%.6e,%.6e,%.6e%n",
+                                  id, d[0], d[1], d[2]);
+                }
+            }
+            IJ.log("AnDi: D values saved → " + f.getAbsolutePath());
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                "Could not save file:\n" + ex.getMessage(),
+                "Save D – error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Parsers
+    // -----------------------------------------------------------------------
+
+    static int[] parseTLags(String s) {
         s = s.trim().replaceAll("[\\[\\]\\s]", "");
         List<Integer> lags = new ArrayList<>();
         for (String p : s.split(","))
             try { int v = Integer.parseInt(p); if (v > 0) lags.add(v); }
             catch (NumberFormatException ignored) {}
-        return lags.isEmpty() ? new int[]{1, 2}
-                              : lags.stream().mapToInt(Integer::intValue).toArray();
+        if (lags.isEmpty()) return new int[]{1, 2};
+        // Range expansion: exactly 2 values AND first < second → [a, a+1, ..., b]
+        if (lags.size() == 2 && lags.get(0) < lags.get(1)) {
+            int a = lags.get(0), b = lags.get(1);
+            int[] range = new int[b - a + 1];
+            for (int i = 0; i < range.length; i++) range[i] = a + i;
+            return range;
+        }
+        return lags.stream().mapToInt(Integer::intValue).toArray();
     }
     private static int    parseIntOr(String s, int    d) { try { return Integer.parseInt(s.trim());   } catch (Exception e) { return d; } }
     private static double parseDblOr(String s, double d) { try { return Double.parseDouble(s.trim()); } catch (Exception e) { return d; } }
@@ -210,14 +335,32 @@ public class DiffusionCoeffPanel extends JPanel {
 
     static class HistogramPanel extends JPanel {
 
-        private final List<ExperimentData>            experiments;
-        private final Map<ExperimentData, Set<Integer>> componentSel;
+        private final List<ExperimentData>               experiments;
+        private final Map<ExperimentData, Set<Integer>>  componentSel;
         private int    nBins    = 20;
         private String timeUnit = "frames";
 
+        // ── Viewport state ──────────────────────────────────────────────
+        private double[] viewport = null;  // null=auto; {xMin,xMax,0,yMax}
+
+        // Saved after each paint for mouse-event inverse transforms
+        private double renderXMin = 0, renderXMax = 1, renderYMax = 10;
+        private int    renderPx = 62, renderPy = 22, renderPw = 100, renderPh = 100;
+
+        // ── Interaction ──────────────────────────────────────────────────
+        private boolean panMode = false;
+
+        // Zoom drag (rubber-band)
+        private boolean dragging = false;
+        private int dragX0, dragY0, dragX1, dragY1;
+
+        // Pan drag
+        private boolean panning  = false;
+        private int     panX0, panY0;
+        private double  panInitXMin, panInitXMax, panInitYMax;
+
         private static final int ML = 62, MR = 22, MT = 22, MB = 50;
 
-        // Component shade variants: 2D = base, X = lighter, Y = darker
         private static Color compColor(Color base, int comp) {
             if (comp == 1) return new Color(
                 Math.min(255, base.getRed()   + 55),
@@ -232,18 +375,110 @@ public class DiffusionCoeffPanel extends JPanel {
             this.experiments  = exps;
             this.componentSel = sel;
             setBackground(new Color(240, 240, 240));
-            setPreferredSize(new Dimension(500, 340));
+            setPreferredSize(new Dimension(500, 300));
+            setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+            addMouseInteraction();
         }
+
+        // ── Public controls ─────────────────────────────────────────────
 
         void setNBins(int n)       { this.nBins    = Math.max(2, n); }
         void setTimeUnit(String u) { this.timeUnit = u; }
+        void resetViewport()       { this.viewport = null; }
 
-        // One entry per (experiment × component) pair that is selected
+        void setPanMode(boolean pan) {
+            this.panMode = pan;
+            setCursor(pan
+                ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                : Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+        }
+
+        // ── Mouse interaction ────────────────────────────────────────────
+
+        private void addMouseInteraction() {
+            MouseAdapter ma = new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    if (!panMode) {
+                        dragging = true;
+                        dragX0 = dragX1 = clamp(e.getX(), renderPx, renderPx + renderPw);
+                        dragY0 = dragY1 = clamp(e.getY(), renderPy, renderPy + renderPh);
+                    } else {
+                        panning      = true;
+                        panX0        = e.getX();
+                        panY0        = e.getY();
+                        panInitXMin  = renderXMin;
+                        panInitXMax  = renderXMax;
+                        panInitYMax  = renderYMax;
+                    }
+                }
+
+                @Override
+                public void mouseDragged(MouseEvent e) {
+                    if (dragging) {
+                        dragX1 = clamp(e.getX(), renderPx, renderPx + renderPw);
+                        dragY1 = clamp(e.getY(), renderPy, renderPy + renderPh);
+                        repaint();
+                    } else if (panning && renderPw > 0 && renderPh > 0) {
+                        double dx = (double)(e.getX() - panX0) / renderPw
+                                    * (panInitXMax - panInitXMin);
+                        double dy = (double)(e.getY() - panY0) / renderPh * panInitYMax;
+                        double nxMin = panInitXMin - dx;
+                        double nxMax = panInitXMax - dx;
+                        double nyMax = Math.max(1, panInitYMax + dy);
+                        if (nxMin < nxMax)
+                            viewport = new double[]{nxMin, nxMax, 0, nyMax};
+                        repaint();
+                    }
+                }
+
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    if (dragging) {
+                        dragging = false;
+                        int x0 = Math.min(dragX0, dragX1), x1 = Math.max(dragX0, dragX1);
+                        int y0 = Math.min(dragY0, dragY1), y1 = Math.max(dragY0, dragY1);
+                        if (x1 - x0 > 5 && y1 - y0 > 5) {
+                            double dxMin = pxToDataX(x0), dxMax = pxToDataX(x1);
+                            double dyMax = pxToDataY(y0), dyMin = pxToDataY(y1);
+                            if (dxMin < dxMax && dyMax > dyMin)
+                                viewport = new double[]{dxMin, dxMax, 0,
+                                                        Math.max(1, dyMax)};
+                        }
+                        repaint();
+                    } else if (panning) {
+                        panning = false;
+                    }
+                }
+
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (e.getClickCount() == 2) { viewport = null; repaint(); }
+                }
+            };
+            addMouseListener(ma);
+            addMouseMotionListener(ma);
+        }
+
+        private double pxToDataX(int px) {
+            if (renderPw <= 0) return renderXMin;
+            return renderXMin + (double)(px - renderPx) / renderPw * (renderXMax - renderXMin);
+        }
+        private double pxToDataY(int py) {
+            if (renderPh <= 0) return 0;
+            return (double)(renderPy + renderPh - py) / renderPh * renderYMax;
+        }
+        private static int clamp(int v, int lo, int hi) {
+            return Math.max(lo, Math.min(hi, v));
+        }
+
+        // ── Paint ────────────────────────────────────────────────────────
+
         private static class HistEntry {
             final ExperimentData exp;
             final int  component;
             final Color fillColor;
-            int[] counts;
+            int[]  counts;
             double avg;
             HistEntry(ExperimentData exp, int comp) {
                 this.exp       = exp;
@@ -269,13 +504,11 @@ public class DiffusionCoeffPanel extends JPanel {
             g2.fillRect(px, py, pw, ph);
 
             if (experiments.stream().noneMatch(ExperimentData::hasD)) {
-                drawMsg(g2, "Click «Compute D» to display results",
-                        px, py, pw, ph);
+                drawMsg(g2, "Click «Compute D» to display results", px, py, pw, ph);
                 drawFrame(g2, px, py, pw, ph);
                 g2.dispose(); return;
             }
 
-            // Collect (exp, component) pairs that are both selected and have data
             List<HistEntry> entries = new ArrayList<>();
             for (ExperimentData exp : experiments) {
                 if (!exp.hasD()) continue;
@@ -289,30 +522,30 @@ public class DiffusionCoeffPanel extends JPanel {
                 g2.dispose(); return;
             }
 
-            // Global D range across all selected (exp, comp) pairs
-            double xMin = Double.MAX_VALUE, xMax = -Double.MAX_VALUE;
+            // ── Global D range (for binning) ─────────────────────────────
+            double globalXMin = Double.MAX_VALUE, globalXMax = -Double.MAX_VALUE;
             for (HistEntry he : entries)
                 for (double[] d : he.exp.dCoeffs.values()) {
                     double v = d[he.component];
                     if (Double.isFinite(v)) {
-                        xMin = Math.min(xMin, v);
-                        xMax = Math.max(xMax, v);
+                        globalXMin = Math.min(globalXMin, v);
+                        globalXMax = Math.max(globalXMax, v);
                     }
                 }
 
-            if (xMin == Double.MAX_VALUE) {
+            if (globalXMin == Double.MAX_VALUE) {
                 drawMsg(g2, "No finite D values", px, py, pw, ph);
                 drawFrame(g2, px, py, pw, ph); g2.dispose(); return;
             }
-            if (xMin == xMax) {
-                xMin -= Math.abs(xMin) * 0.1 + 1e-9;
-                xMax += Math.abs(xMax) * 0.1 + 1e-9;
+            if (globalXMin == globalXMax) {
+                globalXMin -= Math.abs(globalXMin) * 0.1 + 1e-9;
+                globalXMax += Math.abs(globalXMax) * 0.1 + 1e-9;
             }
-            double pad  = (xMax - xMin) * 0.04;
-            xMin -= pad; xMax += pad;
-            double binW = (xMax - xMin) / nBins;
+            double pad   = (globalXMax - globalXMin) * 0.04;
+            globalXMin  -= pad; globalXMax += pad;
+            double binW  = (globalXMax - globalXMin) / nBins;
 
-            // Build histograms
+            // ── Build histograms ─────────────────────────────────────────
             int maxCount = 1;
             for (HistEntry he : entries) {
                 he.counts = new int[nBins];
@@ -321,7 +554,7 @@ public class DiffusionCoeffPanel extends JPanel {
                     double v = d[he.component];
                     if (!Double.isFinite(v)) continue;
                     int bin = Math.min(nBins - 1, Math.max(0,
-                                (int) ((v - xMin) / binW)));
+                                (int) ((v - globalXMin) / binW)));
                     he.counts[bin]++;
                     sum += v; n++;
                 }
@@ -329,10 +562,17 @@ public class DiffusionCoeffPanel extends JPanel {
                 for (int c : he.counts) maxCount = Math.max(maxCount, c);
             }
 
-            // Grid
-            drawLinearGrid(g2, xMin, xMax, 0, maxCount, px, py, pw, ph);
+            // ── Display range (viewport or auto) ─────────────────────────
+            double dispXMin = (viewport != null) ? viewport[0] : globalXMin;
+            double dispXMax = (viewport != null) ? viewport[1] : globalXMax;
+            double dispYMax = (viewport != null) ? Math.max(1, viewport[3]) : maxCount;
 
-            // Bars + average lines
+            renderXMin = dispXMin; renderXMax = dispXMax; renderYMax = dispYMax;
+            renderPx = px; renderPy = py; renderPw = pw; renderPh = ph;
+
+            // ── Draw ─────────────────────────────────────────────────────
+            drawLinearGrid(g2, dispXMin, dispXMax, 0, dispYMax, px, py, pw, ph);
+
             g2.setClip(px, py, pw, ph);
             Stroke dashed = new BasicStroke(1.5f, BasicStroke.CAP_BUTT,
                 BasicStroke.JOIN_MITER, 1f, new float[]{4f, 4f}, 0f);
@@ -344,10 +584,10 @@ public class DiffusionCoeffPanel extends JPanel {
                 Color border = he.fillColor.darker();
                 for (int b = 0; b < nBins; b++) {
                     if (he.counts[b] == 0) continue;
-                    int bx  = linPxX(xMin + b * binW,       xMin, xMax, px, pw);
-                    int bx2 = linPxX(xMin + (b+1) * binW,   xMin, xMax, px, pw);
-                    int by  = linPxY((double) he.counts[b],  0, maxCount, py, ph);
-                    int by0 = linPxY(0,                       0, maxCount, py, ph);
+                    int bx  = linPxX(globalXMin + b * binW,       dispXMin, dispXMax, px, pw);
+                    int bx2 = linPxX(globalXMin + (b + 1) * binW, dispXMin, dispXMax, px, pw);
+                    int by  = linPxY((double) he.counts[b],        0, dispYMax, py, ph);
+                    int by0 = linPxY(0,                             0, dispYMax, py, ph);
                     g2.setColor(fill);
                     g2.fillRect(bx, by, Math.max(1, bx2 - bx), by0 - by);
                     g2.setColor(border);
@@ -355,7 +595,7 @@ public class DiffusionCoeffPanel extends JPanel {
                     g2.drawRect(bx, by, Math.max(1, bx2 - bx), by0 - by);
                 }
                 if (Double.isFinite(he.avg)) {
-                    int ax = linPxX(he.avg, xMin, xMax, px, pw);
+                    int ax = linPxX(he.avg, dispXMin, dispXMax, px, pw);
                     g2.setColor(he.fillColor);
                     g2.setStroke(dashed);
                     g2.drawLine(ax, py, ax, py + ph);
@@ -365,10 +605,21 @@ public class DiffusionCoeffPanel extends JPanel {
             g2.setStroke(new BasicStroke(1f));
 
             drawFrame(g2, px, py, pw, ph);
-            drawXTicks(g2, xMin, xMax, px, py, pw, ph);
-            drawYTicks(g2, 0, maxCount, px, py, pw, ph);
+            drawXTicks(g2, dispXMin, dispXMax, px, py, pw, ph);
+            drawYTicks(g2, 0, dispYMax, px, py, pw, ph);
             drawAxisTitles(g2, px, py, pw, ph);
             drawLegend(g2, entries, px, py, pw, ph);
+
+            // ── Rubber-band rectangle (zoom mode only) ───────────────────
+            if (dragging && !panMode) {
+                int rx = Math.min(dragX0, dragX1), ry = Math.min(dragY0, dragY1);
+                int rw = Math.abs(dragX1 - dragX0), rh = Math.abs(dragY1 - dragY0);
+                g2.setColor(new Color(0, 100, 255, 40));
+                g2.fillRect(rx, ry, rw, rh);
+                g2.setColor(new Color(0, 100, 255, 200));
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawRect(rx, ry, rw, rh);
+            }
 
             g2.dispose();
         }
@@ -376,9 +627,11 @@ public class DiffusionCoeffPanel extends JPanel {
         // -- coordinate transforms ---
 
         private static int linPxX(double v, double xMin, double xMax, int ox, int w) {
+            if (xMax == xMin) return ox;
             return ox + (int) ((v - xMin) / (xMax - xMin) * w);
         }
         private static int linPxY(double v, double yMin, double yMax, int oy, int h) {
+            if (yMax == yMin) return oy + h;
             return oy + h - (int) ((v - yMin) / (yMax - yMin) * h);
         }
 
@@ -396,7 +649,7 @@ public class DiffusionCoeffPanel extends JPanel {
                 int p = linPxX(t, xMin, xMax, px, pw);
                 g2.drawLine(p, py, p, py + ph);
             }
-            double yStep = niceStep(yMax - yMin, 5);
+            double yStep = Math.max(1, niceStep(yMax - yMin, 5));
             for (double t = 0; t <= yMax + yStep * 0.01; t += yStep) {
                 int p = linPxY(t, yMin, yMax, py, ph);
                 g2.drawLine(px, p, px + pw, p);

@@ -6,7 +6,7 @@ import java.util.List;
 
 /**
  * Main analysis window – a JFrame with a tabbed pane.
- * Only the "TMSD Visualization" tab is functional; the others are placeholders.
+ * Tabs: TMSD Visualization, Diffusion coefficient, Anomalous exponent, Full analysis (α vs D scatter).
  */
 public class AnalysisWindow extends JFrame {
 
@@ -20,9 +20,9 @@ public class AnalysisWindow extends JFrame {
         tabs.addTab("Diffusion coefficient",
             new DiffusionCoeffPanel(experiments, initInterval));
         tabs.addTab("Anomalous exponent",
-            makePlaceholder("Anomalous exponent analysis – coming soon."));
+            new AnomalousExponentPanel(experiments));
         tabs.addTab("Full analysis",
-            makePlaceholder("Full analysis – coming soon."));
+            new FullAnalysisPanel(experiments, initInterval));
 
         setContentPane(tabs);
         setSize(980, 660);
@@ -30,12 +30,4 @@ public class AnalysisWindow extends JFrame {
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
     }
 
-    private static JPanel makePlaceholder(String message) {
-        JPanel p = new JPanel(new BorderLayout());
-        JLabel lbl = new JLabel(message, SwingConstants.CENTER);
-        lbl.setFont(lbl.getFont().deriveFont(Font.ITALIC, 15f));
-        lbl.setForeground(new Color(150, 150, 150));
-        p.add(lbl, BorderLayout.CENTER);
-        return p;
-    }
 }

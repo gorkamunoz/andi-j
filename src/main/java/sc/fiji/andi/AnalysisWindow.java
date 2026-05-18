@@ -6,12 +6,18 @@ import java.util.List;
 
 /**
  * Main analysis window – a JFrame with a tabbed pane.
- * Tabs: TMSD Visualization, Diffusion coefficient, Anomalous exponent, Full analysis (α vs D scatter).
+ * Tabs: TMSD Visualization, Diffusion coefficient, Anomalous exponent,
+ *       D vs α scatter, Turning Angles.
+ *
+ * A "Manage Data" button at the top lets the user return to the
+ * DataManagerWindow to load more files or change tags without
+ * losing the current analysis.
  */
 public class AnalysisWindow extends JFrame {
 
     public AnalysisWindow(List<ExperimentData> experiments,
-                          int initMaxLag, double initInterval) {
+                          int initMaxLag, double initInterval,
+                          DataManagerWindow dataManager) {
         super("AnDi – Trajectory Analysis");
 
         JTabbedPane tabs = new JTabbedPane();
@@ -26,10 +32,21 @@ public class AnalysisWindow extends JFrame {
         tabs.addTab("Turning Angles",
             new AnglesPanel(experiments));
 
-        setContentPane(tabs);
-        setSize(980, 660);
+        // ── "Manage Data" toolbar ────────────────────────────────────────
+        JButton manageBtn = new JButton("◀ Manage Data");
+        manageBtn.setToolTipText("Return to the data manager to load or re-tag files");
+        manageBtn.addActionListener(e -> dataManager.showWindow());
+
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+        toolbar.add(manageBtn);
+
+        JPanel content = new JPanel(new BorderLayout());
+        content.add(toolbar, BorderLayout.NORTH);
+        content.add(tabs,    BorderLayout.CENTER);
+        setContentPane(content);
+
+        setSize(980, 700);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
     }
-
 }

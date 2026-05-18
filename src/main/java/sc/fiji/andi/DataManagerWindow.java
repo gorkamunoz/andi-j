@@ -135,23 +135,25 @@ public class DataManagerWindow extends JFrame {
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.setFillsViewportHeight(true);
 
-        // Color swatch – fixed narrow column
+        // Color swatch – fixed narrow column (no header text)
         table.getColumnModel().getColumn(0).setMinWidth(26);
         table.getColumnModel().getColumn(0).setMaxWidth(26);
         table.getColumnModel().getColumn(0).setCellRenderer(new ColorSwatchRenderer());
 
-        // Tag
+        // Tag (editable – default white background)
         table.getColumnModel().getColumn(1).setPreferredWidth(130);
-        // File name
+
+        // File name (read-only → grey)
         table.getColumnModel().getColumn(2).setPreferredWidth(220);
-        // Numeric: # trajs, min, max
+        table.getColumnModel().getColumn(2).setCellRenderer(new ReadOnlyRenderer(SwingConstants.LEFT));
+
+        // Numeric: # trajs, min length, max length (read-only → grey + centered)
         for (int c : new int[]{3, 4, 5}) {
             table.getColumnModel().getColumn(c).setPreferredWidth(75);
-            DefaultTableCellRenderer cr = new DefaultTableCellRenderer();
-            cr.setHorizontalAlignment(SwingConstants.CENTER);
-            table.getColumnModel().getColumn(c).setCellRenderer(cr);
+            table.getColumnModel().getColumn(c).setCellRenderer(new ReadOnlyRenderer(SwingConstants.CENTER));
         }
-        // Cut length
+
+        // Cut length (editable – default white background)
         table.getColumnModel().getColumn(6).setPreferredWidth(80);
 
         table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
@@ -196,8 +198,6 @@ public class DataManagerWindow extends JFrame {
         try {
             TrajectoryIO.ParseResult parsed = TrajectoryIO.parseCsv(f);
             rows.add(new FileRow(f, parsed, tag, cut));
-            IJ.log("AnDi: queued \"" + f.getName() + "\" under tag \"" + tag + "\"  (" +
-                   parsed.tracks.size() + " tracks)");
         } catch (IOException e) {
             IJ.error("AnDi – Load error",
                 "Could not parse " + f.getName() + ":\n" + e.getMessage());
@@ -251,11 +251,7 @@ public class DataManagerWindow extends JFrame {
                 idOffset += row.originalTracks.size() + 1;
             }
 
-            if (allTracks.isEmpty()) {
-                IJ.log("AnDi: tag \"" + tag +
-                       "\" – no tracks survive length filter, skipping.");
-                continue;
-            }
+            if (allTracks.isEmpty()) continue;
             experiments.add(new ExperimentData(tag, allTracks, color, estimatedInterval));
         }
 
@@ -284,9 +280,6 @@ public class DataManagerWindow extends JFrame {
             exp.computeDiffusionCoefficients(new int[]{1, 2}, defaultInterval);
             exp.computeAnomalousExponents(alphaSpec);
         }
-
-        IJ.log("AnDi: analysis ready – " + experiments.size() + " experiment(s), " +
-               "defaultMaxLag=" + defaultMaxLag);
 
         // ── open / refresh AnalysisWindow ─────────────────────────────────
         final List<ExperimentData> exps     = experiments;
@@ -403,7 +396,7 @@ public class DataManagerWindow extends JFrame {
     private class FileRowModel extends AbstractTableModel {
 
         private final String[] COLS = {
-            "Color", "Tag", "File Name", "# Trajs",
+            "", "Tag", "File Name", "# Trajs",
             "Min. length", "Max. length", "Cut length"
         };
 
@@ -454,6 +447,20 @@ public class DataManagerWindow extends JFrame {
     }
 
     // -------------------------------------------------------------------------
+
+    /** Grey background for read-only (non-editable) cells. */
+    private static class ReadOnlyRenderer extends DefaultTableCellRenderer {
+        private static final Color READONLY_BG = new Color(240, 240, 240);
+        ReadOnlyRenderer(int alignment) { setHorizontalAlignment(alignment); }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable t, Object v,
+                boolean sel, boolean focus, int r, int c) {
+            Component comp = super.getTableCellRendererComponent(t, v, sel, focus, r, c);
+            if (!sel) comp.setBackground(READONLY_BG);
+            return comp;
+        }
+    }
 
     /** Renders a Color as a solid filled rectangle. */
     private static class ColorSwatchRenderer extends DefaultTableCellRenderer {

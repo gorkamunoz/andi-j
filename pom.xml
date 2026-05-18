@@ -19,7 +19,7 @@
 
     <groupId>sc.fiji</groupId>
     <artifactId>andi-fiji</artifactId>
-    <version>0.0.1</version>
+    <version>0.0.2</version>
     <packaging>jar</packaging>
 
     <name>AnDi Fiji</name>

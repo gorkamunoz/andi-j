@@ -64,8 +64,12 @@ public class DiffusionCoeffPanel extends JPanel {
         JButton computeBtn = new JButton("Compute D");
         JButton saveDBtn   = new JButton("Save D…");
 
+        JButton dHint = makeHintLabel("<html>Default values [1,2] chosen for best results.<br>" +
+            "For further details see the Wiki.</html>");
+
         JPanel paramBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         paramBar.add(new JLabel("Time lags:"));     paramBar.add(tLagsField);
+        paramBar.add(dHint);
         paramBar.add(new JLabel("Bins:"));          paramBar.add(binsField);
         paramBar.add(new JLabel("Frame interval:")); paramBar.add(intervalField);
         paramBar.add(new JLabel("Unit:"));          paramBar.add(unitField);
@@ -305,6 +309,49 @@ public class DiffusionCoeffPanel extends JPanel {
                 "Could not save file:\n" + ex.getMessage(),
                 "Save D – error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Hint label
+    // -----------------------------------------------------------------------
+
+    /**
+     * Creates a small circled-"?" button with the given HTML tooltip.
+     * Uses JButton (not JLabel) so tooltip delivery is guaranteed by the L&F.
+     * Shared by DiffusionCoeffPanel and AnomalousExponentPanel.
+     */
+    static JButton makeHintLabel(String tooltipHtml) {
+        JButton btn = new JButton() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                // Do NOT call super – we draw only our circle, no button chrome
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                                    RenderingHints.VALUE_ANTIALIAS_ON);
+                int d = Math.min(getWidth(), getHeight()) - 1;
+                int x = (getWidth()  - d) / 2;
+                int y = (getHeight() - d) / 2;
+                g2.setColor(new Color(80, 130, 210));
+                g2.fillOval(x, y, d, d);
+                g2.setColor(Color.WHITE);
+                g2.setFont(getFont().deriveFont(Font.BOLD, d * 0.66f));
+                FontMetrics fm = g2.getFontMetrics();
+                String s = "?";
+                g2.drawString(s,
+                    x + (d - fm.stringWidth(s)) / 2,
+                    y + (d + fm.getAscent() - fm.getDescent()) / 2 - 1);
+                g2.dispose();
+            }
+            @Override public Dimension getPreferredSize() { return new Dimension(16, 16); }
+            @Override public Dimension getMinimumSize()   { return getPreferredSize(); }
+        };
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setFocusPainted(false);
+        btn.setFocusable(false);
+        btn.setToolTipText(tooltipHtml);
+        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        return btn;
     }
 
     // -----------------------------------------------------------------------

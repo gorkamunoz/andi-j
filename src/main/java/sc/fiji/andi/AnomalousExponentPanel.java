@@ -66,8 +66,13 @@ public class AnomalousExponentPanel extends JPanel {
         JButton computeBtn = new JButton("Compute α");   // α
         JButton saveBtn    = new JButton("Save α…"); // α…
 
+        JButton aHint = DiffusionCoeffPanel.makeHintLabel(
+            "<html>Default values [1, 0.1] chosen for best results.<br>" +
+            "For further details see the Wiki.</html>");
+
         JPanel paramBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         paramBar.add(new JLabel("Time lags:")); paramBar.add(tLagsField);
+        paramBar.add(aHint);
         paramBar.add(new JLabel("Bins:"));      paramBar.add(binsField);
         paramBar.add(computeBtn);
         paramBar.add(saveBtn);

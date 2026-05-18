@@ -9,9 +9,8 @@ import java.util.List;
  * Tabs: TMSD Visualization, Diffusion coefficient, Anomalous exponent,
  *       D vs α scatter, Turning Angles.
  *
- * A "Manage Data" button at the top lets the user return to the
- * DataManagerWindow to load more files or change tags without
- * losing the current analysis.
+ * A "Manage Data" button floats at the right end of the tab bar so it
+ * sits on the same horizontal line as the tab headers.
  */
 public class AnalysisWindow extends JFrame {
 
@@ -20,7 +19,7 @@ public class AnalysisWindow extends JFrame {
                           DataManagerWindow dataManager) {
         super("AnDi – Trajectory Analysis");
 
-        JTabbedPane tabs = new JTabbedPane();
+        final JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("TMSD Visualization",
             new TmsdPanel(experiments, initMaxLag, initInterval));
         tabs.addTab("Diffusion coefficient",
@@ -32,19 +31,30 @@ public class AnalysisWindow extends JFrame {
         tabs.addTab("Turning Angles",
             new AnglesPanel(experiments));
 
-        // ── "Manage Data" toolbar ────────────────────────────────────────
-        JButton manageBtn = new JButton("◀ Manage Data");
+        // ── "Manage Data" button overlaid on the tab bar ──────────────────
+        final JButton manageBtn = new JButton("Manage Data ▶");
+        manageBtn.setFont(manageBtn.getFont().deriveFont(11f));
         manageBtn.setToolTipText("Return to the data manager to load or re-tag files");
         manageBtn.addActionListener(e -> dataManager.showWindow());
 
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
-        toolbar.add(manageBtn);
+        // A null-layout panel: tabs fill it completely, button floats on top
+        // at the right edge of the tab bar. doLayout() keeps it there on resize.
+        JPanel content = new JPanel(null) {
+            @Override
+            public void doLayout() {
+                int w = getWidth(), h = getHeight();
+                tabs.setBounds(0, 0, w, h);
+                Dimension bs = manageBtn.getPreferredSize();
+                // y = 3 puts the button vertically centred inside the typical tab-bar height
+                manageBtn.setBounds(w - bs.width - 6, 3, bs.width, bs.height);
+            }
+        };
+        content.add(tabs);
+        content.add(manageBtn);
+        // z-order 0 = front: button receives mouse events before the tabbedPane
+        content.setComponentZOrder(manageBtn, 0);
 
-        JPanel content = new JPanel(new BorderLayout());
-        content.add(toolbar, BorderLayout.NORTH);
-        content.add(tabs,    BorderLayout.CENTER);
         setContentPane(content);
-
         setSize(980, 700);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);

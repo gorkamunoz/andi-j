@@ -39,8 +39,15 @@ public class AnomalousExponentPanel extends JPanel {
     // All 2D/X/Y toggle buttons – used by "Deselect all"
     private final List<JToggleButton> allCompButtons = new ArrayList<>();
 
-    // Parameter fields
+    // Parameter fields (TMSD method)
     private final JTextField tLagsField, binsField;
+
+    // Parameter field (ML method – separate bins so each method has its own)
+    private final JTextField mlBinsField;
+
+    // ML model file and live predictor (null until loaded)
+    private File               mlModelFile = null;
+    private OnnxAlphaPredictor mlPredictor = null;
 
     // Sub-panels
     private final AlphaHistogramPanel histPanel;
@@ -60,23 +67,68 @@ public class AnomalousExponentPanel extends JPanel {
             componentSelection.put(exp, s);
         }
 
-        // ── parameter bar (North) ────────────────────────────────────────
+        // ── Row 1: method selector ───────────────────────────────────────
+        JComboBox<String> methodCombo = new JComboBox<>(new String[]{"TMSD", "ML"});
+        JButton selectMethodBtn = new JButton("Select");
+
+        JPanel methodRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        methodRow.add(new JLabel("Method:"));
+        methodRow.add(methodCombo);
+        methodRow.add(selectMethodBtn);
+
+        // ── Row 2a – TMSD params ─────────────────────────────────────────
         tLagsField = new JTextField("[1, 0.1]", 8);
         binsField  = new JTextField("20",      4);
-        JButton computeBtn = new JButton("Compute α");   // α
-        JButton saveBtn    = new JButton("Save α…"); // α…
+        JButton computeBtn = new JButton("Compute α");
+        JButton saveBtn    = new JButton("Save α…");
 
         JButton aHint = DiffusionCoeffPanel.makeHintLabel(
             "<html>Default values [1, 0.1] chosen for best results.<br>" +
             "For further details see the Wiki.</html>");
 
-        JPanel paramBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        paramBar.add(new JLabel("Time lags:")); paramBar.add(tLagsField);
-        paramBar.add(aHint);
-        paramBar.add(new JLabel("Bins:"));      paramBar.add(binsField);
-        paramBar.add(computeBtn);
-        paramBar.add(saveBtn);
-        add(paramBar, BorderLayout.NORTH);
+        JPanel tmsdParamBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        tmsdParamBar.add(new JLabel("Time lags:")); tmsdParamBar.add(tLagsField);
+        tmsdParamBar.add(aHint);
+        tmsdParamBar.add(new JLabel("Bins:"));      tmsdParamBar.add(binsField);
+        tmsdParamBar.add(computeBtn);
+        tmsdParamBar.add(saveBtn);
+
+        // ── Row 2b – ML params ───────────────────────────────────────────
+        mlBinsField = new JTextField("20", 4);
+        JLabel  mlStatusLabel  = new JLabel("No model loaded  (bundled model used if available)");
+        mlStatusLabel.setForeground(new Color(130, 130, 130));
+        JButton loadModelBtn   = new JButton("Load…");
+        JButton mlComputeBtn   = new JButton("Compute α");
+        JButton mlSaveBtn      = new JButton("Save α…");
+
+        JPanel mlParamBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        mlParamBar.add(new JLabel("ML model:"));
+        mlParamBar.add(loadModelBtn);
+        mlParamBar.add(mlStatusLabel);
+        mlParamBar.add(new JLabel("  Bins:"));
+        mlParamBar.add(mlBinsField);
+        mlParamBar.add(mlComputeBtn);
+        mlParamBar.add(mlSaveBtn);
+
+        // ── CardLayout switches between TMSD and ML rows ─────────────────
+        CardLayout methodCards   = new CardLayout();
+        JPanel     methodParamsPanel = new JPanel(methodCards);
+        methodParamsPanel.add(tmsdParamBar, "TMSD");
+        methodParamsPanel.add(mlParamBar,   "ML");
+
+        // ── Assemble North (two rows stacked) ─────────────────────────────
+        JPanel northPanel = new JPanel();
+        northPanel.setLayout(new BoxLayout(northPanel, BoxLayout.Y_AXIS));
+        northPanel.add(methodRow);
+        northPanel.add(methodParamsPanel);
+        add(northPanel, BorderLayout.NORTH);
+
+        // Wire method-selector and ML loader actions
+        selectMethodBtn.addActionListener(e ->
+            methodCards.show(methodParamsPanel, (String) methodCombo.getSelectedItem()));
+        loadModelBtn .addActionListener(e -> loadMlModel(mlStatusLabel));
+        mlComputeBtn .addActionListener(e -> recomputeML(parseIntOr(mlBinsField.getText(), 20)));
+        mlSaveBtn    .addActionListener(e -> saveAlpha());
 
         // ── histogram panel ──────────────────────────────────────────────
         histPanel = new AlphaHistogramPanel(experiments, componentSelection);
@@ -145,7 +197,7 @@ public class AnomalousExponentPanel extends JPanel {
         split.setResizeWeight(0.0);
         add(split, BorderLayout.CENTER);
 
-        // ── Actions ──────────────────────────────────────────────────────
+        // ── TMSD actions ─────────────────────────────────────────────────
         computeBtn.addActionListener(e -> recompute());
         saveBtn   .addActionListener(e -> saveAlpha());
 
@@ -224,6 +276,74 @@ public class AnomalousExponentPanel extends JPanel {
         btn.setPreferredSize(new Dimension(38, 20));
         btn.setMargin(new Insets(1, 2, 1, 2));
         btn.setFocusPainted(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // ML model loader – creates a live OnnxAlphaPredictor from the chosen file
+    // -----------------------------------------------------------------------
+
+    private void loadMlModel(JLabel statusLabel) {
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle("Select ONNX model file");
+        fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                "ONNX models (*.onnx)", "onnx"));
+        if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+
+        File f = fc.getSelectedFile();
+        try {
+            if (mlPredictor != null) { mlPredictor.close(); mlPredictor = null; }
+            mlPredictor = new OnnxAlphaPredictor(f);
+            mlModelFile = f;
+            statusLabel.setText(f.getName());
+            statusLabel.setForeground(new Color(0, 120, 0));
+        } catch (Exception ex) {
+            mlPredictor = null;
+            statusLabel.setText("Load failed: " + ex.getMessage());
+            statusLabel.setForeground(Color.RED);
+            JOptionPane.showMessageDialog(this,
+                "Could not load ONNX model:\n" + ex.getMessage(),
+                "Load model", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // ML inference
+    // -----------------------------------------------------------------------
+
+    private void recomputeML(int nBins) {
+        // If no predictor loaded yet, try the bundled classpath resource first
+        if (mlPredictor == null) {
+            try {
+                mlPredictor = OnnxAlphaPredictor.fromResource(
+                        OnnxAlphaPredictor.DEFAULT_RESOURCE);
+            } catch (Exception ex) {
+                // Bundled model not present – ask the user to load one
+                JOptionPane.showMessageDialog(this,
+                    "<html>No ML model is loaded and no bundled model was found.<br><br>"
+                  + "Please:<br>"
+                  + "1. Run <tt>ML_analysis/convert_to_onnx.py</tt> to create the ONNX file.<br>"
+                  + "2. Rebuild the plugin (<tt>mvn clean package</tt>), <b>or</b><br>"
+                  + "   click <b>Load…</b> and select the <tt>.onnx</tt> file directly.<br><br>"
+                  + "Details: " + ex.getMessage() + "</html>",
+                    "ML model not found", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        }
+
+        try {
+            for (ExperimentData exp : experiments)
+                mlPredictor.computeForExperiment(exp);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this,
+                "ML inference failed:\n" + ex.getMessage(),
+                "ML Inference", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        histPanel.resetViewport();
+        histPanel.setNBins(nBins);
+        histPanel.repaint();
+        refreshTable();
     }
 
     // -----------------------------------------------------------------------

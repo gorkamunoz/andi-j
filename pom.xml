@@ -89,6 +89,13 @@
             <artifactId>ij</artifactId>
             <scope>provided</scope>
         </dependency>
+
+        <!-- ONNX Runtime – used for ML-based anomalous-exponent estimation -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>1.17.0</version>
+        </dependency>
     </dependencies>
 
     <repositories>

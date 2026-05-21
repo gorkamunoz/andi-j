@@ -10,11 +10,16 @@ import numpy as np
 from andi_datasets.datasets_theory import datasets_theory as DT
 from andi_datasets.utils_trajectories import normalize
 
-N = 100; T = 30; exponents = np.arange(0.1,1,0.05)
+N = 1000; T = 30; exponents = [0.5]
 
 dif = np.zeros((2, N*len(exponents)))
 
 for idx, model in enumerate([2, 0]):
+
+    if model == 2:
+        exponents = [1.5]
+    else:
+        exponents = [0.5]
     dataset = DT().create_dataset(T = T, N_models = N, exponents = exponents, models = [model], 
                                   load_trajectories = False)
     np.random.shuffle(dataset)
@@ -24,5 +29,6 @@ for idx, model in enumerate([2, 0]):
     expo_p = model_exp.predict(X_e)#[X_e, X_e])
     dif[idx] = (expo_p.flatten()-Y_e)
 
+    print(f'Model {model} - avg prediction: {expo_p.mean()}')
 for mod, error in zip(['FBM','ATTM'], np.abs(dif).mean(1)):
     print(mod, f': MAE = {np.round(error,3)}')

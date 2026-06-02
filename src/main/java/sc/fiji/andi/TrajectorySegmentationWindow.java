@@ -22,6 +22,7 @@ public class TrajectorySegmentationWindow extends JFrame {
 
         final JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Visualization", new SegVisualizationPanel(experiments));
+        tabs.addTab("D vs α",        new SegDvsAlphaPanel(experiments));
 
         // ── "Manage Data" button overlaid on the tab bar ──────────────────
         final JButton manageBtn = new JButton("Manage Data ▶");

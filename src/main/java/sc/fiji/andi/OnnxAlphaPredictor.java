@@ -3,7 +3,6 @@ package sc.fiji.andi;
 import ai.onnxruntime.*;
 
 import java.io.*;
-import java.nio.FloatBuffer;
 import java.util.*;
 
 /**
@@ -43,6 +42,10 @@ public class OnnxAlphaPredictor implements Closeable {
     private final OrtEnvironment env;
     private final OrtSession     session;
     private final String         inputName;
+    private final String         outputName;
+
+    /** Set to false after the first batch so diagnostics print only once. */
+    private boolean firstBatch = true;
 
     // -----------------------------------------------------------------------
     // Construction
@@ -55,10 +58,12 @@ public class OnnxAlphaPredictor implements Closeable {
      * @throws OrtException if ONNX Runtime cannot load or validate the model
      */
     public OnnxAlphaPredictor(File modelFile) throws OrtException {
-        env       = OrtEnvironment.getEnvironment();
-        session   = env.createSession(modelFile.getAbsolutePath(),
-                                      new OrtSession.SessionOptions());
-        inputName = session.getInputNames().iterator().next();
+        env        = OrtEnvironment.getEnvironment();
+        session    = env.createSession(modelFile.getAbsolutePath(),
+                                       new OrtSession.SessionOptions());
+        inputName  = session.getInputNames().iterator().next();
+        outputName = session.getOutputNames().iterator().next();
+        printModelInfo();
     }
 
     /**
@@ -87,9 +92,25 @@ public class OnnxAlphaPredictor implements Closeable {
 
     /** Private constructor used by {@link #fromResource}. */
     private OnnxAlphaPredictor(OrtEnvironment env, OrtSession session) throws OrtException {
-        this.env       = env;
-        this.session   = session;
-        this.inputName = session.getInputNames().iterator().next();
+        this.env        = env;
+        this.session    = session;
+        this.inputName  = session.getInputNames().iterator().next();
+        this.outputName = session.getOutputNames().iterator().next();
+        printModelInfo();
+    }
+
+    /** Prints input/output names and shapes to stderr for diagnosis. */
+    private void printModelInfo() throws OrtException {
+        System.err.println("[OnnxAlphaPredictor] === Model info ===");
+        for (NodeInfo ni : session.getInputInfo().values())
+            System.err.println("[OnnxAlphaPredictor]  INPUT  " + ni.getName()
+                    + "  shape=" + Arrays.toString(
+                            ((TensorInfo) ni.getInfo()).getShape()));
+        for (NodeInfo ni : session.getOutputInfo().values())
+            System.err.println("[OnnxAlphaPredictor]  OUTPUT " + ni.getName()
+                    + "  shape=" + Arrays.toString(
+                            ((TensorInfo) ni.getInfo()).getShape()));
+        System.err.println("[OnnxAlphaPredictor]  Using output: " + outputName);
     }
 
     // -----------------------------------------------------------------------
@@ -134,7 +155,27 @@ public class OnnxAlphaPredictor implements Closeable {
 
         if (!ids.isEmpty()) {
             float[] alphaX = runBatch(xSeqs);
-            float[] alphaY = runBatch(ySeqs);
+
+            // Y: only infer for tracks whose Y sequence has real variance.
+            // Tracks with constant Y (e.g. 1-D data where Y=0) produce an
+            // all-zero normalised input that is out-of-distribution for the
+            // model and would corrupt α_2D.  Those tracks get αY = NaN and
+            // α_2D falls back to αX alone.
+            float[] alphaY = new float[ids.size()];
+            Arrays.fill(alphaY, Float.NaN);
+            List<Integer>  yIdx  = new ArrayList<>();   // positions in ids[]
+            List<double[]> yVary = new ArrayList<>();   // only seqs with variance
+            for (int i = 0; i < ySeqs.size(); i++) {
+                if (hasVariance(ySeqs.get(i))) {
+                    yIdx.add(i);
+                    yVary.add(ySeqs.get(i));
+                }
+            }
+            if (!yVary.isEmpty()) {
+                float[] yPreds = runBatch(yVary);
+                for (int j = 0; j < yIdx.size(); j++)
+                    alphaY[yIdx.get(j)] = yPreds[j];
+            }
 
             for (int i = 0; i < ids.size(); i++) {
                 double ax  = alphaX[i];
@@ -143,7 +184,7 @@ public class OnnxAlphaPredictor implements Closeable {
                 if (Double.isFinite(ax) && Double.isFinite(ay))
                     a2d = (ax + ay) / 2.0;
                 else if (Double.isFinite(ax))
-                    a2d = ax;
+                    a2d = ax;   // Y had no variance (1-D data) – use X only
                 else
                     a2d = ay;
                 alphaCoeffs.put(ids.get(i), new double[]{a2d, ax, ay});
@@ -157,45 +198,78 @@ public class OnnxAlphaPredictor implements Closeable {
      * Sends a batch of position sequences through the model and returns one
      * predicted α per sequence.
      *
+     * Input tensor shape : (batchSize, SEQ_LEN, 1) – built as float[][][]
+     * so the Java array layout unambiguously matches the ONNX row-major layout.
+     *
      * @param seqs list of {@code double[SEQ_LEN]} arrays (one per track)
      * @return     {@code float[seqs.size()]} predicted α values
      */
     private float[] runBatch(List<double[]> seqs) throws OrtException {
         int batchSize = seqs.size();
 
-        // Build normalised float buffer: shape [batch, SEQ_LEN, 1]
-        FloatBuffer buf = FloatBuffer.allocate(batchSize * SEQ_LEN);
-        for (double[] seq : seqs) {
-            float[] norm = normalize(seq);
-            buf.put(norm);
+        // Build a 3-D Java array: [batch][time][feature=1]
+        // OnnxTensor.createTensor(env, float[][][]) maps directly to shape (B,T,1)
+        // with no ambiguity about memory layout or buffer position.
+        float[][][] input = new float[batchSize][SEQ_LEN][1];
+        for (int b = 0; b < batchSize; b++) {
+            float[] norm = normalize(seqs.get(b));
+            for (int t = 0; t < SEQ_LEN; t++)
+                input[b][t][0] = norm[t];
         }
-        buf.rewind();
 
-        long[] shape = {batchSize, SEQ_LEN, 1};
+        // ── Diagnostics (first batch only) ──────────────────────────────
+        if (firstBatch) {
+            float[] first = input[0][0].length > 0 ? extractRow(input[0]) : new float[0];
+            System.err.println("[OnnxAlphaPredictor] === First batch (X) ===");
+            System.err.println("[OnnxAlphaPredictor]  batchSize=" + batchSize
+                    + "  seqLen=" + SEQ_LEN);
+            System.err.println("[OnnxAlphaPredictor]  raw positions (first 5): "
+                    + rawPositions(seqs.get(0)));
+            System.err.println("[OnnxAlphaPredictor]  normalised  (first 5): "
+                    + Arrays.toString(Arrays.copyOf(first, Math.min(5, first.length))));
+        }
+
         float[] results = new float[batchSize];
 
-        try (OnnxTensor tensor = OnnxTensor.createTensor(env, buf, shape);
+        try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
              OrtSession.Result res = session.run(
                      Collections.singletonMap(inputName, tensor))) {
 
-            // get(0) returns the first (and only) output
-            Object val = res.get(0).getValue();
+            // Use the stored output name (avoids index-ordering ambiguity when
+            // tf2onnx exports multiple outputs such as GRU hidden states).
+            // In ORT 1.17 Java, get(String) returns Optional<OnnxValue>.
+            OnnxValue outVal = res.get(outputName)
+                    .orElseThrow(() -> new OrtException(
+                            "Output '" + outputName + "' not found in model result"));
+            Object val = outVal.getValue();
+
+            if (firstBatch)
+                System.err.println("[OnnxAlphaPredictor]  output type: "
+                        + (val == null ? "null" : val.getClass().getName()));
 
             if (val instanceof float[][]) {
-                // Output shape (batch, 1)
+                // Most common: output shape (batch, 1)
                 float[][] arr = (float[][]) val;
+                if (firstBatch)
+                    System.err.println("[OnnxAlphaPredictor]  output[0].length=" + arr[0].length
+                            + "  first value=" + arr[0][0]);
                 for (int i = 0; i < batchSize; i++)
-                    results[i] = arr[i].length > 0 ? arr[i][0] : Float.NaN;
+                    results[i] = (arr[i].length > 0) ? arr[i][0] : Float.NaN;
             } else if (val instanceof float[]) {
-                // Output shape (batch,)
+                // Output shape (batch,) after squeeze
                 float[] arr = (float[]) val;
+                if (firstBatch)
+                    System.err.println("[OnnxAlphaPredictor]  output length=" + arr.length
+                            + "  first value=" + arr[0]);
                 System.arraycopy(arr, 0, results, 0, Math.min(arr.length, batchSize));
             } else {
-                // Unexpected output type – fill with NaN
+                System.err.println("[OnnxAlphaPredictor] unexpected output type: "
+                        + (val == null ? "null" : val.getClass().getName()));
                 Arrays.fill(results, Float.NaN);
             }
         }
 
+        firstBatch = false;
         return results;
     }
 
@@ -204,35 +278,81 @@ public class OnnxAlphaPredictor implements Closeable {
     // -----------------------------------------------------------------------
 
     /**
-     * Per-sequence normalisation that mirrors
-     * {@code andi_datasets.utils_trajectories.normalize}:
-     * <pre>
-     *   x_norm = (x − mean(x)) / std(x)
-     * </pre>
-     * where {@code std} is replaced by 1 when it is (near) zero.
+     * Returns true when the sequence has non-trivial variance (std ≥ 1e-12).
+     * Sequences that fail this check (e.g. constant-zero Y from 1-D data)
+     * would normalise to all-zeros and produce meaningless model output.
      */
-    static float[] normalize(double[] seq) {
-        double mean = 0.0;
+    static boolean hasVariance(double[] seq) {
+        double mean = 0;
         for (double v : seq) mean += v;
         mean /= seq.length;
+        double var = 0;
+        for (double v : seq) { double d = v - mean; var += d * d; }
+        return Math.sqrt(var / seq.length) >= 1e-12;
+    }
 
-        double var = 0.0;
-        for (double v : seq) {
-            double d = v - mean;
-            var += d * d;
-        }
-        double std = Math.sqrt(var / seq.length);
-        if (std < 1e-12) std = 1.0;
+    /**
+     * Per-sequence normalisation that exactly mirrors
+     * {@code andi_datasets.utils_trajectories.normalize}:
+     *
+     * <ol>
+     *   <li>Compute displacements: {@code d[i] = x[i+1] − x[i]}</li>
+     *   <li>Divide each displacement by the population std of all displacements</li>
+     *   <li>Cumulative-sum the normalised displacements</li>
+     *   <li>Prepend a zero → result always starts at 0</li>
+     * </ol>
+     *
+     * <p>Note: the centering step in the Python source ({@code trajs − mean})
+     * cancels out when displacements are taken, so it is omitted here.</p>
+     */
+    static float[] normalize(double[] seq) {
+        int T = seq.length;
+        if (T < 2) return new float[T];
 
-        float[] out = new float[seq.length];
-        for (int i = 0; i < seq.length; i++)
-            out[i] = (float) ((seq[i] - mean) / std);
+        // 1. Displacements
+        double[] disp = new double[T - 1];
+        for (int i = 0; i < T - 1; i++) disp[i] = seq[i + 1] - seq[i];
+
+        // 2. Population std of displacements  (matches np.std default ddof=0)
+        double dMean = 0;
+        for (double d : disp) dMean += d;
+        dMean /= disp.length;
+        double dVar = 0;
+        for (double d : disp) { double diff = d - dMean; dVar += diff * diff; }
+        double dStd = Math.sqrt(dVar / disp.length);
+        if (dStd < 1e-12) dStd = 1.0;
+
+        // 3–4. Normalised displacements → cumsum with leading zero
+        float[] out = new float[T];
+        out[0] = 0.0f;
+        for (int i = 1; i < T; i++)
+            out[i] = out[i - 1] + (float) (disp[i - 1] / dStd);
+
         return out;
     }
 
     // -----------------------------------------------------------------------
     // Utilities
     // -----------------------------------------------------------------------
+
+    /** Flatten float[SEQ_LEN][1] → float[SEQ_LEN] for printing. */
+    private static float[] extractRow(float[][] row2d) {
+        float[] out = new float[row2d.length];
+        for (int i = 0; i < row2d.length; i++) out[i] = row2d[i][0];
+        return out;
+    }
+
+    /** Format the first 5 raw (un-normalised) positions for printing. */
+    private static String rawPositions(double[] seq) {
+        int n = Math.min(5, seq.length);
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < n; i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(String.format("%.4f", seq[i]));
+        }
+        sb.append("]");
+        return sb.toString();
+    }
 
     /** Java-8-compatible InputStream → byte[] reader. */
     private static byte[] readAllBytes(InputStream is) throws IOException {

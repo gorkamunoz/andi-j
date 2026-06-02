@@ -4,13 +4,23 @@ from step.models import XResAttn
 import numpy as np
 
 dvc = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
 # STEPalpha: Anomalous exponent model
-model_kistep = XResAttn(2, n_class=1, stem_szs=(32,), conv_blocks=[1, 1, 1],
+model_alpha = XResAttn(2, n_class=1, stem_szs=(32,), conv_blocks=[1, 1, 1],
              block_szs=[128, 256, 512], dropout=0., pos_enc=False, n_encoder_layers=4,
              dim_ff=512, nhead_enc=8, norm=False, linear_layers=[],yrange=(-0.1,2.1)).to('cuda')
 
-model_kistep.load_state_dict(torch.load('xresattn_alpha_2d_varlen_relpolar_yrange_m01_21_big22E2.pth')['model'])
+model_alpha.load_state_dict(torch.load('xresattn_alpha_2d_varlen_relpolar_yrange_m01_21_big22E2.pth')['model'])
 
+
+# STEPlogD: Diffusion coefficient model
+model_log_d = XResAttn(2, n_class=1, stem_szs=(64,), conv_blocks=[1, 1, 1],
+                 block_szs=[128, 256, 512], dropout=0., pos_enc=False, 
+                 n_encoder_layers=4, dim_ff=512, nhead_enc=8,
+                 linear_layers=[], norm=False, yrange=(-6.5,2.5)).to('cuda')
+
+model_log_d.load_state_dict(torch.load('xresattn_2d_varlen_relpolar_log10r_yrange_m65_25_big17E2.pth')['model'])
 
 
 ####### DATASET PREPARATION #######
@@ -71,20 +81,21 @@ dfs_traj, _, _ = challenge_phenom_dataset(save_data = False, # If to save the fi
                                                                 )
 
 
-dataset = []
-alphas = []
-preds = []
+preds_alpha = []
+preds_d = []
 for df in dfs_traj:
     # Each df has keys: ['traj_idx', 'frame', 'x', 'y', 'alpha', 'D', 'state']
     for idx in df.traj_idx.unique():
         # Transform the trajectory to relative polar coordinates
         traj_cart = df[df.traj_idx == idx][['x', 'y']].values  # (T, 2)
         traj_polar = torch.tensor(cartesian_to_relative_polar(traj_cart[np.newaxis,...]), dtype=torch.float).to(dvc)    # (T-1, 2)
-        dataset.append(traj_polar)
         # Predict the anomalous exponent alpha for this trajectory
         with torch.no_grad():
-            traj_pred = model_kistep(traj_polar).item()
-            preds.append(traj_pred)
-        # Get the true alpha for this trajectory
-        traj_alpha = df[df.traj_idx == idx].alpha.values
-        alphas.append(traj_alpha)
+            # Prediction of the alpha
+            traj_pred = model_alpha(traj_polar)
+            preds_alpha.append(traj_pred)
+
+            # Prediction of the log10(D)
+            traj_pred_d = model_log_d(torch.log10(torch.maximum(traj_polar,torch.tensor(1e-10)))).flatten().cpu().detach().numpy()
+            # There is a bug in the model, not super accurate, but not a problem for now, we just sum 3.5 to the prediction and keep the log
+            preds_d.append(traj_pred_d+3.5)

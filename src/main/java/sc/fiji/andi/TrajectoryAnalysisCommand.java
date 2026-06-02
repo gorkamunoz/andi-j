@@ -3,6 +3,7 @@ package sc.fiji.andi;
 import ij.plugin.PlugIn;
 import javax.swing.*;
 import java.awt.*;
+import java.util.List;
 
 /**
  * Entry-point plugin for multi-file trajectory analysis.
@@ -26,15 +27,41 @@ public class TrajectoryAnalysisCommand implements PlugIn {
         new Color( 23, 190, 207),
     };
 
-    /** Singleton window – persists for the lifetime of the ImageJ session. */
+    /** Singleton data-manager – persists for the lifetime of the ImageJ session. */
     private static DataManagerWindow dataManager;
+
+    /** The currently open analysis window (may be null or disposed). */
+    private static AnalysisWindow analysisWindow;
 
     @Override
     public void run(String arg) {
         SwingUtilities.invokeLater(() -> {
             if (dataManager == null || !dataManager.isDisplayable())
-                dataManager = new DataManagerWindow();
+                dataManager = new DataManagerWindow(createLauncher());
             dataManager.showWindow();
         });
+    }
+
+    // -----------------------------------------------------------------------
+
+    private static DataManagerWindow.AnalysisLauncher createLauncher() {
+        return (exps, maxLag, interval, dm) -> {
+            // Pre-compute tMSD, D, and α (same as before)
+            LagSpec alphaSpec = LagSpec.fractional(1, 0.1);
+            for (ExperimentData exp : exps) {
+                exp.computeTamsd(1, maxLag, 15, false, interval);
+                exp.computeDiffusionCoefficients(new int[]{1, 2}, interval);
+                exp.computeAnomalousExponents(alphaSpec);
+            }
+
+            // Open / refresh AnalysisWindow
+            final List<ExperimentData> finalExps = exps;
+            SwingUtilities.invokeLater(() -> {
+                if (analysisWindow != null && analysisWindow.isDisplayable())
+                    analysisWindow.dispose();
+                analysisWindow = new AnalysisWindow(finalExps, maxLag, interval, dm);
+                analysisWindow.setVisible(true);
+            });
+        };
     }
 }

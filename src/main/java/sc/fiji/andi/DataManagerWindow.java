@@ -35,8 +35,22 @@ public class DataManagerWindow extends JFrame {
     private final Map<String, Color>   tagColors    = new LinkedHashMap<>();
     private int                        nextColorIdx = 0;
 
-    /** Currently open analysis window (may be null or already disposed). */
-    private AnalysisWindow analysisWindow;
+    /** Called with the assembled experiments when "Perform Analysis" is clicked. */
+    private final AnalysisLauncher launcher;
+
+    /**
+     * Callback invoked by {@link DataManagerWindow} once experiments have been
+     * assembled.  Implementations are responsible for running any required
+     * computations (tMSD, STEP predictions, …) and opening the target window.
+     *
+     * <p>This method is called on the Swing Event Dispatch Thread.</p>
+     */
+    public interface AnalysisLauncher {
+        void launch(List<ExperimentData> experiments,
+                    int                  defaultMaxLag,
+                    double               defaultInterval,
+                    DataManagerWindow    dataManager);
+    }
 
     // ── UI ───────────────────────────────────────────────────────────────────
     private final JRadioButton  separateBtn, mergeBtn;
@@ -48,8 +62,9 @@ public class DataManagerWindow extends JFrame {
     // Constructor
     // ═════════════════════════════════════════════════════════════════════════
 
-    public DataManagerWindow() {
+    public DataManagerWindow(AnalysisLauncher launcher) {
         super("AnDi – Manage Data");
+        this.launcher = launcher;
 
         model = new FileRowModel();
         table = new JTable(model);
@@ -274,24 +289,12 @@ public class DataManagerWindow extends JFrame {
             : Math.max(1, maxLen / 4);
         double defaultInterval = experiments.get(0).estimatedInterval;
 
-        LagSpec alphaSpec = LagSpec.fractional(1, 0.1);
-        for (ExperimentData exp : experiments) {
-            exp.computeTamsd(1, defaultMaxLag, 15, false, defaultInterval);
-            exp.computeDiffusionCoefficients(new int[]{1, 2}, defaultInterval);
-            exp.computeAnomalousExponents(alphaSpec);
-        }
-
-        // ── open / refresh AnalysisWindow ─────────────────────────────────
+        // ── delegate to injected launcher ────────────────────────────────
         final List<ExperimentData> exps     = experiments;
         final int                  maxLag   = defaultMaxLag;
         final double               interval = defaultInterval;
         final DataManagerWindow    self     = this;
-        SwingUtilities.invokeLater(() -> {
-            if (analysisWindow != null && analysisWindow.isDisplayable())
-                analysisWindow.dispose();
-            analysisWindow = new AnalysisWindow(exps, maxLag, interval, self);
-            analysisWindow.setVisible(true);
-        });
+        launcher.launch(exps, maxLag, interval, self);
     }
 
     // ═════════════════════════════════════════════════════════════════════════

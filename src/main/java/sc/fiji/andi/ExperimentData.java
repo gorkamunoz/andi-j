@@ -37,6 +37,12 @@ public class ExperimentData {
     // Maps trackId -> { alpha_2D, alpha_X, alpha_Y }
     public Map<Integer, double[]> alphaCoeffs;
 
+    // -- STEP per-frame predictions (null until StepPredictor.computeForExperiment() called) --
+    /** Per-frame anomalous exponent: trackId → double[T-1]. Null until STEP runs. */
+    public Map<Integer, double[]> stepAlpha;
+    /** Per-frame log₁₀(D): trackId → double[T-1]. Null until STEP runs. */
+    public Map<Integer, double[]> stepLogD;
+
     // -- legacy display flags (kept for any external reader; rendering uses TmsdPanel maps) --
     public boolean showAverage = true;
     public boolean showAll     = false;
@@ -51,9 +57,10 @@ public class ExperimentData {
         this.estimatedInterval = estimatedInterval;
     }
 
-    public boolean hasTamsd() { return lags != null && !tamsdByComp.isEmpty(); }
-    public boolean hasD()     { return dCoeffs     != null && !dCoeffs.isEmpty(); }
-    public boolean hasAlpha() { return alphaCoeffs != null && !alphaCoeffs.isEmpty(); }
+    public boolean hasTamsd()            { return lags != null && !tamsdByComp.isEmpty(); }
+    public boolean hasD()                { return dCoeffs     != null && !dCoeffs.isEmpty(); }
+    public boolean hasAlpha()            { return alphaCoeffs != null && !alphaCoeffs.isEmpty(); }
+    public boolean hasStepPredictions()  { return stepAlpha   != null && !stepAlpha.isEmpty(); }
 
     /** Average D for one component across all tracks. component: 0=2D 1=X 2=Y */
     public double avgD(int component) {

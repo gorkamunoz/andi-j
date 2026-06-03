@@ -314,14 +314,13 @@ public class AnomalousExponentPanel extends JPanel {
         // If no predictor loaded yet, try the bundled classpath resource first
         if (mlPredictor == null) {
             try {
-                mlPredictor = OnnxAlphaPredictor.fromResource(
-                        OnnxAlphaPredictor.DEFAULT_RESOURCE);
+                mlPredictor = OnnxAlphaPredictor.fromResource();
             } catch (Exception ex) {
                 // Bundled model not present – ask the user to load one
                 JOptionPane.showMessageDialog(this,
                     "<html>No ML model is loaded and no bundled model was found.<br><br>"
                   + "Please:<br>"
-                  + "1. Run <tt>ML_analysis/convert_to_onnx.py</tt> to create the ONNX file.<br>"
+                  + "1. Run <tt>ML_analysis/convert_single_traj_to_onnx.py</tt> to create the ONNX file.<br>"
                   + "2. Rebuild the plugin (<tt>mvn clean package</tt>), <b>or</b><br>"
                   + "   click <b>Load…</b> and select the <tt>.onnx</tt> file directly.<br><br>"
                   + "Details: " + ex.getMessage() + "</html>",

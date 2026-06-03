@@ -140,7 +140,7 @@ outputs = torch.tensor(Y1[1]).to(dvc)
 
 tensor_X = []
 for i in inputs:
-    traj = torch.tensor(i).reshape(2, -1).T.unsqueeze(0) 
+    traj = torch.tensor(i).reshape(2, -1).T.unsqueeze(0) # This gives a tensor of shape (1, T, 2) for each trajectory, where T is the length of the trajectory. 
     tensor_X.append(traj)
 lengths = [t.shape[1] for t in tensor_X]
 polar_X = [torch.tensor(cartesian_to_relative_polar(traj), dtype=torch.float).to(dvc) for traj in tensor_X]

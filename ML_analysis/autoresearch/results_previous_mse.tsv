@@ -1,0 +1,36 @@
+commit	mse	mse_10_50	mse_50_100	mse_100_150	mse_150_200	status	description
+0dcdf06	0.194821	0.229425	0.187236	0.192268	0.176184	keep	baseline: 2-layer MLP head fine-tune backbone EPOCHS=15 LR=1e-2
+f02bf03	0.189251	0.227619	0.185576	0.181069	0.169116	keep	wider head 512->256->128->1 GELU dropout=0
+c2337f9	0.178641	0.221369	0.179153	0.161615	0.158700	keep	add LayerNorm before head
+87113ab	0.177603	0.210355	0.177834	0.165218	0.162393	keep	wider head 512->512->256->1 with intermediate LayerNorm
+f2d2ccb	0.171526	0.205534	0.175413	0.159082	0.151490	keep	length conditioning: concat log(T) to pooled features
+562f23f	0.257292	0.279219	0.257278	0.247972	0.248509	discard	LR=3e-2 too aggressive
+9068059	0.176330	0.198681	0.172047	0.164453	0.155576	discard	oversample short traj 2x: overall MSE worse despite short traj improvement
+5cf5a82	0.167870	0.204595	0.167081	0.158021	0.146946	keep	batch size 500->256 more gradient steps
+095aa0e	0.161876	0.204530	0.159863	0.147420	0.144040	keep	batch size 128
+3b03631	0.158934	0.202450	0.157446	0.140751	0.141378	keep	batch size 64
+ced7a8b	0.163331	0.204516	0.164595	0.145593	0.145332	discard	batch size 32 too noisy ran out of time
+6d5ad6c	0.160857	0.198905	0.147735	0.155449	0.146930	discard	mean+max pooling: overall MSE worse
+ee584d2	0.162292	0.208839	0.164834	0.144042	0.139758	discard	LR=5e-3 worse than 1e-2 for bs=64
+49406ca	0.158541	0.194431	0.159314	0.149197	0.136656	keep	weight decay 1e-3 slight improvement especially short traj
+eebafe9	0.158571	0.196043	0.158425	0.143011	0.140589	discard	wd=0 same as wd=1e-3
+4ee254d	0.117674	0.172470	0.119047	0.096976	0.090229	keep	multi-scale: pool all 4 encoder layers concat + log(T) MASSIVE WIN
+c344a54	0.112440	0.172133	0.108375	0.096537	0.080136	keep	mean+max pool from each of 4 encoder layers
+8d0f9b8	0.115530	0.175931	0.112658	0.093936	0.089636	discard	also pool conv output - worse
+002e46f	0.115572	0.170317	0.113025	0.100943	0.085060	discard	wider head 1024 - worse overall
+8378a57	0.111898	0.167443	0.111621	0.094798	0.081125	keep	mean+max+std pool from 4 layers (6145-dim)
+055412f	0.115111	0.169622	0.114211	0.097178	0.086870	discard	training augmentation (truncation) - hurt
+c8b3e17	0.110345	0.170650	0.107724	0.091873	0.080019	keep	dropout=0.1 on pooled features
+2bd5b48	0.110742	0.163990	0.109995	0.092656	0.083195	discard	fix dropout bug: dropout=0.1 was never applied to training model - no improvement
+dc2fe84	0.110641	0.167473	0.109298	0.093491	0.081348	discard	LR=2e-2 marginally worse than 1e-2
+4fee63f	0.117680	0.178597	0.119853	0.097197	0.084361	discard	attention pooling 3-head per layer - worse (needs more training time)
+cb2115a	0.124695	0.187303	0.118736	0.107045	0.093758	discard	backbone pred as extra feature - backbone output is not a clean scalar
+bed503f	0.115217	0.174262	0.113187	0.097818	0.085285	discard	EPOCHS=20 hits time limit before LR anneals - LR schedule incomplete
+73eec85	0.113224	0.173715	0.112566	0.091604	0.082705	discard	EPOCHS=17 also hits 300s time limit - 15 epochs already optimal
+184c1a0	0.114582	0.179914	0.115126	0.092007	0.082030	discard	Huber loss delta=0.5 - training objective mismatch with MSE eval
+1a275b3	0.111757	0.169543	0.109469	0.098680	0.078413	discard	per-layer LN (no head LN) - marginally worse overall but better at both tails
+526adbb	0.115131	0.177831	0.111419	0.095061	0.086002	discard	per-layer LN + head LN - double normalization hurts
+880fb37	0.113047	0.168249	0.115181	0.092525	0.083312	discard	wd=3e-4 worse (mse_10_50 slightly improved but overall worse)
+0f9526a	0.111581	0.171177	0.111256	0.089064	0.084600	discard	full backbone fine-tuning (no no_grad) LR=1e-2 too aggressive
+c9d82d9	0.110818	0.163988	0.109172	0.093518	0.084698	discard	full backbone fine-tuning LR=3e-3: mse_10_50 much better but long traj worse
+946339c	0.109345	0.159870	0.111975	0.088813	0.083233	keep	mirror-reflect augmentation (flip delta-theta 50%) - NEW BEST, mse_10_50 improved 6%

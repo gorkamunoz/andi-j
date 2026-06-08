@@ -117,35 +117,38 @@ class SingleTrajModel(nn.Module):
         out = torch.cat([out, log_t], dim=1)
         return self.head(out)
     
-# MODEL DEFINITION
-backbone_single = XResAttn(2, n_class=1, stem_szs=(32,), conv_blocks=[1, 1, 1],
-block_szs=[128, 256, 512], dropout=0., pos_enc=False, n_encoder_layers=4,
-dim_ff=512, nhead_enc=8, norm=False, linear_layers=[])
 
-model_single = SingleTrajModel(backbone_single).to('cuda')
+if __name__ == "__main__":
+    
+    # MODEL DEFINITION
+    backbone_single = XResAttn(2, n_class=1, stem_szs=(32,), conv_blocks=[1, 1, 1],
+    block_szs=[128, 256, 512], dropout=0., pos_enc=False, n_encoder_layers=4,
+    dim_ff=512, nhead_enc=8, norm=False, linear_layers=[])
 
-model_single.load_state_dict(torch.load("kistep_adapted_single_exp8.pth"))
+    model_single = SingleTrajModel(backbone_single).to('cuda')
+
+    model_single.load_state_dict(torch.load("kistep_adapted_single_exp8.pth"))
 
 
 
-# EXAMPLE USAGE
-from andi_datasets.datasets_challenge import challenge_theory_dataset
+    # EXAMPLE USAGE
+    from andi_datasets.datasets_challenge import challenge_theory_dataset
 
-X1, Y1, X2, Y2, X3, Y3 = challenge_theory_dataset(N = 1000, tasks = 1, dimensions = 2,
-                                        min_T = 10, max_T = 200, load_dataset = False)
+    X1, Y1, X2, Y2, X3, Y3 = challenge_theory_dataset(N = 1000, tasks = 1, dimensions = 2,
+                                            min_T = 10, max_T = 200, load_dataset = False)
 
-# Prepare data in polar representation
-inputs = X1[1]
-outputs = torch.tensor(Y1[1]).to(dvc)
+    # Prepare data in polar representation
+    inputs = X1[1]
+    outputs = torch.tensor(Y1[1]).to(dvc)
 
-tensor_X = []
-for i in inputs:
-    traj = torch.tensor(i).reshape(2, -1).T.unsqueeze(0) # This gives a tensor of shape (1, T, 2) for each trajectory, where T is the length of the trajectory. 
-    tensor_X.append(traj)
-lengths = [t.shape[1] for t in tensor_X]
-polar_X = [torch.tensor(cartesian_to_relative_polar(traj), dtype=torch.float).to(dvc) for traj in tensor_X]
+    tensor_X = []
+    for i in inputs:
+        traj = torch.tensor(i).reshape(2, -1).T.unsqueeze(0) # This gives a tensor of shape (1, T, 2) for each trajectory, where T is the length of the trajectory. 
+        tensor_X.append(traj)
+    lengths = [t.shape[1] for t in tensor_X]
+    polar_X = [torch.tensor(cartesian_to_relative_polar(traj), dtype=torch.float).to(dvc) for traj in tensor_X]
 
-preds = []
-for traj in polar_X:
-    pred = model_single(traj)
-    preds.append(pred)
+    preds = []
+    for traj in polar_X:
+        pred = model_single(traj)
+        preds.append(pred)

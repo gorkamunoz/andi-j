@@ -175,7 +175,7 @@ public class TmsdPanel extends JPanel {
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 1));
         JLabel lbl = new JLabel(label);
         lbl.setFont(lbl.getFont().deriveFont(Font.BOLD, 9f));
-        lbl.setPreferredSize(new Dimension(22, 16));
+        lbl.setPreferredSize(new Dimension(32, 16));
         row.add(lbl);
         for (int c = 0; c < 3; c++) {
             final int comp = c;

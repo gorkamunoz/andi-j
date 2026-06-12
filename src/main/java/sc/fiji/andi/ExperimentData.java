@@ -133,6 +133,9 @@ public class ExperimentData {
             }
         }
         avgTamsd = avgTamsdComp[0];  // backward compat alias
+
+        // Keep eMSD in sync with taMSD — always recompute with the new lags
+        computeEmsd();
     }
 
     // ------------------------------------------------------------------

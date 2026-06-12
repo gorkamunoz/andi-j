@@ -156,7 +156,7 @@ public class AnomalousExponentPanel extends JPanel {
         histArea.add(histPanel,   BorderLayout.CENTER);
 
         // ── averages table ───────────────────────────────────────────────
-        String[] cols = {"Experiment", "2D", "X", "Y"};
+        String[] cols = {"Experiment", "2D (eMSD)", "X (eMSD)", "Y (eMSD)"};
         tableModel = new DefaultTableModel(cols, 0) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
         };
@@ -367,9 +367,19 @@ public class AnomalousExponentPanel extends JPanel {
         for (ExperimentData exp : experiments)
             tableModel.addRow(new Object[]{
                 exp.name,
-                fmtAlpha(exp.avgAlpha(0)),
-                fmtAlpha(exp.avgAlpha(1)),
-                fmtAlpha(exp.avgAlpha(2))});
+                fmtAlpha(alphaForTable(exp, 0)),
+                fmtAlpha(alphaForTable(exp, 1)),
+                fmtAlpha(alphaForTable(exp, 2))});
+    }
+
+    /**
+     * Returns the best available average α for the table:
+     * eMSD log-log fit when available (more robust for non-ergodic data),
+     * falling back to the mean of per-track taMSD exponents otherwise.
+     */
+    private static double alphaForTable(ExperimentData exp, int comp) {
+        double v = exp.avgAlphaFromEmsd(comp);
+        return Double.isFinite(v) ? v : exp.avgAlpha(comp);
     }
 
     private static String fmtAlpha(double v) {

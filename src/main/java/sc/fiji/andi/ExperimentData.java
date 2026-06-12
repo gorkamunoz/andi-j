@@ -308,10 +308,25 @@ public class ExperimentData {
     }
 
     /**
+     * Returns the anomalous exponent estimated from a log-log fit of the
+     * ensemble MSD curve for the given component (0=2D, 1=X, 2=Y).
+     *
+     * <p>For non-ergodic processes (e.g. CTRW) this gives a more accurate
+     * estimate of α than averaging per-track taMSD exponents, because the
+     * eMSD curve retains the correct anomalous scaling.</p>
+     *
+     * @return the fitted α, or {@code NaN} if eMSD is not available
+     */
+    public double avgAlphaFromEmsd(int component) {
+        if (!hasEmsd() || lags == null) return Double.NaN;
+        return logLogSlope(lags, emsdComp[component]);
+    }
+
+    /**
      * Slope of log-log linear fit: log(y) = alpha * log(x) + b.
      * Returns alpha (NaN if fewer than 2 valid strictly-positive points).
      */
-    private static double logLogSlope(int[] xs, double[] ys) {
+    static double logLogSlope(int[] xs, double[] ys) {
         double sx = 0, sy = 0, sxy = 0, sx2 = 0; int n = 0;
         for (int i = 0; i < xs.length && i < ys.length; i++) {
             if (!Double.isFinite(ys[i]) || ys[i] <= 0 || xs[i] <= 0) continue;

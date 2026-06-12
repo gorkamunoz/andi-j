@@ -66,7 +66,7 @@ public class TmsdPanel extends JPanel {
         // ── parameter bar (North) ────────────────────────────────────────
         minLagField   = new JTextField(String.valueOf(1),          4);
         maxLagField   = new JTextField(String.valueOf(initMaxLag), 4);
-        nLagsField    = new JTextField("15",                       4);
+        nLagsField    = new JTextField(String.valueOf(Math.min(15, initMaxLag)), 4);
         logSpacedBox  = new JCheckBox("Log-spaced", false);
         intervalField = new JTextField(String.format("%.3f", initInterval), 6);
         unitField     = new JTextField("frames",                   6);

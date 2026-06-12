@@ -43,6 +43,13 @@ public class ExperimentData {
     /** Per-frame log₁₀(D): trackId → double[T-1]. Null until STEP runs. */
     public Map<Integer, double[]> stepLogD;
 
+    // -- ensemble MSD (null until computeEmsd() is called) --
+    /**
+     * Ensemble MSD per component: [0]=2D, [1]=X, [2]=Y; second dim = lag index.
+     * eMSD(Δ) = mean over all tracks of |r(t₀+Δ) − r(t₀)|².
+     */
+    public double[][] emsdComp;
+
     // -- legacy display flags (kept for any external reader; rendering uses TmsdPanel maps) --
     public boolean showAverage = true;
     public boolean showAll     = false;
@@ -58,6 +65,7 @@ public class ExperimentData {
     }
 
     public boolean hasTamsd()            { return lags != null && !tamsdByComp.isEmpty(); }
+    public boolean hasEmsd()             { return emsdComp != null; }
     public boolean hasD()                { return dCoeffs     != null && !dCoeffs.isEmpty(); }
     public boolean hasAlpha()            { return alphaCoeffs != null && !alphaCoeffs.isEmpty(); }
     public boolean hasStepPredictions()  { return stepAlpha   != null && !stepAlpha.isEmpty(); }
@@ -125,6 +133,70 @@ public class ExperimentData {
             }
         }
         avgTamsd = avgTamsdComp[0];  // backward compat alias
+    }
+
+    // ------------------------------------------------------------------
+    // Ensemble MSD
+    // ------------------------------------------------------------------
+
+    /**
+     * Computes the ensemble MSD for the lag array already stored in
+     * {@link #lags} (call {@link #computeTamsd} first).
+     *
+     * <p>For each lag Δ:
+     * <pre>  eMSD(Δ) = mean_{tracks} |r(t₀+Δ) − r(t₀)|²</pre>
+     * where t₀ is the first observed frame of each track.
+     * Tracks that do not have a localisation at t₀+Δ are excluded from
+     * the average at that lag (gap-aware).
+     *
+     * <p>Results are stored in {@link #emsdComp}:
+     * component 0 = 2D, 1 = X, 2 = Y.
+     */
+    public void computeEmsd() {
+        if (lags == null) return;   // must call computeTamsd first
+        int nLags = lags.length;
+
+        double[] sum2D = new double[nLags];
+        double[] sumX  = new double[nLags];
+        double[] sumY  = new double[nLags];
+        int[]    cnt   = new int[nLags];
+
+        for (List<double[]> spots : tracks.values()) {
+            if (spots.isEmpty()) continue;
+
+            // Origin: position at the first observed frame
+            double x0     = spots.get(0)[1];
+            double y0     = spots.get(0)[2];
+            int    frame0 = (int) spots.get(0)[0];
+
+            // Build a frame → position map for gap-aware lookup
+            Map<Integer, double[]> fm = new HashMap<>(spots.size() * 2);
+            for (double[] s : spots) fm.put((int) s[0], new double[]{s[1], s[2]});
+
+            for (int li = 0; li < nLags; li++) {
+                double[] p = fm.get(frame0 + lags[li]);
+                if (p == null) continue;
+                double dx = p[0] - x0;
+                double dy = p[1] - y0;
+                sum2D[li] += dx * dx + dy * dy;
+                sumX[li]  += dx * dx;
+                sumY[li]  += dy * dy;
+                cnt[li]++;
+            }
+        }
+
+        emsdComp = new double[3][nLags];
+        for (int li = 0; li < nLags; li++) {
+            if (cnt[li] > 0) {
+                emsdComp[0][li] = sum2D[li] / cnt[li];
+                emsdComp[1][li] = sumX[li]  / cnt[li];
+                emsdComp[2][li] = sumY[li]  / cnt[li];
+            } else {
+                emsdComp[0][li] = Double.NaN;
+                emsdComp[1][li] = Double.NaN;
+                emsdComp[2][li] = Double.NaN;
+            }
+        }
     }
 
     // ------------------------------------------------------------------

@@ -35,9 +35,10 @@ public class TmsdPanel extends JPanel {
     private final List<ExperimentData> experiments;
     private final TmsdPlotPanel plotPanel;
 
-    // Which components are shown for the average line / individual trajs, per experiment
-    private final Map<ExperimentData, Set<Integer>> avgComps = new LinkedHashMap<>();
-    private final Map<ExperimentData, Set<Integer>> allComps = new LinkedHashMap<>();
+    // Which components are shown for avg taMSD / all taMSD / eMSD, per experiment
+    private final Map<ExperimentData, Set<Integer>> avgComps  = new LinkedHashMap<>();
+    private final Map<ExperimentData, Set<Integer>> allComps  = new LinkedHashMap<>();
+    private final Map<ExperimentData, Set<Integer>> emsdComps = new LinkedHashMap<>();
 
     // All component toggle buttons – used by the "Deselect all" action
     private final List<JToggleButton> allToggleButtons = new ArrayList<>();
@@ -56,7 +57,8 @@ public class TmsdPanel extends JPanel {
             Set<Integer> av = new LinkedHashSet<>();
             av.add(0);
             avgComps.put(exp, av);
-            allComps.put(exp, new LinkedHashSet<>());
+            allComps.put(exp,  new LinkedHashSet<>());
+            emsdComps.put(exp, new LinkedHashSet<>());
         }
 
         this.plotPanel = new TmsdPlotPanel(experiments);
@@ -131,6 +133,7 @@ public class TmsdPanel extends JPanel {
             for (ExperimentData exp : experiments) {
                 avgComps.get(exp).clear();
                 allComps.get(exp).clear();
+                emsdComps.get(exp).clear();
             }
             for (JToggleButton btn : allToggleButtons) btn.setSelected(false);
             plotPanel.repaint();
@@ -149,7 +152,7 @@ public class TmsdPanel extends JPanel {
     private JPanel makeExpRow(ExperimentData exp) {
         JPanel row = new JPanel();
         row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 90));
 
         JPanel nameRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         JPanel swatch = new JPanel();
@@ -162,8 +165,9 @@ public class TmsdPanel extends JPanel {
         nameRow.add(nameLbl);
         row.add(nameRow);
 
-        row.add(makeCompToggleRow("Avg", avgComps.get(exp), new boolean[]{true,  false, false}));
-        row.add(makeCompToggleRow("All", allComps.get(exp), new boolean[]{false, false, false}));
+        row.add(makeCompToggleRow("Avg",  avgComps.get(exp),  new boolean[]{true,  false, false}));
+        row.add(makeCompToggleRow("All",  allComps.get(exp),  new boolean[]{false, false, false}));
+        row.add(makeCompToggleRow("eMSD", emsdComps.get(exp), new boolean[]{false, false, false}));
         return row;
     }
 
@@ -203,8 +207,10 @@ public class TmsdPanel extends JPanel {
         String  unit     = unitField.getText().trim();
         if (unit.isEmpty()) unit = "frames";
 
-        for (ExperimentData exp : experiments)
+        for (ExperimentData exp : experiments) {
             exp.computeTamsd(minL, maxL, n, logS, interval);
+            exp.computeEmsd();
+        }
 
         plotPanel.setLogScale(logS);
         plotPanel.setTimeUnit(unit);
@@ -503,9 +509,10 @@ public class TmsdPanel extends JPanel {
 
             for (ExperimentData exp : experiments) {
                 if (!exp.hasTamsd()) continue;
-                Set<Integer> av = avgComps.getOrDefault(exp, Collections.emptySet());
-                Set<Integer> al = allComps.getOrDefault(exp, Collections.emptySet());
-                if (av.isEmpty() && al.isEmpty()) continue;
+                Set<Integer> av = avgComps.getOrDefault(exp,  Collections.emptySet());
+                Set<Integer> al = allComps.getOrDefault(exp,  Collections.emptySet());
+                Set<Integer> em = emsdComps.getOrDefault(exp, Collections.emptySet());
+                if (av.isEmpty() && al.isEmpty() && em.isEmpty()) continue;
 
                 for (double t : exp.tAxis) {
                     if (logScale ? t > 0 : Double.isFinite(t)) {
@@ -521,6 +528,14 @@ public class TmsdPanel extends JPanel {
                 for (int comp : al) {
                     for (double[][] byComp : exp.tamsdByComp.values()) {
                         for (double d : byComp[comp]) {
+                            boolean ok = logScale ? (!Double.isNaN(d) && d > 0) : Double.isFinite(d);
+                            if (ok) { yMin = Math.min(yMin, d); yMax = Math.max(yMax, d); }
+                        }
+                    }
+                }
+                if (exp.hasEmsd()) {
+                    for (int comp : em) {
+                        for (double d : exp.emsdComp[comp]) {
                             boolean ok = logScale ? (!Double.isNaN(d) && d > 0) : Double.isFinite(d);
                             if (ok) { yMin = Math.min(yMin, d); yMax = Math.max(yMax, d); }
                         }
@@ -695,6 +710,19 @@ public class TmsdPanel extends JPanel {
                                  xMin, xMax, yMin, yMax, px, py, pw, ph);
                 }
             }
+            // eMSD: dashed thick line, same colour family
+            Stroke emsdStroke = new BasicStroke(2.2f, BasicStroke.CAP_ROUND,
+                    BasicStroke.JOIN_ROUND, 1f, new float[]{7f, 4f}, 0f);
+            for (ExperimentData exp : experiments) {
+                if (!exp.hasEmsd()) continue;
+                Set<Integer> em = emsdComps.getOrDefault(exp, Collections.emptySet());
+                for (int comp : em) {
+                    g2.setColor(compColor(exp.color, comp));
+                    g2.setStroke(emsdStroke);
+                    drawPolyline(g2, exp.tAxis, exp.emsdComp[comp],
+                                 xMin, xMax, yMin, yMax, px, py, pw, ph);
+                }
+            }
             g2.setStroke(new BasicStroke(1f));
         }
 
@@ -721,14 +749,15 @@ public class TmsdPanel extends JPanel {
         // ------------------------------------------------------------------
 
         private void drawLegend(Graphics2D g2, int px, int py, int pw, int ph) {
+            // entry: {expIdx, comp, type}  type: 0=avg taMSD, 1=all taMSD, 2=eMSD
             List<int[]> entries = new ArrayList<>();
             for (int ei = 0; ei < experiments.size(); ei++) {
                 ExperimentData exp = experiments.get(ei);
                 if (!exp.hasTamsd()) continue;
-                Set<Integer> combined = new LinkedHashSet<>(
-                        avgComps.getOrDefault(exp, Collections.emptySet()));
-                combined.addAll(allComps.getOrDefault(exp, Collections.emptySet()));
-                for (int c : combined) entries.add(new int[]{ei, c});
+                for (int c : avgComps.getOrDefault(exp,  Collections.emptySet())) entries.add(new int[]{ei, c, 0});
+                for (int c : allComps.getOrDefault(exp,  Collections.emptySet())) entries.add(new int[]{ei, c, 1});
+                if (exp.hasEmsd())
+                    for (int c : emsdComps.getOrDefault(exp, Collections.emptySet())) entries.add(new int[]{ei, c, 2});
             }
             if (entries.isEmpty()) return;
 
@@ -737,7 +766,7 @@ public class TmsdPanel extends JPanel {
             int lineH = 18, pad = 6;
             int maxW = 0;
             for (int[] e : entries) {
-                String s = experiments.get(e[0]).name + " (" + COMP_LABELS[e[1]] + ")";
+                String s = legendLabel(experiments.get(e[0]).name, e[1], e[2]);
                 maxW = Math.max(maxW, fm.stringWidth(s));
             }
             int boxW = maxW + 30 + pad * 2;
@@ -750,20 +779,27 @@ public class TmsdPanel extends JPanel {
             g2.setStroke(new BasicStroke(0.7f));
             g2.drawRoundRect(lx, ly, boxW, boxH, 6, 6);
 
+            Stroke solidSwatch = new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+            Stroke dashedSwatch = new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                                                  1f, new float[]{5f, 3f}, 0f);
             for (int i = 0; i < entries.size(); i++) {
-                int ei = entries.get(i)[0], comp = entries.get(i)[1];
+                int ei = entries.get(i)[0], comp = entries.get(i)[1], type = entries.get(i)[2];
                 ExperimentData exp = experiments.get(ei);
                 Color col = compColor(exp.color, comp);
                 int rowY = ly + pad + (i + 1) * lineH - 3;
                 g2.setColor(col);
-                g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setStroke(type == 2 ? dashedSwatch : solidSwatch);
                 g2.drawLine(lx + pad, rowY - 4, lx + pad + 18, rowY - 4);
                 g2.setStroke(new BasicStroke(1f));
                 g2.setColor(Color.BLACK);
-                g2.drawString(exp.name + " (" + COMP_LABELS[comp] + ")",
-                              lx + pad + 22, rowY);
+                g2.drawString(legendLabel(exp.name, comp, type), lx + pad + 22, rowY);
             }
             g2.setStroke(new BasicStroke(1f));
+        }
+
+        private String legendLabel(String expName, int comp, int type) {
+            String typeTag = type == 2 ? "eMSD" : "taMSD";
+            return expName + " (" + COMP_LABELS[comp] + ", " + typeTag + ")";
         }
 
         // ------------------------------------------------------------------
@@ -780,7 +816,7 @@ public class TmsdPanel extends JPanel {
                 px + (pw - fm.stringWidth(xTitle)) / 2,
                 py + ph + MB - 8);
 
-            String yTitle = "tMSD (μm²)";
+            String yTitle = "MSD (μm²)";
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph / 2.0);
             g2.rotate(-Math.PI / 2);

@@ -20,19 +20,14 @@ import java.util.List;
  * To change the lag range or frame interval used for each quantity,
  * visit the respective tab and click Compute there.
  *
- * Additional features
- * ───────────────────
- * • KDE toggle (per experiment): overlays a 2-D Gaussian KDE heatmap
- *   behind the scatter points.
- * • Marginal KDE strips: always-visible 1-D KDE distributions along
- *   the top (α) and right (D) edges of the plot, tracking zoom/pan.
- * • Rubber-band zoom, drag-to-pan, double-click reset.
+ * Marginal KDE strips are always shown along the top (α) and right (D)
+ * edges of the plot, tracking zoom and pan automatically.
+ * Rubber-band zoom, drag-to-pan, double-click reset.
  */
 public class FullAnalysisPanel extends JPanel {
 
     private final List<ExperimentData>              experiments;
     private final Map<ExperimentData, Set<Integer>> componentSelection = new LinkedHashMap<>();
-    private final Map<ExperimentData, Boolean>      kdeEnabled         = new LinkedHashMap<>();
     private final List<JToggleButton>               allCompButtons     = new ArrayList<>();
 
     private final ScatterPanel scatterPanel;
@@ -48,10 +43,9 @@ public class FullAnalysisPanel extends JPanel {
             Set<Integer> s = new LinkedHashSet<>();
             s.add(0);
             componentSelection.put(exp, s);
-            kdeEnabled.put(exp, false);
         }
 
-        // ── info message (replaces the old parameter bar) ────────────────
+        // ── info message ─────────────────────────────────────────────────
         JLabel infoLabel = new JLabel(
             "<html><i>D and α are taken from the last computation in their respective tabs. " +
             "To change lags, frame interval, or fitting method, use the " +
@@ -61,7 +55,7 @@ public class FullAnalysisPanel extends JPanel {
         add(infoLabel, BorderLayout.NORTH);
 
         // ── scatter canvas ───────────────────────────────────────────────
-        scatterPanel = new ScatterPanel(experiments, componentSelection, kdeEnabled);
+        scatterPanel = new ScatterPanel(experiments, componentSelection);
 
         // ── view toolbar ─────────────────────────────────────────────────
         JToggleButton zoomBtn      = new JToggleButton("⊕ Zoom", true);
@@ -82,11 +76,7 @@ public class FullAnalysisPanel extends JPanel {
         zoomBtn     .addActionListener(e -> scatterPanel.setPanMode(false));
         panBtn      .addActionListener(e -> scatterPanel.setPanMode(true));
         resetViewBtn.addActionListener(e -> { scatterPanel.resetViewport(); scatterPanel.repaint(); });
-        logYBox     .addActionListener(e -> {
-            scatterPanel.setLogY(logYBox.isSelected());
-            scatterPanel.invalidateKdeCache();
-            scatterPanel.repaint();
-        });
+        logYBox     .addActionListener(e -> { scatterPanel.setLogY(logYBox.isSelected()); scatterPanel.repaint(); });
 
         JPanel centerArea = new JPanel(new BorderLayout(0, 2));
         centerArea.add(toolbar,      BorderLayout.NORTH);
@@ -122,7 +112,6 @@ public class FullAnalysisPanel extends JPanel {
         deselectAll.addActionListener(e -> {
             for (ExperimentData exp : experiments) componentSelection.get(exp).clear();
             for (JToggleButton btn : allCompButtons) btn.setSelected(false);
-            scatterPanel.invalidateKdeCache();
             scatterPanel.resetViewport();
             scatterPanel.repaint();
         });
@@ -140,7 +129,7 @@ public class FullAnalysisPanel extends JPanel {
     private JPanel makeExpRow(ExperimentData exp) {
         JPanel row = new JPanel();
         row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 76));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
 
         JPanel nameRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         JPanel swatch  = new JPanel();
@@ -153,45 +142,21 @@ public class FullAnalysisPanel extends JPanel {
         nameRow.add(lbl);
         row.add(nameRow);
 
-        JToggleButton btn2D  = new JToggleButton("2D",  true);
-        JToggleButton btnX   = new JToggleButton("X",   false);
-        JToggleButton btnY   = new JToggleButton("Y",   false);
+        JToggleButton btn2D = new JToggleButton("2D", true);
+        JToggleButton btnX  = new JToggleButton("X",  false);
+        JToggleButton btnY  = new JToggleButton("Y",  false);
         styleToggle(btn2D); styleToggle(btnX); styleToggle(btnY);
 
         Set<Integer> sel = componentSelection.get(exp);
-        btn2D.addActionListener(e -> { toggle(sel, 0, btn2D); });
-        btnX .addActionListener(e -> { toggle(sel, 1, btnX);  });
-        btnY .addActionListener(e -> { toggle(sel, 2, btnY);  });
+        btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); scatterPanel.resetViewport(); scatterPanel.repaint(); });
+        btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); scatterPanel.resetViewport(); scatterPanel.repaint(); });
+        btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); scatterPanel.resetViewport(); scatterPanel.repaint(); });
         allCompButtons.add(btn2D); allCompButtons.add(btnX); allCompButtons.add(btnY);
 
         JPanel compRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         compRow.add(btn2D); compRow.add(btnX); compRow.add(btnY);
         row.add(compRow);
-
-        // KDE toggle – separate row so the label fits
-        JToggleButton kdeBtn = new JToggleButton("KDE", false);
-        kdeBtn.setFont(kdeBtn.getFont().deriveFont(Font.PLAIN, 10f));
-        kdeBtn.setPreferredSize(new Dimension(46, 18));
-        kdeBtn.setMargin(new Insets(1, 2, 1, 2));
-        kdeBtn.setFocusPainted(false);
-        kdeBtn.setToolTipText("Show 2-D KDE density heatmap behind scatter points");
-        kdeBtn.addActionListener(e -> {
-            kdeEnabled.put(exp, kdeBtn.isSelected());
-            scatterPanel.invalidateKdeCache();
-            scatterPanel.repaint();
-        });
-        JPanel kdeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        kdeRow.add(kdeBtn);
-        row.add(kdeRow);
-
         return row;
-    }
-
-    private void toggle(Set<Integer> sel, int comp, JToggleButton btn) {
-        if (btn.isSelected()) sel.add(comp); else sel.remove(comp);
-        scatterPanel.invalidateKdeCache();
-        scatterPanel.resetViewport();
-        scatterPanel.repaint();
     }
 
     private static void styleToggle(JToggleButton btn) {
@@ -209,29 +174,28 @@ public class FullAnalysisPanel extends JPanel {
 
         private final List<ExperimentData>              experiments;
         private final Map<ExperimentData, Set<Integer>> componentSel;
-        private final Map<ExperimentData, Boolean>      kdeEnabled;
 
-        private boolean logY     = true;
+        private boolean logY = true;
 
         // Plot margins
         private static final int ML = 72;   // left  (Y-axis labels)
         private static final int MB = 50;   // bottom (X-axis labels + title)
-        private static final int MT = 72;   // top   (alpha marginal strip lives here)
-        private static final int MR = 80;   // right (D marginal strip lives here)
+        private static final int MT = 72;   // top   (alpha marginal strip)
+        private static final int MR = 80;   // right (D marginal strip)
 
-        // Marginal strip dimensions (within MT/MR)
-        private static final int MARG_H = 60; // alpha marginal height (top)
-        private static final int MARG_W = 62; // D marginal width (right)
+        // Marginal strip dimensions (within MT / MR)
+        private static final int MARG_H = 60; // alpha marginal height
+        private static final int MARG_W = 62; // D marginal width
 
-        // viewport: null = auto-scale
+        // viewport
         private double[] viewport = null;
 
-        // saved render bounds (for mouse ↔ data transforms)
+        // saved render bounds (mouse ↔ data transforms)
         private double renderXMin = 0, renderXMax = 2;
         private double renderYMin = 1e-4, renderYMax = 1;
-        private int    renderPx   = ML, renderPy = MT, renderPw = 400, renderPh = 300;
+        private int    renderPx = ML, renderPy = MT, renderPw = 400, renderPh = 300;
 
-        // zoom / pan state
+        // zoom / pan
         private boolean panMode  = false;
         private boolean dragging = false;
         private int     dragX0, dragY0, dragX1, dragY1;
@@ -240,35 +204,16 @@ public class FullAnalysisPanel extends JPanel {
         private double  panInitXMin, panInitXMax, panInitYMin, panInitYMax;
 
         private int hoverPx = -1, hoverPy = -1;
-
         private static final int PT_R = 4;
 
-        // ── KDE cache ────────────────────────────────────────────────────
-        private static class KdeGridData {
-            final double[][] grid;  // [alphaIdx][dIdx]
-            final int    nAlpha, nD;
-            final double alphaMin, alphaMax, dMin, dMax; // dMin/Max in log10(D) if logY
-
-            KdeGridData(double[][] grid, int nAlpha, int nD,
-                        double alphaMin, double alphaMax,
-                        double dMin, double dMax) {
-                this.grid = grid; this.nAlpha = nAlpha; this.nD = nD;
-                this.alphaMin = alphaMin; this.alphaMax = alphaMax;
-                this.dMin = dMin; this.dMax = dMax;
-            }
-        }
-
-        private final Map<ExperimentData, KdeGridData> kdeCache = new LinkedHashMap<>();
-        private boolean kdeCacheLogY = true;
-
-        // ── One series: experiment × component ───────────────────────────
+        // ── One series ───────────────────────────────────────────────────
         private static class Series {
             final ExperimentData exp;
             final int            comp;
             final Color          color;
             final List<double[]> pts = new ArrayList<>(); // {alpha, D}
             Series(ExperimentData exp, int comp) {
-                this.exp   = exp; this.comp = comp;
+                this.exp = exp; this.comp = comp;
                 this.color = compColor(exp.color, comp);
             }
         }
@@ -276,22 +221,17 @@ public class FullAnalysisPanel extends JPanel {
         // ────────────────────────────────────────────────────────────────
 
         ScatterPanel(List<ExperimentData> exps,
-                     Map<ExperimentData, Set<Integer>> sel,
-                     Map<ExperimentData, Boolean>      kde) {
-            this.experiments  = exps;
+                     Map<ExperimentData, Set<Integer>> sel) {
+            this.experiments = exps;
             this.componentSel = sel;
-            this.kdeEnabled   = kde;
             setBackground(new Color(240, 240, 240));
             setPreferredSize(new Dimension(600, 460));
             setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
             addMouseInteraction();
         }
 
-        // ── Public controls ──────────────────────────────────────────────
-
-        void setLogY(boolean on)    { if (logY != on) { logY = on; viewport = null; } }
-        void resetViewport()        { viewport = null; }
-        void invalidateKdeCache()   { kdeCache.clear(); }
+        void setLogY(boolean on)   { if (logY != on) { logY = on; viewport = null; } }
+        void resetViewport()       { viewport = null; }
         void setPanMode(boolean pan) {
             panMode = pan;
             setCursor(pan ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
@@ -365,9 +305,7 @@ public class FullAnalysisPanel extends JPanel {
 
         private double pxToDataX(int px) {
             if (renderPw <= 0) return renderXMin;
-            double frac = (double)(px - renderPx) / renderPw;
-            if (logY) { /* alpha is always linear */ }
-            return renderXMin + frac * (renderXMax - renderXMin);
+            return renderXMin + (double)(px - renderPx) / renderPw * (renderXMax - renderXMin);
         }
         private double pxToDataY(int py) {
             double frac = (double)(renderPy + renderPh - py) / renderPh;
@@ -392,7 +330,6 @@ public class FullAnalysisPanel extends JPanel {
             int px = ML, py = MT, pw = W - ML - MR, ph = H - MT - MB;
             if (pw < 20 || ph < 20) { g2.dispose(); return; }
 
-            // White main plot background
             g2.setColor(Color.WHITE);
             g2.fillRect(px, py, pw, ph);
 
@@ -405,7 +342,7 @@ public class FullAnalysisPanel extends JPanel {
                 g2.dispose(); return;
             }
 
-            // ── Build series list ─────────────────────────────────────────
+            // ── Build series ──────────────────────────────────────────────
             List<Series> seriesList = new ArrayList<>();
             for (ExperimentData exp : experiments) {
                 if (!exp.hasD() || !exp.hasAlpha()) continue;
@@ -443,7 +380,7 @@ public class FullAnalysisPanel extends JPanel {
             if (xMin == xMax) { xMin -= 0.1; xMax += 0.1; }
             if (yMin == yMax) {
                 if (logY) { yMin /= 10; yMax *= 10; }
-                else { double d = Math.abs(yMin) * 0.1 + 1e-12; yMin -= d; yMax += d; }
+                else { double d = Math.abs(yMin)*0.1+1e-12; yMin -= d; yMax += d; }
             }
 
             double dispXMin, dispXMax, dispYMin, dispYMax;
@@ -470,13 +407,6 @@ public class FullAnalysisPanel extends JPanel {
             // ── Grid ──────────────────────────────────────────────────────
             drawGrid(g2, dispXMin, dispXMax, dispYMin, dispYMax, px, py, pw, ph);
 
-            // ── 2-D KDE background (before points, clipped) ──────────────
-            if (kdeCacheLogY != logY) kdeCache.clear();
-            g2.setClip(px, py, pw, ph);
-            drawKdeBackground(g2, seriesList,
-                              dispXMin, dispXMax, dispYMin, dispYMax, px, py, pw, ph);
-            g2.setClip(null);
-
             // ── Scatter points (clipped) ──────────────────────────────────
             g2.setClip(px, py, pw, ph);
             for (Series s : seriesList) {
@@ -500,16 +430,16 @@ public class FullAnalysisPanel extends JPanel {
             drawAxisTitles(g2, px, py, pw, ph);
             drawLegend(g2, seriesList, px, py, pw, ph);
 
-            // ── Marginal KDE strips (always, unclipped so labels show) ────
+            // ── Marginal KDE strips (always visible) ──────────────────────
             drawAlphaMarginal(g2, seriesList, dispXMin, dispXMax, px, py, pw, ph);
             drawDMarginal    (g2, seriesList, dispYMin, dispYMax, px, py, pw, ph);
 
-            // ── Rubber-band overlay ───────────────────────────────────────
+            // ── Rubber-band ───────────────────────────────────────────────
             if (dragging && !panMode) {
                 int rx = Math.min(dragX0, dragX1), ry = Math.min(dragY0, dragY1);
                 int rw = Math.abs(dragX1 - dragX0), rh = Math.abs(dragY1 - dragY0);
-                g2.setColor(new Color(0, 100, 255, 40));  g2.fillRect(rx, ry, rw, rh);
-                g2.setColor(new Color(0, 100, 255, 200)); g2.setStroke(new BasicStroke(1f));
+                g2.setColor(new Color(0,100,255,40));   g2.fillRect(rx,ry,rw,rh);
+                g2.setColor(new Color(0,100,255,200));  g2.setStroke(new BasicStroke(1f));
                 g2.drawRect(rx, ry, rw, rh);
             }
 
@@ -524,108 +454,25 @@ public class FullAnalysisPanel extends JPanel {
             g2.dispose();
         }
 
-        // ── 2-D KDE background ────────────────────────────────────────────
-
-        private void drawKdeBackground(Graphics2D g2, List<Series> seriesList,
-                                        double xMin, double xMax,
-                                        double yMin, double yMax,
-                                        int px, int py, int pw, int ph) {
-            final int N = 38; // grid resolution (N×N cells)
-
-            for (ExperimentData exp : experiments) {
-                if (!kdeEnabled.getOrDefault(exp, false)) continue;
-
-                // Collect all points for this experiment from visible series
-                List<double[]> pts = new ArrayList<>();
-                for (Series s : seriesList) if (s.exp == exp) pts.addAll(s.pts);
-                if (pts.isEmpty()) continue;
-
-                // Get (or compute) cached grid
-                KdeGridData cached = kdeCache.get(exp);
-                if (cached == null) {
-                    double[] alphas = new double[pts.size()];
-                    double[] ds     = new double[pts.size()];
-                    double dMinData = Double.MAX_VALUE, dMaxData = -Double.MAX_VALUE;
-                    for (int i = 0; i < pts.size(); i++) {
-                        alphas[i] = pts.get(i)[0];
-                        double d  = pts.get(i)[1];
-                        double dv = logY ? Math.log10(Math.max(d, 1e-300)) : d;
-                        ds[i]     = dv;
-                        dMinData  = Math.min(dMinData, dv);
-                        dMaxData  = Math.max(dMaxData, dv);
-                    }
-                    if (dMinData >= dMaxData) { dMinData -= 0.5; dMaxData += 0.5; }
-                    // alpha range always [0, 2] (model range)
-                    double bwA = silvermanBw(alphas);
-                    double bwD = silvermanBw(ds);
-                    double[][] grid = gaussianKde2D(alphas, ds, N, 0, 2,
-                                                    dMinData, dMaxData, bwA, bwD);
-                    cached = new KdeGridData(grid, N, N, 0, 2, dMinData, dMaxData);
-                    kdeCache.put(exp, cached);
-                    kdeCacheLogY = logY;
-                }
-
-                // Find max for normalisation
-                double maxVal = 1e-300;
-                for (double[] row : cached.grid) for (double v : row) maxVal = Math.max(maxVal, v);
-
-                // Render each cell that falls inside the current viewport
-                double aStep = (cached.alphaMax - cached.alphaMin) / cached.nAlpha;
-                double dStep = (cached.dMax - cached.dMin) / cached.nD;
-                Color base = exp.color;
-
-                for (int ai = 0; ai < cached.nAlpha; ai++) {
-                    double a0 = cached.alphaMin + ai * aStep;
-                    double a1 = a0 + aStep;
-                    if (a1 < xMin || a0 > xMax) continue;
-                    int cxL = mapX(a0, xMin, xMax, px, pw);
-                    int cxR = mapX(a1, xMin, xMax, px, pw);
-                    int cw  = Math.max(1, cxR - cxL);
-
-                    for (int di = 0; di < cached.nD; di++) {
-                        double d0 = cached.dMin + di * dStep;
-                        double d1 = d0 + dStep;
-                        // Convert d boundaries from stored space to D space for mapY
-                        double d0D = logY ? Math.pow(10, d0) : d0;
-                        double d1D = logY ? Math.pow(10, d1) : d1;
-                        if (d1D < yMin || d0D > yMax) continue;
-
-                        double norm = cached.grid[ai][di] / maxVal;
-                        if (norm < 0.01) continue;
-                        int alpha = (int)(norm * 160);
-                        g2.setColor(new Color(base.getRed(), base.getGreen(),
-                                              base.getBlue(), alpha));
-                        int cyT = mapY(d1D, yMin, yMax, py, ph);
-                        int cyB = mapY(d0D, yMin, yMax, py, ph);
-                        g2.fillRect(cxL, cyT, cw, Math.max(1, cyB - cyT));
-                    }
-                }
-            }
-        }
-
-        // ── Alpha marginal KDE (top strip) ────────────────────────────────
+        // ── Marginal KDE strips ───────────────────────────────────────────
 
         private void drawAlphaMarginal(Graphics2D g2, List<Series> seriesList,
                                         double xMin, double xMax,
                                         int px, int py, int pw, int ph) {
-            // Strip occupies y = [MT - MARG_H, MT - 4]
             int stripY = MT - MARG_H;
             int stripH = MARG_H - 6;
             if (stripH < 8) return;
 
-            // Background
             g2.setColor(new Color(250, 250, 250));
             g2.fillRect(px, stripY, pw, stripH);
             g2.setColor(new Color(190, 190, 190));
             g2.setStroke(new BasicStroke(0.7f));
             g2.drawRect(px, stripY, pw, stripH);
 
-            // Per-experiment KDE
             Map<ExperimentData, List<Double>> expAlphas = new LinkedHashMap<>();
-            for (Series s : seriesList) {
-                List<Double> al = expAlphas.computeIfAbsent(s.exp, k -> new ArrayList<>());
-                for (double[] pt : s.pts) al.add(pt[0]);
-            }
+            for (Series s : seriesList)
+                expAlphas.computeIfAbsent(s.exp, k -> new ArrayList<>())
+                         .addAll(collectAlphas(s.pts));
 
             int nEval = 100;
             double[] evalPts = linspace(xMin, xMax, nEval);
@@ -635,8 +482,7 @@ public class FullAnalysisPanel extends JPanel {
             for (Map.Entry<ExperimentData, List<Double>> entry : expAlphas.entrySet()) {
                 double[] vals = toArray(entry.getValue());
                 if (vals.length < 2) continue;
-                double bw  = silvermanBw(vals);
-                double[] kde = gaussianKde1D(vals, evalPts, bw);
+                double[] kde = gaussianKde1D(vals, evalPts, silvermanBw(vals));
                 double kdeMax = arrayMax(kde);
                 if (kdeMax < 1e-300) continue;
 
@@ -646,8 +492,8 @@ public class FullAnalysisPanel extends JPanel {
                     xs[i] = mapX(evalPts[i], xMin, xMax, px, pw);
                     ys[i] = stripY + stripH - (int)(kde[i] / kdeMax * (stripH - 2));
                 }
-                xs[nEval] = xs[nEval - 1]; ys[nEval] = stripY + stripH;
-                xs[nEval + 1] = xs[0];     ys[nEval + 1] = stripY + stripH;
+                xs[nEval] = xs[nEval-1]; ys[nEval] = stripY + stripH;
+                xs[nEval+1] = xs[0];     ys[nEval+1] = stripY + stripH;
 
                 Color c = entry.getKey().color;
                 g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 55));
@@ -660,39 +506,28 @@ public class FullAnalysisPanel extends JPanel {
             g2.setStroke(new BasicStroke(1f));
         }
 
-        // ── D marginal KDE (right strip) ──────────────────────────────────
-
         private void drawDMarginal(Graphics2D g2, List<Series> seriesList,
                                     double yMin, double yMax,
                                     int px, int py, int pw, int ph) {
-            // Strip occupies x = [px + pw + 6,  px + pw + 6 + MARG_W - 2]
             int stripX = px + pw + 6;
             int stripW = MARG_W - 8;
             if (stripW < 8) return;
 
-            // Background
             g2.setColor(new Color(250, 250, 250));
             g2.fillRect(stripX, py, stripW, ph);
             g2.setColor(new Color(190, 190, 190));
             g2.setStroke(new BasicStroke(0.7f));
             g2.drawRect(stripX, py, stripW, ph);
 
-            // Per-experiment KDE (in log10(D) or D space matching the Y axis)
-            double evalMin, evalMax;
-            if (logY) {
-                evalMin = safeLog(yMin); evalMax = safeLog(yMax);
-            } else {
-                evalMin = yMin; evalMax = yMax;
-            }
+            double evalMin = logY ? safeLog(yMin) : yMin;
+            double evalMax = logY ? safeLog(yMax) : yMax;
             double[] evalPts = linspace(evalMin, evalMax, 100);
 
             Map<ExperimentData, List<Double>> expDs = new LinkedHashMap<>();
             for (Series s : seriesList) {
                 List<Double> dl = expDs.computeIfAbsent(s.exp, k -> new ArrayList<>());
-                for (double[] pt : s.pts) {
-                    double d = pt[1];
-                    dl.add(logY ? safeLog(d) : d);
-                }
+                for (double[] pt : s.pts)
+                    dl.add(logY ? safeLog(pt[1]) : pt[1]);
             }
 
             Shape oldClip = g2.getClip();
@@ -701,8 +536,7 @@ public class FullAnalysisPanel extends JPanel {
             for (Map.Entry<ExperimentData, List<Double>> entry : expDs.entrySet()) {
                 double[] vals = toArray(entry.getValue());
                 if (vals.length < 2) continue;
-                double bw  = silvermanBw(vals);
-                double[] kde = gaussianKde1D(vals, evalPts, bw);
+                double[] kde = gaussianKde1D(vals, evalPts, silvermanBw(vals));
                 double kdeMax = arrayMax(kde);
                 if (kdeMax < 1e-300) continue;
 
@@ -714,8 +548,8 @@ public class FullAnalysisPanel extends JPanel {
                     ys[i] = mapY(dForMap, yMin, yMax, py, ph);
                     xs[i] = stripX + (int)(kde[i] / kdeMax * (stripW - 2));
                 }
-                xs[nEval] = stripX; ys[nEval] = ys[nEval - 1];
-                xs[nEval + 1] = stripX; ys[nEval + 1] = ys[0];
+                xs[nEval] = stripX; ys[nEval] = ys[nEval-1];
+                xs[nEval+1] = stripX; ys[nEval+1] = ys[0];
 
                 Color c = entry.getKey().color;
                 g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 55));
@@ -728,7 +562,7 @@ public class FullAnalysisPanel extends JPanel {
             g2.setStroke(new BasicStroke(1f));
         }
 
-        // ── KDE computation ───────────────────────────────────────────────
+        // ── KDE helpers ───────────────────────────────────────────────────
 
         private static double[] gaussianKde1D(double[] data, double[] eval, double bw) {
             double[] result = new double[eval.length];
@@ -736,52 +570,29 @@ public class FullAnalysisPanel extends JPanel {
             double c = 1.0 / (data.length * bw * Math.sqrt(2.0 * Math.PI));
             for (int i = 0; i < eval.length; i++) {
                 double s = 0;
-                for (double d : data) { double u = (eval[i] - d) / bw; s += Math.exp(-0.5*u*u); }
+                for (double d : data) { double u = (eval[i]-d)/bw; s += Math.exp(-0.5*u*u); }
                 result[i] = s * c;
             }
             return result;
         }
 
-        private static double[][] gaussianKde2D(double[] alphas, double[] ds, int N,
-                                                  double aMin, double aMax,
-                                                  double dMin, double dMax,
-                                                  double bwA, double bwD) {
-            double[][] grid = new double[N][N];
-            if (alphas.length == 0) return grid;
-            double ca = (aMax - aMin) / N, cd = (dMax - dMin) / N;
-            for (int ai = 0; ai < N; ai++) {
-                double a = aMin + (ai + 0.5) * ca;
-                for (int di = 0; di < N; di++) {
-                    double d = dMin + (di + 0.5) * cd;
-                    double s = 0;
-                    for (int k = 0; k < alphas.length; k++) {
-                        double ua = (a - alphas[k]) / bwA;
-                        double ud = (d - ds[k])     / bwD;
-                        s += Math.exp(-0.5 * (ua*ua + ud*ud));
-                    }
-                    grid[ai][di] = s;
-                }
-            }
-            return grid;
-        }
-
         private static double silvermanBw(double[] data) {
             if (data.length < 2) return 1.0;
-            double mean = 0;
-            for (double d : data) mean += d;
-            mean /= data.length;
-            double var = 0;
-            for (double d : data) { double dd = d - mean; var += dd * dd; }
-            double std = Math.sqrt(var / data.length);
+            double mean = 0; for (double d : data) mean += d; mean /= data.length;
+            double var  = 0; for (double d : data) { double dd=d-mean; var+=dd*dd; }
+            double std  = Math.sqrt(var / data.length);
             return std < 1e-10 ? 1.0 : 1.06 * std * Math.pow(data.length, -0.2);
         }
 
         // ── Coordinate transforms ─────────────────────────────────────────
 
+        // alpha (X) axis is ALWAYS linear
         private static int mapX(double v, double xMin, double xMax, int ox, int w) {
             if (xMax == xMin) return ox;
             return ox + (int)((v - xMin) / (xMax - xMin) * w);
         }
+
+        // D (Y) axis: linear or log depending on logY
         private int mapY(double v, double yMin, double yMax, int oy, int h) {
             if (logY) {
                 double lMin = safeLog(yMin), lMax = safeLog(yMax);
@@ -791,6 +602,7 @@ public class FullAnalysisPanel extends JPanel {
             if (yMax == yMin) return oy + h;
             return oy + h - (int)((v - yMin) / (yMax - yMin) * h);
         }
+
         private static double safeLog(double v) { return Math.log10(Math.max(v, 1e-300)); }
 
         // ── Grid ──────────────────────────────────────────────────────────
@@ -799,38 +611,45 @@ public class FullAnalysisPanel extends JPanel {
                                double xMin, double xMax, double yMin, double yMax,
                                int px, int py, int pw, int ph) {
             g2.setStroke(new BasicStroke(0.5f));
+
+            // X axis (alpha) is ALWAYS linear — never log
+            g2.setColor(new Color(220, 220, 220));
+            double xStep = niceStep(xMax - xMin, 6);
+            for (double t = Math.ceil(xMin/xStep)*xStep; t <= xMax+xStep*0.01; t += xStep)
+                g2.drawLine(mapX(t,xMin,xMax,px,pw), py,
+                            mapX(t,xMin,xMax,px,pw), py+ph);
+
+            // Y axis (D) is log or linear depending on logY
             if (logY) {
-                drawLogGrid(g2, xMin, xMax, true,  xMin, xMax, yMin, yMax, px, py, pw, ph);
-                drawLogGrid(g2, yMin, yMax, false, xMin, xMax, yMin, yMax, px, py, pw, ph);
+                drawLogGridY(g2, yMin, yMax, xMin, xMax, px, py, pw, ph);
             } else {
-                g2.setColor(new Color(220, 220, 220));
-                double xStep = niceStep(xMax - xMin, 6);
-                for (double t = Math.ceil(xMin/xStep)*xStep; t <= xMax+xStep*0.01; t += xStep)
-                    g2.drawLine(mapX(t,xMin,xMax,px,pw), py, mapX(t,xMin,xMax,px,pw), py+ph);
                 double yStep = niceStep(yMax - yMin, 5);
                 for (double t = Math.ceil(yMin/yStep)*yStep; t <= yMax+yStep*0.01; t += yStep)
-                    g2.drawLine(px, mapY(t,yMin,yMax,py,ph), px+pw, mapY(t,yMin,yMax,py,ph));
+                    g2.drawLine(px, mapY(t,yMin,yMax,py,ph),
+                                px+pw, mapY(t,yMin,yMax,py,ph));
             }
             g2.setStroke(new BasicStroke(1f));
         }
-        private void drawLogGrid(Graphics2D g2, double vMin, double vMax, boolean isX,
-                                  double xMin, double xMax, double yMin, double yMax,
-                                  int px, int py, int pw, int ph) {
-            int e0 = (int) Math.floor(safeLog(vMin));
-            int e1 = (int) Math.ceil (safeLog(vMax));
+
+        private void drawLogGridY(Graphics2D g2, double yMin, double yMax,
+                                   double xMin, double xMax,
+                                   int px, int py, int pw, int ph) {
+            int e0 = (int) Math.floor(safeLog(yMin));
+            int e1 = (int) Math.ceil (safeLog(yMax));
             for (int e = e0; e <= e1; e++) for (int m : new int[]{1,2,5}) {
                 double val = m * Math.pow(10, e);
-                if (val < vMin || val > vMax) continue;
+                if (val < yMin || val > yMax) continue;
                 boolean major = m == 1;
                 g2.setColor(major ? new Color(200,200,200) : new Color(230,230,230));
                 g2.setStroke(new BasicStroke(major ? 0.6f : 0.4f));
-                if (isX) g2.drawLine(mapX(val,xMin,xMax,px,pw), py, mapX(val,xMin,xMax,px,pw), py+ph);
-                else     g2.drawLine(px, mapY(val,yMin,yMax,py,ph), px+pw, mapY(val,yMin,yMax,py,ph));
+                g2.drawLine(px, mapY(val,yMin,yMax,py,ph),
+                            px+pw, mapY(val,yMin,yMax,py,ph));
             }
         }
 
         // ── Tick marks ────────────────────────────────────────────────────
 
+        // X ticks are always linear (alpha axis)
         private static void drawXTicks(Graphics2D g2,
                                         double xMin, double xMax,
                                         int px, int py, int pw, int ph) {
@@ -864,8 +683,7 @@ public class FullAnalysisPanel extends JPanel {
                     for (int m : new int[]{2,5}) {
                         double mv = m * v;
                         if (mv < yMin*0.999 || mv > yMax*1.001) continue;
-                        int mp = mapY(mv, yMin, yMax, py, ph);
-                        g2.drawLine(px-3, mp, px, mp);
+                        g2.drawLine(px-3, mapY(mv,yMin,yMax,py,ph), px, mapY(mv,yMin,yMax,py,ph));
                     }
                 }
             } else {
@@ -926,8 +744,8 @@ public class FullAnalysisPanel extends JPanel {
                 g2.drawOval(lx+pad, ry-9, 12, 12);
                 g2.setColor(Color.BLACK);
                 g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
-                g2.drawString(s.exp.name + " (" + COMP_LABELS[s.comp]
-                              + ", " + s.pts.size() + ")", lx+pad+18, ry);
+                g2.drawString(s.exp.name + " (" + COMP_LABELS[s.comp] + ", " + s.pts.size() + ")",
+                              lx+pad+18, ry);
             }
             g2.setStroke(new BasicStroke(1f));
         }
@@ -938,13 +756,11 @@ public class FullAnalysisPanel extends JPanel {
             g2.setColor(Color.BLACK); g2.setStroke(new BasicStroke(1f));
             g2.drawRect(px, py, pw, ph);
         }
-        private static void drawMsg(Graphics2D g2, String msg,
-                                     int px, int py, int pw, int ph) {
+        private static void drawMsg(Graphics2D g2, String msg, int px, int py, int pw, int ph) {
             g2.setColor(new Color(160,160,160));
             g2.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 13));
             FontMetrics fm = g2.getFontMetrics();
-            g2.drawString(msg, px+(pw-fm.stringWidth(msg))/2,
-                          py+ph/2+fm.getAscent()/2);
+            g2.drawString(msg, px+(pw-fm.stringWidth(msg))/2, py+ph/2+fm.getAscent()/2);
         }
         private static void drawHoverTooltip(Graphics2D g2, String text,
                                               int mx, int my, int W, int H) {
@@ -970,9 +786,7 @@ public class FullAnalysisPanel extends JPanel {
         }
         private static double niceStep(double range, int target) {
             if (range<=0) return 1;
-            double rough=range/target;
-            int e=(int)Math.floor(Math.log10(rough));
-            double base=Math.pow(10,e);
+            double rough=range/target, base=Math.pow(10,(int)Math.floor(Math.log10(rough)));
             for (double m : new double[]{1,2,2.5,5,10}) if (m*base>=rough) return m*base;
             return base*10;
         }
@@ -988,6 +802,11 @@ public class FullAnalysisPanel extends JPanel {
             double[] a = new double[n];
             for (int i=0; i<n; i++) a[i] = lo + (double)i/(n-1)*(hi-lo);
             return a;
+        }
+        private static List<Double> collectAlphas(List<double[]> pts) {
+            List<Double> out = new ArrayList<>(pts.size());
+            for (double[] pt : pts) out.add(pt[0]);
+            return out;
         }
         private static double[] toArray(List<Double> list) {
             double[] a = new double[list.size()];

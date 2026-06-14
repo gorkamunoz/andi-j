@@ -5,6 +5,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
+import java.io.*;
 import java.util.*;
 import java.util.List;
 
@@ -61,31 +62,122 @@ public class AnglesPanel extends JPanel {
         applyBtn.addActionListener(e -> polarPanel.repaint());
         binsField.addActionListener(e -> polarPanel.repaint());
 
-        // ── bottom: experiment toggles ───────────────────────────────────
-        JPanel expRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        // ── right column: experiment toggles + save ──────────────────────
+        add(buildSideColumn(), BorderLayout.EAST);
+
+        // Compute angles from raw tracks immediately
+        computeAngles();
+    }
+
+    // -----------------------------------------------------------------------
+    // Right-side experiment selector column
+    // -----------------------------------------------------------------------
+
+    private JComponent buildSideColumn() {
+        JPanel col = new JPanel();
+        col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
+        col.setBorder(new EmptyBorder(4, 4, 4, 4));
+
         List<JToggleButton> allBtns = new ArrayList<>();
         for (ExperimentData exp : experiments) {
             JToggleButton btn = new JToggleButton(exp.name, true);
             btn.setForeground(exp.color);
             btn.setFont(btn.getFont().deriveFont(Font.BOLD));
+            btn.setAlignmentX(Component.LEFT_ALIGNMENT);
+            btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+            btn.setFocusPainted(false);
             btn.addActionListener(e -> {
                 expVisible.put(exp, btn.isSelected());
                 polarPanel.repaint();
             });
-            expRow.add(btn);
+            col.add(btn);
+            col.add(Box.createVerticalStrut(3));
             allBtns.add(btn);
         }
+
         JButton deselectAll = new JButton("Deselect all");
+        deselectAll.setFont(deselectAll.getFont().deriveFont(Font.PLAIN, 10f));
+        deselectAll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        deselectAll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+        deselectAll.setFocusPainted(false);
         deselectAll.addActionListener(e -> {
             for (ExperimentData exp : experiments) expVisible.put(exp, false);
             allBtns.forEach(b -> b.setSelected(false));
             polarPanel.repaint();
         });
-        expRow.add(deselectAll);
-        add(expRow, BorderLayout.SOUTH);
+        col.add(Box.createVerticalStrut(6));
+        col.add(deselectAll);
 
-        // Compute angles from raw tracks immediately
-        computeAngles();
+        col.add(Box.createVerticalGlue());
+
+        JButton saveBtn = new JButton("Save angles…");
+        saveBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        saveBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+        saveBtn.setFocusPainted(false);
+        saveBtn.addActionListener(e -> saveAngles());
+        col.add(saveBtn);
+
+        JScrollPane scroll = new JScrollPane(col,
+            ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+            ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setPreferredSize(new Dimension(160, 0));
+        scroll.setBorder(BorderFactory.createTitledBorder("Experiments"));
+        return scroll;
+    }
+
+    // -----------------------------------------------------------------------
+    // Save turning angles (one row per angle, with its trajectory index)
+    // -----------------------------------------------------------------------
+
+    private void saveAngles() {
+        if (anglesMap.values().stream().allMatch(a -> a == null || a.length == 0)) {
+            JOptionPane.showMessageDialog(this,
+                "No turning angles available.",
+                "Save angles", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CSV files", "csv"));
+        fc.setDialogTitle("Save turning angles");
+        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+
+        File f = fc.getSelectedFile();
+        if (!f.getName().toLowerCase().endsWith(".csv"))
+            f = new File(f.getParent(), f.getName() + ".csv");
+
+        boolean multiExp = experiments.size() > 1;
+
+        try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
+            if (multiExp) pw.println("experiment,traj_idx,turning_angle_rad");
+            else          pw.println("traj_idx,turning_angle_rad");
+
+            for (ExperimentData exp : experiments) {
+                for (Map.Entry<Integer, List<double[]>> te : exp.tracks.entrySet()) {
+                    int            id    = te.getKey();
+                    List<double[]> spots = new ArrayList<>(te.getValue());
+                    spots.sort(Comparator.comparingDouble(s -> s[0]));
+                    for (int i = 1; i < spots.size() - 1; i++) {
+                        double dx1 = spots.get(i  )[1] - spots.get(i-1)[1];
+                        double dy1 = spots.get(i  )[2] - spots.get(i-1)[2];
+                        double dx2 = spots.get(i+1)[1] - spots.get(i  )[1];
+                        double dy2 = spots.get(i+1)[2] - spots.get(i  )[2];
+                        if (Math.hypot(dx1, dy1) < 1e-12) continue;
+                        if (Math.hypot(dx2, dy2) < 1e-12) continue;
+                        double angle = Math.atan2(dx1 * dy2 - dy1 * dx2,
+                                                  dx1 * dx2 + dy1 * dy2);
+                        if (angle < 0) angle += 2 * Math.PI;
+                        if (multiExp) pw.printf("%s,%d,%.6f%n", exp.name, id, angle);
+                        else          pw.printf("%d,%.6f%n", id, angle);
+                    }
+                }
+            }
+            ij.IJ.log("AnDi: turning angles saved → " + f.getAbsolutePath());
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                "Could not save file:\n" + ex.getMessage(),
+                "Save angles – error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -50,6 +50,17 @@ public class ExperimentData {
      */
     public double[][] emsdComp;
 
+    // -- predicted diffusion-model class (null until DiffusionModelPanel generates it) --
+    /**
+     * Predicted diffusion model per track: trackId → model index into
+     * {@link DiffusionModelPanel#MODEL_NAMES} (0=ATTM, 1=CTRW, 2=FBM, 3=SBM, 4=LW).
+     * Currently filled with random placeholder predictions until the real
+     * classifier model is trained. 2-D only.
+     */
+    public Map<Integer, Integer> diffModel;
+
+    public boolean hasDiffModel() { return diffModel != null && !diffModel.isEmpty(); }
+
     // -- legacy display flags (kept for any external reader; rendering uses TmsdPanel maps) --
     public boolean showAverage = true;
     public boolean showAll     = false;

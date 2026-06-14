@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * Main analysis window – a JFrame with a tabbed pane.
  * Tabs: TMSD Visualization, Diffusion coefficient, Anomalous exponent,
- *       D vs α scatter, Turning Angles.
+ *       D vs α scatter, Diffusion Model, Turning Angles.
  *
  * A "Manage Data" button floats at the right end of the tab bar so it
  * sits on the same horizontal line as the tab headers.
@@ -28,6 +28,8 @@ public class AnalysisWindow extends JFrame {
             new AnomalousExponentPanel(experiments));
         tabs.addTab("D vs α",
             new FullAnalysisPanel(experiments, initInterval));
+        tabs.addTab("Diffusion Model",
+            new DiffusionModelPanel(experiments));
         tabs.addTab("Turning Angles",
             new AnglesPanel(experiments));
 

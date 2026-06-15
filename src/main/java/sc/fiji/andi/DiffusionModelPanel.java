@@ -32,15 +32,19 @@ public class DiffusionModelPanel extends JPanel {
     public static final String[] MODEL_NAMES = {"ATTM", "CTRW", "FBM", "SBM", "LW"};
 
     private final List<ExperimentData>         experiments;
+    /** Working list = original experiments plus any tagged populations added later. */
+    private final List<ExperimentData>         shown      = new ArrayList<>();
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
 
     private final BarPanel barPanel;
+    private JComponent     sideColumn;
 
     // -----------------------------------------------------------------------
 
     DiffusionModelPanel(List<ExperimentData> experiments) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
+        this.shown.addAll(experiments);
         setBorder(new EmptyBorder(6, 6, 6, 6));
 
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
@@ -61,7 +65,29 @@ public class DiffusionModelPanel extends JPanel {
         add(barPanel, BorderLayout.CENTER);
 
         // ── right column: experiment toggles + save ──────────────────────
-        add(buildSideColumn(), BorderLayout.EAST);
+        sideColumn = buildSideColumn();
+        add(sideColumn, BorderLayout.EAST);
+    }
+
+    /**
+     * Adds a tagged population (from the D vs α tab) as a new dataset:
+     * it gets its own toggle in the right column and its own grouped bars.
+     */
+    void addPopulation(ExperimentData exp) {
+        if (shown.contains(exp)) return;
+        shown.add(exp);
+        expVisible.put(exp, true);
+        if (!exp.hasDiffModel()) {           // safety: parent predictions weren't copied
+            Random rnd = new Random(exp.name.hashCode() * 31L + exp.tracks.size());
+            Map<Integer, Integer> m = new LinkedHashMap<>();
+            for (Integer id : exp.tracks.keySet()) m.put(id, rnd.nextInt(MODEL_NAMES.length));
+            exp.diffModel = m;
+        }
+        remove(sideColumn);
+        sideColumn = buildSideColumn();
+        add(sideColumn, BorderLayout.EAST);
+        revalidate();
+        barPanel.repaint();
     }
 
     // -----------------------------------------------------------------------
@@ -74,8 +100,8 @@ public class DiffusionModelPanel extends JPanel {
         col.setBorder(new EmptyBorder(4, 4, 4, 4));
 
         List<JToggleButton> allBtns = new ArrayList<>();
-        for (ExperimentData exp : experiments) {
-            JToggleButton btn = new JToggleButton(exp.name, true);
+        for (ExperimentData exp : shown) {
+            JToggleButton btn = new JToggleButton(exp.name, expVisible.getOrDefault(exp, true));
             btn.setForeground(exp.color);
             btn.setFont(btn.getFont().deriveFont(Font.BOLD));
             btn.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -96,7 +122,7 @@ public class DiffusionModelPanel extends JPanel {
         deselectAll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
         deselectAll.setFocusPainted(false);
         deselectAll.addActionListener(e -> {
-            for (ExperimentData exp : experiments) expVisible.put(exp, false);
+            for (ExperimentData exp : shown) expVisible.put(exp, false);
             allBtns.forEach(b -> b.setSelected(false));
             barPanel.repaint();
         });
@@ -207,7 +233,7 @@ public class DiffusionModelPanel extends JPanel {
 
             // ── collect visible experiments with predictions ──────────────
             List<ExperimentData> visible = new ArrayList<>();
-            for (ExperimentData exp : experiments)
+            for (ExperimentData exp : shown)
                 if (expVisible.getOrDefault(exp, true) && exp.hasDiffModel())
                     visible.add(exp);
 

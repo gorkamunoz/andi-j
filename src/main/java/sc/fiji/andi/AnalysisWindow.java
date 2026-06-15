@@ -19,6 +19,18 @@ public class AnalysisWindow extends JFrame {
                           DataManagerWindow dataManager) {
         super("AnDi – Trajectory Analysis");
 
+        // Build the panels that receive tagged populations first, so the
+        // D vs α tab can push new populations to them via a callback.
+        final DiffusionModelPanel diffusionPanel = new DiffusionModelPanel(experiments);
+        final AnglesPanel         anglesPanel     = new AnglesPanel(experiments);
+
+        // Sink: a population created in D vs α appears as a new dataset in the
+        // Turning Angles and Diffusion Model tabs.
+        final java.util.function.Consumer<ExperimentData> populationSink = pop -> {
+            diffusionPanel.addPopulation(pop);
+            anglesPanel.addPopulation(pop);
+        };
+
         final JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("TMSD Visualization",
             new TmsdPanel(experiments, initMaxLag, initInterval));
@@ -27,11 +39,9 @@ public class AnalysisWindow extends JFrame {
         tabs.addTab("Anomalous exponent",
             new AnomalousExponentPanel(experiments));
         tabs.addTab("D vs α",
-            new FullAnalysisPanel(experiments, initInterval));
-        tabs.addTab("Diffusion Model",
-            new DiffusionModelPanel(experiments));
-        tabs.addTab("Turning Angles",
-            new AnglesPanel(experiments));
+            new FullAnalysisPanel(experiments, initInterval, populationSink));
+        tabs.addTab("Diffusion Model", diffusionPanel);
+        tabs.addTab("Turning Angles",  anglesPanel);
 
         // ── "Manage Data" button overlaid on the tab bar ──────────────────
         final JButton manageBtn = new JButton("Manage Data ▶");

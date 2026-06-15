@@ -5,8 +5,10 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Path2D;
 import java.util.*;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * "D vs α" tab.
@@ -15,14 +17,19 @@ import java.util.List;
  *   X axis → anomalous exponent α   (from the Anomalous exponent tab)
  *   Y axis → diffusion coefficient D (from the Diffusion coefficient tab)
  *
- * D and α values are read directly from the pre-computed
- * {@link ExperimentData#dCoeffs} and {@link ExperimentData#alphaCoeffs}.
- * To change the lag range or frame interval used for each quantity,
- * visit the respective tab and click Compute there.
+ * <p>D and α values are read directly from the pre-computed
+ * {@link ExperimentData#dCoeffs} and {@link ExperimentData#alphaCoeffs}.</p>
  *
- * Marginal KDE strips are always shown along the top (α) and right (D)
- * edges of the plot, tracking zoom and pan automatically.
- * Rubber-band zoom, drag-to-pan, double-click reset.
+ * <h3>Population tagging</h3>
+ * In <b>Select</b> mode the user circles (lassos) a region of the scatter;
+ * the enclosed trajectories can then be saved as a named population via the
+ * "Save population with tag:" row at the bottom.  Tagged points are recoloured
+ * to a lighter shade of their parent experiment's colour, get their own
+ * marginal-KDE curve, and are pushed to the Turning Angles and Diffusion Model
+ * tabs as a new dataset.
+ *
+ * <p>Marginal KDE strips along the top (α) and right (D) edges track zoom/pan
+ * and are recomputed every repaint, so tagged populations appear automatically.</p>
  */
 public class FullAnalysisPanel extends JPanel {
 
@@ -30,13 +37,29 @@ public class FullAnalysisPanel extends JPanel {
     private final Map<ExperimentData, Set<Integer>> componentSelection = new LinkedHashMap<>();
     private final List<JToggleButton>               allCompButtons     = new ArrayList<>();
 
+    /** Committed tagged populations (shared with the scatter panel). */
+    private final List<Population> populations = new ArrayList<>();
+    /** How many populations already created per parent – used to pick distinct shades. */
+    private final Map<ExperimentData, Integer> popCountByParent = new LinkedHashMap<>();
+
+    /** Sink that receives each new population as an ExperimentData (Angles + Diffusion tabs). */
+    private final Consumer<ExperimentData> populationSink;
+
     private final ScatterPanel scatterPanel;
+    private final JTextField   tagField;
+    private final JLabel       selStatus;
 
     // -----------------------------------------------------------------------
 
     FullAnalysisPanel(List<ExperimentData> experiments, double initInterval) {
+        this(experiments, initInterval, null);
+    }
+
+    FullAnalysisPanel(List<ExperimentData> experiments, double initInterval,
+                      Consumer<ExperimentData> populationSink) {
         super(new BorderLayout(0, 4));
-        this.experiments = experiments;
+        this.experiments    = experiments;
+        this.populationSink = populationSink;
         setBorder(new EmptyBorder(6, 6, 6, 6));
 
         for (ExperimentData exp : experiments) {
@@ -55,28 +78,32 @@ public class FullAnalysisPanel extends JPanel {
         add(infoLabel, BorderLayout.NORTH);
 
         // ── scatter canvas ───────────────────────────────────────────────
-        scatterPanel = new ScatterPanel(experiments, componentSelection);
+        scatterPanel = new ScatterPanel(experiments, componentSelection, populations);
+        scatterPanel.setSelectionListener(this::updateSelStatus);
 
         // ── view toolbar ─────────────────────────────────────────────────
-        JToggleButton zoomBtn      = new JToggleButton("⊕ Zoom", true);
-        JToggleButton panBtn       = new JToggleButton("✥ Pan",  false);
+        JToggleButton zoomBtn      = new JToggleButton("⊕ Zoom",  true);
+        JToggleButton panBtn       = new JToggleButton("✥ Pan",   false);
+        JToggleButton selectBtn    = new JToggleButton("◌ Select", false);
         JButton       resetViewBtn = new JButton("↺ Reset view");
         JCheckBox     logYBox      = new JCheckBox("Log D axis", true);
         ButtonGroup   bg           = new ButtonGroup();
-        bg.add(zoomBtn); bg.add(panBtn);
-        for (AbstractButton b : new AbstractButton[]{zoomBtn, panBtn, resetViewBtn, logYBox}) {
+        bg.add(zoomBtn); bg.add(panBtn); bg.add(selectBtn);
+        for (AbstractButton b : new AbstractButton[]{zoomBtn, panBtn, selectBtn, resetViewBtn, logYBox}) {
             b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
             b.setFocusPainted(false);
         }
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        toolbar.add(zoomBtn); toolbar.add(panBtn); toolbar.add(resetViewBtn);
+        toolbar.add(zoomBtn); toolbar.add(panBtn); toolbar.add(selectBtn);
+        toolbar.add(resetViewBtn);
         toolbar.add(Box.createHorizontalStrut(12));
         toolbar.add(logYBox);
 
-        zoomBtn     .addActionListener(e -> scatterPanel.setPanMode(false));
-        panBtn      .addActionListener(e -> scatterPanel.setPanMode(true));
+        zoomBtn  .addActionListener(e -> { scatterPanel.setPanMode(false); scatterPanel.setSelectMode(false); });
+        panBtn   .addActionListener(e -> scatterPanel.setPanMode(true));
+        selectBtn.addActionListener(e -> scatterPanel.setSelectMode(true));
         resetViewBtn.addActionListener(e -> { scatterPanel.resetViewport(); scatterPanel.repaint(); });
-        logYBox     .addActionListener(e -> { scatterPanel.setLogY(logYBox.isSelected()); scatterPanel.repaint(); });
+        logYBox  .addActionListener(e -> { scatterPanel.setLogY(logYBox.isSelected()); scatterPanel.repaint(); });
 
         JPanel centerArea = new JPanel(new BorderLayout(0, 2));
         centerArea.add(toolbar,      BorderLayout.NORTH);
@@ -92,8 +119,114 @@ public class FullAnalysisPanel extends JPanel {
         split.setResizeWeight(0.0);
         add(split, BorderLayout.CENTER);
 
+        // ── bottom: save-population row ────────────────────────────────────
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+        bottom.setBorder(BorderFactory.createEtchedBorder());
+        bottom.add(new JLabel("Save population with tag:"));
+        tagField = new JTextField(12);
+        bottom.add(tagField);
+        JButton savePopBtn = new JButton("Save population");
+        bottom.add(savePopBtn);
+        selStatus = new JLabel(" ");
+        selStatus.setForeground(new Color(90, 90, 90));
+        bottom.add(selStatus);
+        add(bottom, BorderLayout.SOUTH);
+
+        savePopBtn.addActionListener(e -> savePopulation());
+        tagField.addActionListener(e -> savePopulation());
+
         if (experiments.stream().anyMatch(exp -> exp.hasD() && exp.hasAlpha()))
             scatterPanel.repaint();
+    }
+
+    // -----------------------------------------------------------------------
+    // Population tagging
+    // -----------------------------------------------------------------------
+
+    private void updateSelStatus() {
+        int n = 0;
+        for (Set<Integer> s : scatterPanel.getPendingSelection().values()) n += s.size();
+        selStatus.setText(n == 0 ? " " : "(" + n + " trajectories selected — enter a tag and Save)");
+    }
+
+    private void savePopulation() {
+        Map<ExperimentData, Set<Integer>> sel = scatterPanel.getPendingSelection();
+        int n = 0;
+        for (Set<Integer> s : sel.values()) n += s.size();
+        if (n == 0) {
+            JOptionPane.showMessageDialog(this,
+                "Switch to Select mode and circle some points first.",
+                "Save population", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        String tag = tagField.getText().trim();
+        if (tag.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                "Enter a tag name for this population.",
+                "Save population", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // One tag per trajectory: drop these ids from any earlier population
+        for (Population p : populations)
+            for (Map.Entry<ExperimentData, Set<Integer>> e : sel.entrySet())
+                if (p.members.containsKey(e.getKey()))
+                    p.members.get(e.getKey()).removeAll(e.getValue());
+
+        Map<ExperimentData, Set<Integer>> members = new LinkedHashMap<>();
+        Map<ExperimentData, Color>        colors  = new LinkedHashMap<>();
+        for (Map.Entry<ExperimentData, Set<Integer>> e : sel.entrySet()) {
+            if (e.getValue().isEmpty()) continue;
+            members.put(e.getKey(), new LinkedHashSet<>(e.getValue()));
+            int k = popCountByParent.merge(e.getKey(), 1, Integer::sum) - 1;
+            colors.put(e.getKey(), tint(e.getKey().color, k));
+        }
+        if (members.isEmpty()) return;
+
+        Population pop = new Population(tag, members, colors);
+        populations.add(pop);
+        scatterPanel.clearPending();
+        tagField.setText("");
+        updateSelStatus();
+        scatterPanel.repaint();
+
+        if (populationSink != null)
+            populationSink.accept(buildPopulationDataset(pop));
+    }
+
+    /** Builds a standalone ExperimentData subset for the Angles / Diffusion tabs. */
+    private static ExperimentData buildPopulationDataset(Population pop) {
+        Map<Integer, List<double[]>> tracks = new LinkedHashMap<>();
+        Map<Integer, Integer>        diff   = new LinkedHashMap<>();
+        boolean single = pop.members.size() == 1;
+        int nextId = 0;
+        ExperimentData firstParent = pop.members.keySet().iterator().next();
+
+        for (Map.Entry<ExperimentData, Set<Integer>> e : pop.members.entrySet()) {
+            ExperimentData parent = e.getKey();
+            for (Integer id : e.getValue()) {
+                List<double[]> tr = parent.tracks.get(id);
+                if (tr == null) continue;
+                int newId = single ? id : nextId++;
+                tracks.put(newId, tr);   // shared reference – read-only downstream
+                if (parent.diffModel != null && parent.diffModel.containsKey(id))
+                    diff.put(newId, parent.diffModel.get(id));
+            }
+        }
+
+        Color col = pop.colors.getOrDefault(firstParent, firstParent.color);
+        ExperimentData ds = new ExperimentData(pop.tag, tracks, col,
+                                               firstParent.estimatedInterval);
+        if (!diff.isEmpty()) ds.diffModel = diff;
+        return ds;
+    }
+
+    /** A lighter, hue-preserving shade of {@code base} for population index {@code k}. */
+    static Color tint(Color base, int k) {
+        float[] hsb = Color.RGBtoHSB(base.getRed(), base.getGreen(), base.getBlue(), null);
+        float sat = Math.max(0f, hsb[1] * (1f - 0.20f * (k + 1)));
+        float bri = Math.min(1f, hsb[2] + (1f - hsb[2]) * (0.35f + 0.12f * k));
+        return Color.getHSBColor(hsb[0], sat, bri);
     }
 
     // -----------------------------------------------------------------------
@@ -167,6 +300,23 @@ public class FullAnalysisPanel extends JPanel {
     }
 
     // =======================================================================
+    // Population model
+    // =======================================================================
+
+    /** A user-tagged group of trajectories, possibly spanning several parents. */
+    static class Population {
+        final String                          tag;
+        final Map<ExperimentData, Set<Integer>> members;  // parent → trackIds
+        final Map<ExperimentData, Color>        colors;   // parent → shade
+
+        Population(String tag,
+                   Map<ExperimentData, Set<Integer>> members,
+                   Map<ExperimentData, Color> colors) {
+            this.tag = tag; this.members = members; this.colors = colors;
+        }
+    }
+
+    // =======================================================================
     // Scatter-plot canvas
     // =======================================================================
 
@@ -174,6 +324,7 @@ public class FullAnalysisPanel extends JPanel {
 
         private final List<ExperimentData>              experiments;
         private final Map<ExperimentData, Set<Integer>> componentSel;
+        private final List<Population>                  populations;
 
         private boolean logY = true;
 
@@ -183,7 +334,6 @@ public class FullAnalysisPanel extends JPanel {
         private static final int MT = 72;   // top   (alpha marginal strip)
         private static final int MR = 80;   // right (D marginal strip)
 
-        // Marginal strip dimensions (within MT / MR)
         private static final int MARG_H = 60; // alpha marginal height
         private static final int MARG_W = 62; // D marginal width
 
@@ -195,35 +345,58 @@ public class FullAnalysisPanel extends JPanel {
         private double renderYMin = 1e-4, renderYMax = 1;
         private int    renderPx = ML, renderPy = MT, renderPw = 400, renderPh = 300;
 
+        // modes
+        private boolean panMode    = false;
+        private boolean selectMode = false;
+
         // zoom / pan
-        private boolean panMode  = false;
         private boolean dragging = false;
         private int     dragX0, dragY0, dragX1, dragY1;
         private boolean panning  = false;
         private int     panX0, panY0;
         private double  panInitXMin, panInitXMax, panInitYMin, panInitYMax;
 
+        // lasso selection
+        private boolean        selecting = false;
+        private List<double[]> lassoPts  = null;   // pixel points
+        private final Map<ExperimentData, Set<Integer>> pendingSel = new LinkedHashMap<>();
+        private Runnable selectionListener;
+
+        private List<Series> lastSeries = new ArrayList<>();
+
         private int hoverPx = -1, hoverPy = -1;
         private static final int PT_R = 4;
 
         // ── One series ───────────────────────────────────────────────────
         private static class Series {
-            final ExperimentData exp;
+            final ExperimentData parentExp;  // underlying experiment (selection + lookup)
+            final Object         groupKey;   // exp (untagged) or Population (tagged)
+            final String         label;      // legend
             final int            comp;
             final Color          color;
-            final List<double[]> pts = new ArrayList<>(); // {alpha, D}
-            Series(ExperimentData exp, int comp) {
-                this.exp = exp; this.comp = comp;
-                this.color = compColor(exp.color, comp);
+            final List<double[]> pts = new ArrayList<>(); // {alpha, D, id}
+            Series(ExperimentData parentExp, Object groupKey, String label, int comp, Color color) {
+                this.parentExp = parentExp; this.groupKey = groupKey;
+                this.label = label; this.comp = comp; this.color = color;
             }
+        }
+
+        /** Accumulates per-group values for the marginal KDEs. */
+        private static class MarginGroup {
+            final Color color;
+            final List<Double> alphas = new ArrayList<>();
+            final List<Double> ds     = new ArrayList<>();
+            MarginGroup(Color c) { this.color = c; }
         }
 
         // ────────────────────────────────────────────────────────────────
 
         ScatterPanel(List<ExperimentData> exps,
-                     Map<ExperimentData, Set<Integer>> sel) {
+                     Map<ExperimentData, Set<Integer>> sel,
+                     List<Population> populations) {
             this.experiments = exps;
             this.componentSel = sel;
+            this.populations  = populations;
             setBackground(new Color(240, 240, 240));
             setPreferredSize(new Dimension(600, 460));
             setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
@@ -232,10 +405,24 @@ public class FullAnalysisPanel extends JPanel {
 
         void setLogY(boolean on)   { if (logY != on) { logY = on; viewport = null; } }
         void resetViewport()       { viewport = null; }
+        void setSelectionListener(Runnable r) { this.selectionListener = r; }
+
+        Map<ExperimentData, Set<Integer>> getPendingSelection() { return pendingSel; }
+        void clearPending() { pendingSel.clear(); lassoPts = null; }
+
         void setPanMode(boolean pan) {
             panMode = pan;
-            setCursor(pan ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                          : Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+            if (pan) selectMode = false;
+            updateCursor();
+        }
+        void setSelectMode(boolean sel) {
+            selectMode = sel;
+            if (sel) panMode = false;
+            updateCursor();
+        }
+        private void updateCursor() {
+            setCursor(Cursor.getPredefinedCursor(
+                panMode ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR));
         }
 
         // ── Mouse ─────────────────────────────────────────────────────────
@@ -243,19 +430,27 @@ public class FullAnalysisPanel extends JPanel {
         private void addMouseInteraction() {
             MouseAdapter ma = new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent e) {
-                    if (!panMode) {
-                        dragging = true;
-                        dragX0 = dragX1 = clamp(e.getX(), renderPx, renderPx + renderPw);
-                        dragY0 = dragY1 = clamp(e.getY(), renderPy, renderPy + renderPh);
-                    } else {
+                    if (selectMode) {
+                        selecting = true;
+                        pendingSel.clear();
+                        lassoPts = new ArrayList<>();
+                        lassoPts.add(new double[]{e.getX(), e.getY()});
+                    } else if (panMode) {
                         panning = true;
                         panX0 = e.getX(); panY0 = e.getY();
                         panInitXMin = renderXMin; panInitXMax = renderXMax;
                         panInitYMin = renderYMin; panInitYMax = renderYMax;
+                    } else {
+                        dragging = true;
+                        dragX0 = dragX1 = clamp(e.getX(), renderPx, renderPx + renderPw);
+                        dragY0 = dragY1 = clamp(e.getY(), renderPy, renderPy + renderPh);
                     }
                 }
                 @Override public void mouseDragged(MouseEvent e) {
-                    if (dragging) {
+                    if (selecting) {
+                        lassoPts.add(new double[]{e.getX(), e.getY()});
+                        repaint();
+                    } else if (dragging) {
                         dragX1 = clamp(e.getX(), renderPx, renderPx + renderPw);
                         dragY1 = clamp(e.getY(), renderPy, renderPy + renderPh);
                         repaint();
@@ -277,7 +472,12 @@ public class FullAnalysisPanel extends JPanel {
                     }
                 }
                 @Override public void mouseReleased(MouseEvent e) {
-                    if (dragging) {
+                    if (selecting) {
+                        selecting = false;
+                        computeLassoSelection();
+                        if (selectionListener != null) selectionListener.run();
+                        repaint();
+                    } else if (dragging) {
                         dragging = false;
                         int x0 = Math.min(dragX0, dragX1), x1 = Math.max(dragX0, dragX1);
                         int y0 = Math.min(dragY0, dragY1), y1 = Math.max(dragY0, dragY1);
@@ -291,7 +491,7 @@ public class FullAnalysisPanel extends JPanel {
                     } else if (panning) { panning = false; }
                 }
                 @Override public void mouseClicked(MouseEvent e) {
-                    if (e.getClickCount() == 2) { viewport = null; repaint(); }
+                    if (e.getClickCount() == 2 && !selectMode) { viewport = null; repaint(); }
                 }
                 @Override public void mouseMoved(MouseEvent e) {
                     hoverPx = e.getX(); hoverPy = e.getY(); repaint();
@@ -301,6 +501,25 @@ public class FullAnalysisPanel extends JPanel {
                 }
             };
             addMouseListener(ma); addMouseMotionListener(ma);
+        }
+
+        private void computeLassoSelection() {
+            if (lassoPts == null || lassoPts.size() < 3) return;
+            Path2D path = new Path2D.Double();
+            path.moveTo(lassoPts.get(0)[0], lassoPts.get(0)[1]);
+            for (int i = 1; i < lassoPts.size(); i++)
+                path.lineTo(lassoPts.get(i)[0], lassoPts.get(i)[1]);
+            path.closePath();
+
+            for (Series s : lastSeries) {
+                for (double[] pt : s.pts) {
+                    int cx = mapX(pt[0], renderXMin, renderXMax, renderPx, renderPw);
+                    int cy = mapY(pt[1], renderYMin, renderYMax, renderPy, renderPh);
+                    if (path.contains(cx, cy))
+                        pendingSel.computeIfAbsent(s.parentExp, k -> new LinkedHashSet<>())
+                                  .add((int) pt[2]);
+                }
+            }
         }
 
         private double pxToDataX(int px) {
@@ -316,6 +535,62 @@ public class FullAnalysisPanel extends JPanel {
             return renderYMin + frac * (renderYMax - renderYMin);
         }
         private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
+
+        // ── Series construction ────────────────────────────────────────────
+
+        /** trackIds of {@code exp} that belong to any committed population. */
+        private Set<Integer> taggedIds(ExperimentData exp) {
+            Set<Integer> out = new HashSet<>();
+            for (Population p : populations) {
+                Set<Integer> m = p.members.get(exp);
+                if (m != null) out.addAll(m);
+            }
+            return out;
+        }
+
+        private List<Series> buildSeries() {
+            List<Series> seriesList = new ArrayList<>();
+
+            // Parent experiments (untagged points only)
+            for (ExperimentData exp : experiments) {
+                if (!exp.hasD() || !exp.hasAlpha()) continue;
+                Set<Integer> tagged = taggedIds(exp);
+                for (int comp : componentSel.getOrDefault(exp, Collections.emptySet())) {
+                    Series s = new Series(exp, exp, exp.name, comp, compColor(exp.color, comp));
+                    for (Integer id : exp.dCoeffs.keySet()) {
+                        if (tagged.contains(id)) continue;
+                        addPoint(s, exp, id, comp);
+                    }
+                    if (!s.pts.isEmpty()) seriesList.add(s);
+                }
+            }
+
+            // Tagged populations (shade of parent colour, following parent's components)
+            for (Population pop : populations) {
+                for (Map.Entry<ExperimentData, Set<Integer>> me : pop.members.entrySet()) {
+                    ExperimentData exp = me.getKey();
+                    if (!exp.hasD() || !exp.hasAlpha()) continue;
+                    Color shade = pop.colors.getOrDefault(exp, exp.color);
+                    for (int comp : componentSel.getOrDefault(exp, Collections.emptySet())) {
+                        Series s = new Series(exp, pop, pop.tag, comp, compColor(shade, comp));
+                        for (Integer id : me.getValue())
+                            addPoint(s, exp, id, comp);
+                        if (!s.pts.isEmpty()) seriesList.add(s);
+                    }
+                }
+            }
+            return seriesList;
+        }
+
+        private void addPoint(Series s, ExperimentData exp, int id, int comp) {
+            double[] d = exp.dCoeffs.get(id);
+            double[] a = exp.alphaCoeffs.get(id);
+            if (d == null || a == null) return;
+            double dv = d[comp], av = a[comp];
+            if (Double.isFinite(dv) && Double.isFinite(av)
+                    && dv >= 0 && av >= 0 && av <= 2 && (!logY || dv > 0))
+                s.pts.add(new double[]{av, dv, id});
+        }
 
         // ── Paint ─────────────────────────────────────────────────────────
 
@@ -342,25 +617,8 @@ public class FullAnalysisPanel extends JPanel {
                 g2.dispose(); return;
             }
 
-            // ── Build series ──────────────────────────────────────────────
-            List<Series> seriesList = new ArrayList<>();
-            for (ExperimentData exp : experiments) {
-                if (!exp.hasD() || !exp.hasAlpha()) continue;
-                for (int comp : componentSel.getOrDefault(exp, Collections.emptySet())) {
-                    Series s = new Series(exp, comp);
-                    for (Integer id : exp.dCoeffs.keySet()) {
-                        double[] d = exp.dCoeffs.get(id);
-                        double[] a = exp.alphaCoeffs.get(id);
-                        if (a == null) continue;
-                        double dv = d[comp], av = a[comp];
-                        if (Double.isFinite(dv) && Double.isFinite(av)
-                                && dv >= 0 && av >= 0 && av <= 2
-                                && (!logY || dv > 0))
-                            s.pts.add(new double[]{av, dv});
-                    }
-                    if (!s.pts.isEmpty()) seriesList.add(s);
-                }
-            }
+            List<Series> seriesList = buildSeries();
+            lastSeries = seriesList;
 
             if (seriesList.isEmpty()) {
                 drawMsg(g2, "No components selected", px, py, pw, ph);
@@ -421,6 +679,21 @@ public class FullAnalysisPanel extends JPanel {
                     g2.drawOval(cx-PT_R, cy-PT_R, PT_R*2, PT_R*2);
                 }
             }
+            // pending-selection highlight rings
+            if (!pendingSel.isEmpty()) {
+                g2.setColor(new Color(20, 20, 20));
+                g2.setStroke(new BasicStroke(1.6f));
+                for (Series s : seriesList) {
+                    Set<Integer> psel = pendingSel.get(s.parentExp);
+                    if (psel == null || psel.isEmpty()) continue;
+                    for (double[] pt : s.pts) {
+                        if (!psel.contains((int) pt[2])) continue;
+                        int cx = mapX(pt[0], dispXMin, dispXMax, px, pw);
+                        int cy = mapY(pt[1], dispYMin, dispYMax, py, ph);
+                        g2.drawOval(cx-PT_R-2, cy-PT_R-2, (PT_R+2)*2, (PT_R+2)*2);
+                    }
+                }
+            }
             g2.setClip(null);
             g2.setStroke(new BasicStroke(1f));
 
@@ -430,17 +703,36 @@ public class FullAnalysisPanel extends JPanel {
             drawAxisTitles(g2, px, py, pw, ph);
             drawLegend(g2, seriesList, px, py, pw, ph);
 
-            // ── Marginal KDE strips (always visible) ──────────────────────
-            drawAlphaMarginal(g2, seriesList, dispXMin, dispXMax, px, py, pw, ph);
-            drawDMarginal    (g2, seriesList, dispYMin, dispYMax, px, py, pw, ph);
+            // ── Marginal KDE strips (grouped by series group key) ─────────
+            List<MarginGroup> groups = buildMarginGroups(seriesList);
+            drawAlphaMarginal(g2, groups, dispXMin, dispXMax, px, py, pw, ph);
+            drawDMarginal    (g2, groups, dispYMin, dispYMax, px, py, pw, ph);
 
-            // ── Rubber-band ───────────────────────────────────────────────
-            if (dragging && !panMode) {
+            // ── Rubber-band (zoom) ────────────────────────────────────────
+            if (dragging && !panMode && !selectMode) {
                 int rx = Math.min(dragX0, dragX1), ry = Math.min(dragY0, dragY1);
                 int rw = Math.abs(dragX1 - dragX0), rh = Math.abs(dragY1 - dragY0);
                 g2.setColor(new Color(0,100,255,40));   g2.fillRect(rx,ry,rw,rh);
                 g2.setColor(new Color(0,100,255,200));  g2.setStroke(new BasicStroke(1f));
                 g2.drawRect(rx, ry, rw, rh);
+            }
+
+            // ── Lasso outline ─────────────────────────────────────────────
+            if (selecting && lassoPts != null && lassoPts.size() > 1) {
+                Shape oldClip = g2.getClip();
+                g2.setClip(px, py, pw, ph);
+                Path2D path = new Path2D.Double();
+                path.moveTo(lassoPts.get(0)[0], lassoPts.get(0)[1]);
+                for (int i = 1; i < lassoPts.size(); i++)
+                    path.lineTo(lassoPts.get(i)[0], lassoPts.get(i)[1]);
+                g2.setColor(new Color(0, 110, 255, 30));
+                g2.fill(path);
+                g2.setColor(new Color(0, 90, 220, 220));
+                g2.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                        1f, new float[]{5f, 4f}, 0f));
+                g2.draw(path);
+                g2.setClip(oldClip);
+                g2.setStroke(new BasicStroke(1f));
             }
 
             // ── Hover tooltip ─────────────────────────────────────────────
@@ -456,7 +748,17 @@ public class FullAnalysisPanel extends JPanel {
 
         // ── Marginal KDE strips ───────────────────────────────────────────
 
-        private void drawAlphaMarginal(Graphics2D g2, List<Series> seriesList,
+        private List<MarginGroup> buildMarginGroups(List<Series> seriesList) {
+            LinkedHashMap<Object, MarginGroup> m = new LinkedHashMap<>();
+            for (Series s : seriesList) {
+                MarginGroup g = m.get(s.groupKey);
+                if (g == null) { g = new MarginGroup(s.color); m.put(s.groupKey, g); }
+                for (double[] pt : s.pts) { g.alphas.add(pt[0]); g.ds.add(pt[1]); }
+            }
+            return new ArrayList<>(m.values());
+        }
+
+        private void drawAlphaMarginal(Graphics2D g2, List<MarginGroup> groups,
                                         double xMin, double xMax,
                                         int px, int py, int pw, int ph) {
             int stripY = MT - MARG_H;
@@ -469,18 +771,13 @@ public class FullAnalysisPanel extends JPanel {
             g2.setStroke(new BasicStroke(0.7f));
             g2.drawRect(px, stripY, pw, stripH);
 
-            Map<ExperimentData, List<Double>> expAlphas = new LinkedHashMap<>();
-            for (Series s : seriesList)
-                expAlphas.computeIfAbsent(s.exp, k -> new ArrayList<>())
-                         .addAll(collectAlphas(s.pts));
-
             int nEval = 100;
             double[] evalPts = linspace(xMin, xMax, nEval);
             Shape oldClip = g2.getClip();
             g2.setClip(px, stripY, pw, stripH);
 
-            for (Map.Entry<ExperimentData, List<Double>> entry : expAlphas.entrySet()) {
-                double[] vals = toArray(entry.getValue());
+            for (MarginGroup grp : groups) {
+                double[] vals = toArray(grp.alphas);
                 if (vals.length < 2) continue;
                 double[] kde = gaussianKde1D(vals, evalPts, silvermanBw(vals));
                 double kdeMax = arrayMax(kde);
@@ -495,7 +792,7 @@ public class FullAnalysisPanel extends JPanel {
                 xs[nEval] = xs[nEval-1]; ys[nEval] = stripY + stripH;
                 xs[nEval+1] = xs[0];     ys[nEval+1] = stripY + stripH;
 
-                Color c = entry.getKey().color;
+                Color c = grp.color;
                 g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 55));
                 g2.fillPolygon(xs, ys, nEval + 2);
                 g2.setColor(c);
@@ -506,7 +803,7 @@ public class FullAnalysisPanel extends JPanel {
             g2.setStroke(new BasicStroke(1f));
         }
 
-        private void drawDMarginal(Graphics2D g2, List<Series> seriesList,
+        private void drawDMarginal(Graphics2D g2, List<MarginGroup> groups,
                                     double yMin, double yMax,
                                     int px, int py, int pw, int ph) {
             int stripX = px + pw + 6;
@@ -523,18 +820,15 @@ public class FullAnalysisPanel extends JPanel {
             double evalMax = logY ? safeLog(yMax) : yMax;
             double[] evalPts = linspace(evalMin, evalMax, 100);
 
-            Map<ExperimentData, List<Double>> expDs = new LinkedHashMap<>();
-            for (Series s : seriesList) {
-                List<Double> dl = expDs.computeIfAbsent(s.exp, k -> new ArrayList<>());
-                for (double[] pt : s.pts)
-                    dl.add(logY ? safeLog(pt[1]) : pt[1]);
-            }
-
             Shape oldClip = g2.getClip();
             g2.setClip(stripX, py, stripW, ph);
 
-            for (Map.Entry<ExperimentData, List<Double>> entry : expDs.entrySet()) {
-                double[] vals = toArray(entry.getValue());
+            for (MarginGroup grp : groups) {
+                // transform D values to log space if needed
+                List<Double> raw = grp.ds;
+                double[] vals = new double[raw.size()];
+                for (int i = 0; i < raw.size(); i++)
+                    vals[i] = logY ? safeLog(raw.get(i)) : raw.get(i);
                 if (vals.length < 2) continue;
                 double[] kde = gaussianKde1D(vals, evalPts, silvermanBw(vals));
                 double kdeMax = arrayMax(kde);
@@ -551,7 +845,7 @@ public class FullAnalysisPanel extends JPanel {
                 xs[nEval] = stripX; ys[nEval] = ys[nEval-1];
                 xs[nEval+1] = stripX; ys[nEval+1] = ys[0];
 
-                Color c = entry.getKey().color;
+                Color c = grp.color;
                 g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 55));
                 g2.fillPolygon(xs, ys, nEval + 2);
                 g2.setColor(c);
@@ -586,13 +880,10 @@ public class FullAnalysisPanel extends JPanel {
 
         // ── Coordinate transforms ─────────────────────────────────────────
 
-        // alpha (X) axis is ALWAYS linear
         private static int mapX(double v, double xMin, double xMax, int ox, int w) {
             if (xMax == xMin) return ox;
             return ox + (int)((v - xMin) / (xMax - xMin) * w);
         }
-
-        // D (Y) axis: linear or log depending on logY
         private int mapY(double v, double yMin, double yMax, int oy, int h) {
             if (logY) {
                 double lMin = safeLog(yMin), lMax = safeLog(yMax);
@@ -602,7 +893,6 @@ public class FullAnalysisPanel extends JPanel {
             if (yMax == yMin) return oy + h;
             return oy + h - (int)((v - yMin) / (yMax - yMin) * h);
         }
-
         private static double safeLog(double v) { return Math.log10(Math.max(v, 1e-300)); }
 
         // ── Grid ──────────────────────────────────────────────────────────
@@ -611,28 +901,22 @@ public class FullAnalysisPanel extends JPanel {
                                double xMin, double xMax, double yMin, double yMax,
                                int px, int py, int pw, int ph) {
             g2.setStroke(new BasicStroke(0.5f));
-
-            // X axis (alpha) is ALWAYS linear — never log
             g2.setColor(new Color(220, 220, 220));
             double xStep = niceStep(xMax - xMin, 6);
             for (double t = Math.ceil(xMin/xStep)*xStep; t <= xMax+xStep*0.01; t += xStep)
-                g2.drawLine(mapX(t,xMin,xMax,px,pw), py,
-                            mapX(t,xMin,xMax,px,pw), py+ph);
+                g2.drawLine(mapX(t,xMin,xMax,px,pw), py, mapX(t,xMin,xMax,px,pw), py+ph);
 
-            // Y axis (D) is log or linear depending on logY
             if (logY) {
-                drawLogGridY(g2, yMin, yMax, xMin, xMax, px, py, pw, ph);
+                drawLogGridY(g2, yMin, yMax, px, py, pw, ph);
             } else {
                 double yStep = niceStep(yMax - yMin, 5);
                 for (double t = Math.ceil(yMin/yStep)*yStep; t <= yMax+yStep*0.01; t += yStep)
-                    g2.drawLine(px, mapY(t,yMin,yMax,py,ph),
-                                px+pw, mapY(t,yMin,yMax,py,ph));
+                    g2.drawLine(px, mapY(t,yMin,yMax,py,ph), px+pw, mapY(t,yMin,yMax,py,ph));
             }
             g2.setStroke(new BasicStroke(1f));
         }
 
         private void drawLogGridY(Graphics2D g2, double yMin, double yMax,
-                                   double xMin, double xMax,
                                    int px, int py, int pw, int ph) {
             int e0 = (int) Math.floor(safeLog(yMin));
             int e1 = (int) Math.ceil (safeLog(yMax));
@@ -642,14 +926,12 @@ public class FullAnalysisPanel extends JPanel {
                 boolean major = m == 1;
                 g2.setColor(major ? new Color(200,200,200) : new Color(230,230,230));
                 g2.setStroke(new BasicStroke(major ? 0.6f : 0.4f));
-                g2.drawLine(px, mapY(val,yMin,yMax,py,ph),
-                            px+pw, mapY(val,yMin,yMax,py,ph));
+                g2.drawLine(px, mapY(val,yMin,yMax,py,ph), px+pw, mapY(val,yMin,yMax,py,ph));
             }
         }
 
         // ── Tick marks ────────────────────────────────────────────────────
 
-        // X ticks are always linear (alpha axis)
         private static void drawXTicks(Graphics2D g2,
                                         double xMin, double xMax,
                                         int px, int py, int pw, int ph) {
@@ -725,7 +1007,7 @@ public class FullAnalysisPanel extends JPanel {
             int lineH = 18, pad = 6;
             int maxW = 0;
             for (Series s : seriesList) {
-                String lbl = s.exp.name + " (" + COMP_LABELS[s.comp] + ", " + s.pts.size() + ")";
+                String lbl = s.label + " (" + COMP_LABELS[s.comp] + ", " + s.pts.size() + ")";
                 maxW = Math.max(maxW, fm.stringWidth(lbl));
             }
             int boxW = maxW + 28 + pad*2, boxH = seriesList.size()*lineH + pad*2;
@@ -744,7 +1026,7 @@ public class FullAnalysisPanel extends JPanel {
                 g2.drawOval(lx+pad, ry-9, 12, 12);
                 g2.setColor(Color.BLACK);
                 g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
-                g2.drawString(s.exp.name + " (" + COMP_LABELS[s.comp] + ", " + s.pts.size() + ")",
+                g2.drawString(s.label + " (" + COMP_LABELS[s.comp] + ", " + s.pts.size() + ")",
                               lx+pad+18, ry);
             }
             g2.setStroke(new BasicStroke(1f));
@@ -802,11 +1084,6 @@ public class FullAnalysisPanel extends JPanel {
             double[] a = new double[n];
             for (int i=0; i<n; i++) a[i] = lo + (double)i/(n-1)*(hi-lo);
             return a;
-        }
-        private static List<Double> collectAlphas(List<double[]> pts) {
-            List<Double> out = new ArrayList<>(pts.size());
-            for (double[] pt : pts) out.add(pt[0]);
-            return out;
         }
         private static double[] toArray(List<Double> list) {
             double[] a = new double[list.size()];

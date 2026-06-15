@@ -27,6 +27,8 @@ import java.util.List;
 public class AnglesPanel extends JPanel {
 
     private final List<ExperimentData>        experiments;
+    /** Working list = original experiments plus any tagged populations added later. */
+    private final List<ExperimentData>        shown      = new ArrayList<>();
     private final Map<ExperimentData, Boolean> expVisible  = new LinkedHashMap<>();
 
     /** All turning angles, in radians [0, 2π), indexed by experiment. */
@@ -34,12 +36,14 @@ public class AnglesPanel extends JPanel {
 
     private final JTextField binsField;
     private final PolarPanel polarPanel;
+    private JComponent       sideColumn;
 
     // -----------------------------------------------------------------------
 
     AnglesPanel(List<ExperimentData> experiments) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
+        this.shown.addAll(experiments);
         setBorder(new EmptyBorder(6, 6, 6, 6));
 
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
@@ -63,10 +67,27 @@ public class AnglesPanel extends JPanel {
         binsField.addActionListener(e -> polarPanel.repaint());
 
         // ── right column: experiment toggles + save ──────────────────────
-        add(buildSideColumn(), BorderLayout.EAST);
+        sideColumn = buildSideColumn();
+        add(sideColumn, BorderLayout.EAST);
 
         // Compute angles from raw tracks immediately
         computeAngles();
+    }
+
+    /**
+     * Adds a tagged population (from the D vs α tab) as a new dataset:
+     * it gets its own toggle in the right column and its own rose petals.
+     */
+    void addPopulation(ExperimentData exp) {
+        if (shown.contains(exp)) return;
+        shown.add(exp);
+        expVisible.put(exp, true);
+        anglesMap.put(exp, computeAnglesFor(exp));
+        remove(sideColumn);
+        sideColumn = buildSideColumn();
+        add(sideColumn, BorderLayout.EAST);
+        revalidate();
+        polarPanel.repaint();
     }
 
     // -----------------------------------------------------------------------
@@ -79,8 +100,8 @@ public class AnglesPanel extends JPanel {
         col.setBorder(new EmptyBorder(4, 4, 4, 4));
 
         List<JToggleButton> allBtns = new ArrayList<>();
-        for (ExperimentData exp : experiments) {
-            JToggleButton btn = new JToggleButton(exp.name, true);
+        for (ExperimentData exp : shown) {
+            JToggleButton btn = new JToggleButton(exp.name, expVisible.getOrDefault(exp, true));
             btn.setForeground(exp.color);
             btn.setFont(btn.getFont().deriveFont(Font.BOLD));
             btn.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -101,7 +122,7 @@ public class AnglesPanel extends JPanel {
         deselectAll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
         deselectAll.setFocusPainted(false);
         deselectAll.addActionListener(e -> {
-            for (ExperimentData exp : experiments) expVisible.put(exp, false);
+            for (ExperimentData exp : shown) expVisible.put(exp, false);
             allBtns.forEach(b -> b.setSelected(false));
             polarPanel.repaint();
         });
@@ -191,33 +212,36 @@ public class AnglesPanel extends JPanel {
      */
     private void computeAngles() {
         anglesMap.clear();
-        for (ExperimentData exp : experiments) {
-            List<Double> list = new ArrayList<>();
-            for (List<double[]> rawSpots : exp.tracks.values()) {
-                // Sort spots by frame number (column 0)
-                List<double[]> spots = new ArrayList<>(rawSpots);
-                spots.sort(Comparator.comparingDouble(s -> s[0]));
-                for (int i = 1; i < spots.size() - 1; i++) {
-                    double dx1 = spots.get(i  )[1] - spots.get(i-1)[1];
-                    double dy1 = spots.get(i  )[2] - spots.get(i-1)[2];
-                    double dx2 = spots.get(i+1)[1] - spots.get(i  )[1];
-                    double dy2 = spots.get(i+1)[2] - spots.get(i  )[2];
-                    // Skip stationary steps (no displacement)
-                    if (Math.hypot(dx1, dy1) < 1e-12) continue;
-                    if (Math.hypot(dx2, dy2) < 1e-12) continue;
-                    // Signed turning angle: positive = CCW, negative = CW
-                    double angle = Math.atan2(
-                        dx1 * dy2 - dy1 * dx2,   // z-component of cross product
-                        dx1 * dx2 + dy1 * dy2);   // dot product
-                    // Map to [0, 2π)
-                    if (angle < 0) angle += 2 * Math.PI;
-                    list.add(angle);
-                }
+        for (ExperimentData exp : shown)
+            anglesMap.put(exp, computeAnglesFor(exp));
+    }
+
+    /** Computes all turning angles (radians in [0, 2π)) for one experiment. */
+    private static double[] computeAnglesFor(ExperimentData exp) {
+        List<Double> list = new ArrayList<>();
+        for (List<double[]> rawSpots : exp.tracks.values()) {
+            // Sort spots by frame number (column 0)
+            List<double[]> spots = new ArrayList<>(rawSpots);
+            spots.sort(Comparator.comparingDouble(s -> s[0]));
+            for (int i = 1; i < spots.size() - 1; i++) {
+                double dx1 = spots.get(i  )[1] - spots.get(i-1)[1];
+                double dy1 = spots.get(i  )[2] - spots.get(i-1)[2];
+                double dx2 = spots.get(i+1)[1] - spots.get(i  )[1];
+                double dy2 = spots.get(i+1)[2] - spots.get(i  )[2];
+                // Skip stationary steps (no displacement)
+                if (Math.hypot(dx1, dy1) < 1e-12) continue;
+                if (Math.hypot(dx2, dy2) < 1e-12) continue;
+                // Signed turning angle: positive = CCW, negative = CW
+                double angle = Math.atan2(
+                    dx1 * dy2 - dy1 * dx2,   // z-component of cross product
+                    dx1 * dx2 + dy1 * dy2);   // dot product
+                if (angle < 0) angle += 2 * Math.PI;
+                list.add(angle);
             }
-            double[] arr = new double[list.size()];
-            for (int i = 0; i < arr.length; i++) arr[i] = list.get(i);
-            anglesMap.put(exp, arr);
         }
+        double[] arr = new double[list.size()];
+        for (int i = 0; i < arr.length; i++) arr[i] = list.get(i);
+        return arr;
     }
 
     // -----------------------------------------------------------------------
@@ -244,7 +268,7 @@ public class AnglesPanel extends JPanel {
 
             // Collect visible experiments
             List<ExperimentData> visible = new ArrayList<>();
-            for (ExperimentData exp : experiments)
+            for (ExperimentData exp : shown)
                 if (expVisible.getOrDefault(exp, true) &&
                     anglesMap.containsKey(exp))
                     visible.add(exp);

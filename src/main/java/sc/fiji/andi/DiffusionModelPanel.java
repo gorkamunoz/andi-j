@@ -167,7 +167,7 @@ public class DiffusionModelPanel extends JPanel {
     // -----------------------------------------------------------------------
 
     private void saveModels() {
-        if (experiments.stream().noneMatch(ExperimentData::hasDiffModel)) {
+        if (shown.stream().noneMatch(ExperimentData::hasDiffModel)) {
             JOptionPane.showMessageDialog(this,
                 "No diffusion-model predictions available.",
                 "Save models", JOptionPane.WARNING_MESSAGE);
@@ -183,13 +183,13 @@ public class DiffusionModelPanel extends JPanel {
         if (!f.getName().toLowerCase().endsWith(".csv"))
             f = new File(f.getParent(), f.getName() + ".csv");
 
-        boolean multiExp = experiments.stream().filter(ExperimentData::hasDiffModel).count() > 1;
+        boolean multiExp = shown.stream().filter(ExperimentData::hasDiffModel).count() > 1;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
             if (multiExp) pw.println("experiment,traj_idx,model");
             else          pw.println("traj_idx,model");
 
-            for (ExperimentData exp : experiments) {
+            for (ExperimentData exp : shown) {
                 if (!exp.hasDiffModel()) continue;
                 for (Map.Entry<Integer, Integer> entry : exp.diffModel.entrySet()) {
                     int    id    = entry.getKey();

@@ -167,13 +167,13 @@ public class AnglesPanel extends JPanel {
         if (!f.getName().toLowerCase().endsWith(".csv"))
             f = new File(f.getParent(), f.getName() + ".csv");
 
-        boolean multiExp = experiments.size() > 1;
+        boolean multiExp = shown.size() > 1;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
             if (multiExp) pw.println("experiment,traj_idx,turning_angle_rad");
             else          pw.println("traj_idx,turning_angle_rad");
 
-            for (ExperimentData exp : experiments) {
+            for (ExperimentData exp : shown) {
                 for (Map.Entry<Integer, List<double[]>> te : exp.tracks.entrySet()) {
                     int            id    = te.getKey();
                     List<double[]> spots = new ArrayList<>(te.getValue());

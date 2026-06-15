@@ -2,6 +2,7 @@ package sc.fiji.andi;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.AffineTransform;
@@ -48,6 +49,7 @@ public class FullAnalysisPanel extends JPanel {
     private final ScatterPanel scatterPanel;
     private final JTextField   tagField;
     private final JLabel       selStatus;
+    private final PopulationTableModel populationModel = new PopulationTableModel();
 
     // -----------------------------------------------------------------------
 
@@ -119,24 +121,103 @@ public class FullAnalysisPanel extends JPanel {
         split.setResizeWeight(0.0);
         add(split, BorderLayout.CENTER);
 
-        // ── bottom: save-population row ────────────────────────────────────
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
-        bottom.setBorder(BorderFactory.createEtchedBorder());
-        bottom.add(new JLabel("Save population with tag:"));
+        // ── bottom: tag-population row + management table ──────────────────
+        JPanel tagRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
+        tagRow.add(new JLabel("Population tag:"));
         tagField = new JTextField(12);
-        bottom.add(tagField);
-        JButton savePopBtn = new JButton("Save population");
-        bottom.add(savePopBtn);
+        tagRow.add(tagField);
+        JButton tagBtn = new JButton("Tag population");
+        tagBtn.setToolTipText("Tag the circled trajectories as a named population "
+            + "(Select mode). This does not write a file.");
+        tagRow.add(tagBtn);
         selStatus = new JLabel(" ");
         selStatus.setForeground(new Color(90, 90, 90));
-        bottom.add(selStatus);
-        add(bottom, BorderLayout.SOUTH);
+        tagRow.add(selStatus);
 
-        savePopBtn.addActionListener(e -> savePopulation());
+        tagBtn.addActionListener(e -> savePopulation());
         tagField.addActionListener(e -> savePopulation());
+
+        JTable popTable = buildPopulationTable();
+        JScrollPane tableScroll = new JScrollPane(popTable);
+        tableScroll.setPreferredSize(new Dimension(0, 104));
+        JPanel tableWrap = new JPanel(new BorderLayout());
+        tableWrap.setBorder(BorderFactory.createTitledBorder(
+            "Populations  (click a colour to change it)"));
+        tableWrap.add(tableScroll, BorderLayout.CENTER);
+
+        JPanel south = new JPanel(new BorderLayout(0, 2));
+        south.setBorder(BorderFactory.createEtchedBorder());
+        south.add(tagRow,    BorderLayout.NORTH);
+        south.add(tableWrap, BorderLayout.CENTER);
+        add(south, BorderLayout.SOUTH);
 
         if (experiments.stream().anyMatch(exp -> exp.hasD() && exp.hasAlpha()))
             scatterPanel.repaint();
+    }
+
+    // -----------------------------------------------------------------------
+    // Population management table
+    // -----------------------------------------------------------------------
+
+    private JTable buildPopulationTable() {
+        JTable table = new JTable(populationModel);
+        table.setRowHeight(22);
+        table.getTableHeader().setReorderingAllowed(false);
+        table.getColumnModel().getColumn(0).setPreferredWidth(120); // Tag
+        table.getColumnModel().getColumn(1).setPreferredWidth(220); // Datasets
+        table.getColumnModel().getColumn(2).setMaxWidth(60);        // Color
+        table.getColumnModel().getColumn(2).setCellRenderer(new ColorSwatchRenderer());
+
+        table.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                int row = table.rowAtPoint(e.getPoint());
+                int col = table.columnAtPoint(e.getPoint());
+                if (row < 0 || col != 2 || row >= populations.size()) return;
+                Population p = populations.get(row);
+                Color c = JColorChooser.showDialog(
+                    FullAnalysisPanel.this, "Population colour for \"" + p.tag + "\"", p.color);
+                if (c != null) {
+                    p.color = c;
+                    populationModel.fireTableRowsUpdated(row, row);
+                    scatterPanel.repaint();
+                }
+            }
+        });
+        return table;
+    }
+
+    /** Table model backed by the live {@link #populations} list. */
+    private class PopulationTableModel extends AbstractTableModel {
+        private final String[] COLS = {"Tag", "Datasets", "Colour"};
+        @Override public int    getRowCount()        { return populations.size(); }
+        @Override public int    getColumnCount()     { return COLS.length; }
+        @Override public String getColumnName(int c) { return COLS[c]; }
+        @Override public Class<?> getColumnClass(int c) { return c == 2 ? Color.class : String.class; }
+        @Override public boolean isCellEditable(int r, int c) { return false; }
+        @Override public Object getValueAt(int r, int c) {
+            Population p = populations.get(r);
+            switch (c) {
+                case 0:  return p.tag;
+                case 1:  return p.datasetsLabel();
+                case 2:  return p.color;
+                default: return null;
+            }
+        }
+    }
+
+    /** Renders a Color cell as a filled swatch. */
+    private static class ColorSwatchRenderer extends DefaultTableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable t, Object value,
+                boolean sel, boolean focus, int row, int col) {
+            JLabel lbl = (JLabel) super.getTableCellRendererComponent(t, "", sel, focus, row, col);
+            if (value instanceof Color) {
+                lbl.setBackground((Color) value);
+                lbl.setOpaque(true);
+                lbl.setToolTipText("Click to change colour");
+            }
+            return lbl;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -163,7 +244,7 @@ public class FullAnalysisPanel extends JPanel {
         if (tag.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                 "Enter a tag name for this population.",
-                "Save population", JOptionPane.WARNING_MESSAGE);
+                "Tag population", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -174,17 +255,18 @@ public class FullAnalysisPanel extends JPanel {
                     p.members.get(e.getKey()).removeAll(e.getValue());
 
         Map<ExperimentData, Set<Integer>> members = new LinkedHashMap<>();
-        Map<ExperimentData, Color>        colors  = new LinkedHashMap<>();
-        for (Map.Entry<ExperimentData, Set<Integer>> e : sel.entrySet()) {
-            if (e.getValue().isEmpty()) continue;
-            members.put(e.getKey(), new LinkedHashSet<>(e.getValue()));
-            int k = popCountByParent.merge(e.getKey(), 1, Integer::sum) - 1;
-            colors.put(e.getKey(), tint(e.getKey().color, k));
-        }
+        for (Map.Entry<ExperimentData, Set<Integer>> e : sel.entrySet())
+            if (!e.getValue().isEmpty())
+                members.put(e.getKey(), new LinkedHashSet<>(e.getValue()));
         if (members.isEmpty()) return;
 
-        Population pop = new Population(tag, members, colors);
+        // Initial colour: a hue-preserving shade of the first parent's colour
+        ExperimentData firstParent = members.keySet().iterator().next();
+        int k = popCountByParent.merge(firstParent, 1, Integer::sum) - 1;
+        Population pop = new Population(tag, members, tint(firstParent.color, k));
         populations.add(pop);
+        populationModel.fireTableDataChanged();
+
         scatterPanel.clearPending();
         tagField.setText("");
         updateSelStatus();
@@ -214,8 +296,7 @@ public class FullAnalysisPanel extends JPanel {
             }
         }
 
-        Color col = pop.colors.getOrDefault(firstParent, firstParent.color);
-        ExperimentData ds = new ExperimentData(pop.tag, tracks, col,
+        ExperimentData ds = new ExperimentData(pop.tag, tracks, pop.color,
                                                firstParent.estimatedInterval);
         if (!diff.isEmpty()) ds.diffModel = diff;
         return ds;
@@ -307,12 +388,20 @@ public class FullAnalysisPanel extends JPanel {
     static class Population {
         final String                          tag;
         final Map<ExperimentData, Set<Integer>> members;  // parent → trackIds
-        final Map<ExperimentData, Color>        colors;   // parent → shade
+        Color                                 color;      // display colour (editable)
 
-        Population(String tag,
-                   Map<ExperimentData, Set<Integer>> members,
-                   Map<ExperimentData, Color> colors) {
-            this.tag = tag; this.members = members; this.colors = colors;
+        Population(String tag, Map<ExperimentData, Set<Integer>> members, Color color) {
+            this.tag = tag; this.members = members; this.color = color;
+        }
+
+        /** Comma-joined names of the parent datasets this population draws from. */
+        String datasetsLabel() {
+            StringBuilder sb = new StringBuilder();
+            for (ExperimentData e : members.keySet()) {
+                if (sb.length() > 0) sb.append(", ");
+                sb.append(e.name);
+            }
+            return sb.toString();
         }
     }
 
@@ -570,9 +659,8 @@ public class FullAnalysisPanel extends JPanel {
                 for (Map.Entry<ExperimentData, Set<Integer>> me : pop.members.entrySet()) {
                     ExperimentData exp = me.getKey();
                     if (!exp.hasD() || !exp.hasAlpha()) continue;
-                    Color shade = pop.colors.getOrDefault(exp, exp.color);
                     for (int comp : componentSel.getOrDefault(exp, Collections.emptySet())) {
-                        Series s = new Series(exp, pop, pop.tag, comp, compColor(shade, comp));
+                        Series s = new Series(exp, pop, pop.tag, comp, compColor(pop.color, comp));
                         for (Integer id : me.getValue())
                             addPoint(s, exp, id, comp);
                         if (!s.pts.isEmpty()) seriesList.add(s);

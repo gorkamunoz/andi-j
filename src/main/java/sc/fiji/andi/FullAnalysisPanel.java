@@ -50,6 +50,8 @@ public class FullAnalysisPanel extends JPanel {
     private final JTextField   tagField;
     private final JLabel       selStatus;
     private final PopulationTableModel populationModel = new PopulationTableModel();
+    private JSplitPane popSplit;
+    private boolean    popSplitInited = false;
 
     // -----------------------------------------------------------------------
 
@@ -119,9 +121,8 @@ public class FullAnalysisPanel extends JPanel {
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftScroll, centerArea);
         split.setDividerLocation(180);
         split.setResizeWeight(0.0);
-        add(split, BorderLayout.CENTER);
 
-        // ── bottom: tag-population row + management table ──────────────────
+        // ── tag-population row (always visible) ────────────────────────────
         JPanel tagRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         tagRow.add(new JLabel("Population tag:"));
         tagField = new JTextField(12);
@@ -137,22 +138,49 @@ public class FullAnalysisPanel extends JPanel {
         tagBtn.addActionListener(e -> savePopulation());
         tagField.addActionListener(e -> savePopulation());
 
+        JPanel mainArea = new JPanel(new BorderLayout(0, 4));
+        mainArea.add(split,  BorderLayout.CENTER);
+        mainArea.add(tagRow, BorderLayout.SOUTH);
+
+        // ── collapsible population-management table (hidden until first tag) ─
         JTable popTable = buildPopulationTable();
         JScrollPane tableScroll = new JScrollPane(popTable);
-        tableScroll.setPreferredSize(new Dimension(0, 104));
         JPanel tableWrap = new JPanel(new BorderLayout());
         tableWrap.setBorder(BorderFactory.createTitledBorder(
             "Populations  (click a colour to change it)"));
         tableWrap.add(tableScroll, BorderLayout.CENTER);
+        tableWrap.setMinimumSize(new Dimension(0, 0));
 
-        JPanel south = new JPanel(new BorderLayout(0, 2));
-        south.setBorder(BorderFactory.createEtchedBorder());
-        south.add(tagRow,    BorderLayout.NORTH);
-        south.add(tableWrap, BorderLayout.CENTER);
-        add(south, BorderLayout.SOUTH);
+        popSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, mainArea, tableWrap);
+        popSplit.setOneTouchExpandable(true);
+        popSplit.setResizeWeight(1.0);
+        popSplit.setBorder(null);
+        add(popSplit, BorderLayout.CENTER);
+
+        // Start collapsed; expand automatically once a population exists.
+        popSplit.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0
+                    && popSplit.isShowing() && !popSplitInited) {
+                popSplitInited = true;
+                if (populations.isEmpty()) collapseTable(); else expandTable();
+            }
+        });
 
         if (experiments.stream().anyMatch(exp -> exp.hasD() && exp.hasAlpha()))
             scatterPanel.repaint();
+    }
+
+    /** Collapse the population table (divider to the very bottom). */
+    private void collapseTable() {
+        SwingUtilities.invokeLater(() -> popSplit.setDividerLocation(1.0));
+    }
+
+    /** Reveal the population table with a small fixed height. */
+    private void expandTable() {
+        SwingUtilities.invokeLater(() -> {
+            int h = popSplit.getHeight();
+            popSplit.setDividerLocation(Math.max(80, h - 150));
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -266,6 +294,7 @@ public class FullAnalysisPanel extends JPanel {
         Population pop = new Population(tag, members, tint(firstParent.color, k));
         populations.add(pop);
         populationModel.fireTableDataChanged();
+        expandTable();    // reveal the management table on first tag
 
         scatterPanel.clearPending();
         tagField.setText("");
@@ -1087,34 +1116,54 @@ public class FullAnalysisPanel extends JPanel {
 
         private static final String[] COMP_LABELS = {"2D", "X", "Y"};
 
+        /** One legend entry per (group, component) — so a multi-dataset population shows once. */
+        private static class LegendEntry {
+            final String label; final int comp; final Color color; int count;
+            LegendEntry(String label, int comp, Color color) {
+                this.label = label; this.comp = comp; this.color = color;
+            }
+        }
+
         private static void drawLegend(Graphics2D g2, List<Series> seriesList,
                                         int px, int py, int pw, int ph) {
             if (seriesList.isEmpty()) return;
+
+            // Aggregate series by (groupKey, comp): a population spanning several
+            // datasets shares one groupKey, so it collapses to a single entry.
+            LinkedHashMap<List<Object>, LegendEntry> agg = new LinkedHashMap<>();
+            for (Series s : seriesList) {
+                List<Object> key = Arrays.asList(s.groupKey, s.comp);
+                LegendEntry le = agg.get(key);
+                if (le == null) { le = new LegendEntry(s.label, s.comp, s.color); agg.put(key, le); }
+                le.count += s.pts.size();
+            }
+            List<LegendEntry> entries = new ArrayList<>(agg.values());
+
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
             int lineH = 18, pad = 6;
             int maxW = 0;
-            for (Series s : seriesList) {
-                String lbl = s.label + " (" + COMP_LABELS[s.comp] + ", " + s.pts.size() + ")";
+            for (LegendEntry le : entries) {
+                String lbl = le.label + " (" + COMP_LABELS[le.comp] + ", " + le.count + ")";
                 maxW = Math.max(maxW, fm.stringWidth(lbl));
             }
-            int boxW = maxW + 28 + pad*2, boxH = seriesList.size()*lineH + pad*2;
+            int boxW = maxW + 28 + pad*2, boxH = entries.size()*lineH + pad*2;
             int lx = px + pw - boxW - 6, ly = py + 6;
             g2.setColor(new Color(255,255,255,210));
             g2.fillRoundRect(lx, ly, boxW, boxH, 6, 6);
             g2.setColor(new Color(180,180,180)); g2.setStroke(new BasicStroke(0.7f));
             g2.drawRoundRect(lx, ly, boxW, boxH, 6, 6);
-            for (int i = 0; i < seriesList.size(); i++) {
-                Series s = seriesList.get(i);
+            for (int i = 0; i < entries.size(); i++) {
+                LegendEntry le = entries.get(i);
                 int ry = ly + pad + (i+1)*lineH - 3;
-                Color fill   = new Color(s.color.getRed(),s.color.getGreen(),s.color.getBlue(),120);
-                Color border = s.color.darker();
+                Color fill   = new Color(le.color.getRed(), le.color.getGreen(), le.color.getBlue(), 120);
+                Color border = le.color.darker();
                 g2.setColor(fill);   g2.fillOval(lx+pad, ry-9, 12, 12);
                 g2.setColor(border); g2.setStroke(new BasicStroke(0.8f));
                 g2.drawOval(lx+pad, ry-9, 12, 12);
                 g2.setColor(Color.BLACK);
                 g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
-                g2.drawString(s.label + " (" + COMP_LABELS[s.comp] + ", " + s.pts.size() + ")",
+                g2.drawString(le.label + " (" + COMP_LABELS[le.comp] + ", " + le.count + ")",
                               lx+pad+18, ry);
             }
             g2.setStroke(new BasicStroke(1f));

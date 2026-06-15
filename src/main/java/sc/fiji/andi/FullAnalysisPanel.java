@@ -2,6 +2,7 @@ package sc.fiji.andi;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.colorchooser.AbstractColorChooserPanel;
 import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -202,8 +203,7 @@ public class FullAnalysisPanel extends JPanel {
                 int col = table.columnAtPoint(e.getPoint());
                 if (row < 0 || col != 2 || row >= populations.size()) return;
                 Population p = populations.get(row);
-                Color c = JColorChooser.showDialog(
-                    FullAnalysisPanel.this, "Population colour for \"" + p.tag + "\"", p.color);
+                Color c = chooseSwatchColor(p.color, "Population colour for \"" + p.tag + "\"");
                 if (c != null) {
                     p.color = c;
                     populationModel.fireTableRowsUpdated(row, row);
@@ -212,6 +212,28 @@ public class FullAnalysisPanel extends JPanel {
             }
         });
         return table;
+    }
+
+    /**
+     * A stripped-down colour picker: only the Swatches palette, no preview
+     * panel and no RGB/HSB/CMYK tabs.
+     */
+    private Color chooseSwatchColor(Color initial, String title) {
+        final JColorChooser cc = new JColorChooser(initial != null ? initial : Color.GRAY);
+        // Keep only the Swatches palette
+        for (AbstractColorChooserPanel panel : cc.getChooserPanels())
+            if (!panel.getClass().getSimpleName().toLowerCase().contains("swatch"))
+                cc.removeChooserPanel(panel);
+        // Drop the live preview strip
+        cc.setPreviewPanel(new JPanel());
+
+        final Color[] result = {null};
+        JDialog dlg = JColorChooser.createDialog(
+            this, title, true, cc,
+            e -> result[0] = cc.getColor(),   // OK
+            null);                            // Cancel → leaves result null
+        dlg.setVisible(true);
+        return result[0];
     }
 
     /** Table model backed by the live {@link #populations} list. */

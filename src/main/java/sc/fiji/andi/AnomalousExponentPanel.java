@@ -329,20 +329,66 @@ public class AnomalousExponentPanel extends JPanel {
             }
         }
 
-        try {
-            for (ExperimentData exp : experiments)
-                mlPredictor.computeForExperiment(exp);
-        } catch (Exception ex) {
-            JOptionPane.showMessageDialog(this,
-                "ML inference failed:\n" + ex.getMessage(),
-                "ML Inference", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
+        // ── progress dialog (determinate, over number of trajectories) ────
+        final int nTracks     = experiments.stream().mapToInt(e -> e.tracks.size()).sum();
+        final int totalTracks = Math.max(1, nTracks);
 
-        histPanel.resetViewport();
-        histPanel.setNBins(nBins);
-        histPanel.repaint();
-        refreshTable();
+        JDialog prog = new JDialog(SwingUtilities.getWindowAncestor(this),
+                "AnDi – Computing α (ML)", Dialog.ModalityType.APPLICATION_MODAL);
+        JPanel pp = new JPanel(new BorderLayout(12, 12));
+        pp.setBorder(BorderFactory.createEmptyBorder(18, 24, 18, 24));
+        pp.add(new JLabel("<html>Running ML α prediction on <b>" + nTracks
+                + "</b> track(s)…</html>"), BorderLayout.NORTH);
+        JProgressBar bar = new JProgressBar(0, totalTracks);
+        bar.setStringPainted(true);
+        bar.setString("0 / " + nTracks);
+        bar.setPreferredSize(new Dimension(320, 20));
+        pp.add(bar, BorderLayout.CENTER);
+        prog.setContentPane(pp);
+        prog.setResizable(false);
+        prog.pack();
+        prog.setLocationRelativeTo(this);
+
+        final int finalNBins = nBins;
+        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
+            private Exception error;
+            private final int[] done = {0};
+
+            @Override
+            protected Void doInBackground() {
+                try {
+                    OnnxAlphaPredictor.ProgressListener tick = () -> {
+                        int d = ++done[0];
+                        SwingUtilities.invokeLater(() -> {
+                            bar.setValue(d);
+                            bar.setString(d + " / " + nTracks);
+                        });
+                    };
+                    for (ExperimentData exp : experiments)
+                        mlPredictor.computeForExperiment(exp, tick);
+                } catch (Exception ex) {
+                    error = ex;
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                prog.dispose();
+                if (error != null) {
+                    JOptionPane.showMessageDialog(AnomalousExponentPanel.this,
+                        "ML inference failed:\n" + error.getMessage(),
+                        "ML Inference", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                histPanel.resetViewport();
+                histPanel.setNBins(finalNBins);
+                histPanel.repaint();
+                refreshTable();
+            }
+        };
+        worker.execute();
+        prog.setVisible(true);   // blocks via modal event loop until done() disposes it
     }
 
     // -----------------------------------------------------------------------

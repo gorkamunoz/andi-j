@@ -1,8 +1,11 @@
 package sc.fiji.andi;
 
+import ij.IJ;
 import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.geom.Line2D;
+import java.io.*;
 import java.util.*;
 import java.util.List;
 
@@ -44,6 +47,11 @@ public class SegVisualizationPanel extends JPanel {
     private final TrajectoryPlot[]  plots;
     private boolean showAlpha = true;
     private boolean showD     = true;
+    private boolean showSeg   = true;
+
+    /** Current change-point parameters; edited via the parameters dialog. */
+    private final SegmentationParams segParams = new SegmentationParams();
+    private JDialog paramsDialog;
 
     private final Random rng = new Random();
 
@@ -77,8 +85,16 @@ public class SegVisualizationPanel extends JPanel {
         }
         add(grid, BorderLayout.CENTER);
 
-        // ── initial display ───────────────────────────────────────────────
+        // ── initial segmentation + display ────────────────────────────────
+        recomputeSegments();
         if (currentExp != null) sampleRandom();
+    }
+
+    /** (Re)runs change-point detection for every experiment with the current params. */
+    private void recomputeSegments() {
+        for (ExperimentData exp : experiments)
+            if (exp.hasStepPredictions())
+                ChangePointDetector.computeForExperiment(exp, segParams);
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -124,6 +140,23 @@ public class SegVisualizationPanel extends JPanel {
             for (TrajectoryPlot p : plots) { p.showD = showD; p.repaint(); }
         });
 
+        // Segment overlay toggle
+        JToggleButton segToggle = new JToggleButton("Seg", true);
+        segToggle.setFont(segToggle.getFont().deriveFont(Font.BOLD, 12f));
+        segToggle.setToolTipText("Toggle the change-point segment overlay in all plots");
+        segToggle.addActionListener(e -> {
+            showSeg = segToggle.isSelected();
+            for (TrajectoryPlot p : plots) { p.showSeg = showSeg; p.repaint(); }
+        });
+
+        JButton paramsBtn = new JButton("Segmentation Parameters");
+        paramsBtn.setToolTipText("Change the change-point detection parameters and recalculate");
+        paramsBtn.addActionListener(e -> openParamsDialog());
+
+        JButton saveSegBtn = new JButton("Save segments…");
+        saveSegBtn.setToolTipText("Export all segments (length, α, D) to CSV");
+        saveSegBtn.addActionListener(e -> saveSegments());
+
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
 
@@ -140,8 +173,147 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(Box.createHorizontalStrut(10));
         bar.add(alphaToggle);
         bar.add(dToggle);
+        bar.add(segToggle);
+        bar.add(Box.createHorizontalStrut(10));
+        bar.add(paramsBtn);
+        bar.add(saveSegBtn);
 
         return bar;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // Segmentation parameters dialog
+    // ═════════════════════════════════════════════════════════════════════
+
+    private void openParamsDialog() {
+        if (paramsDialog != null && paramsDialog.isDisplayable()) {
+            paramsDialog.toFront();
+            return;
+        }
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        paramsDialog = new JDialog(owner, "Segmentation Parameters");
+        paramsDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        final JTextField penField  = new JTextField(String.valueOf(segParams.penalty), 6);
+        final JTextField minField  = new JTextField(String.valueOf(segParams.minSize), 6);
+        final JTextField jumpField = new JTextField(String.valueOf(segParams.jump),    6);
+        final JCheckBox  rescaleBox = new JCheckBox(
+            "Rescale log₁₀(D) to [0,1] before detection", segParams.rescaleD);
+
+        JPanel form = new JPanel(new GridBagLayout());
+        form.setBorder(BorderFactory.createEmptyBorder(10, 12, 6, 12));
+        GridBagConstraints c = new GridBagConstraints();
+        c.insets = new Insets(3, 3, 3, 3);
+        c.anchor = GridBagConstraints.WEST;
+
+        int row = 0;
+        addFormRow(form, c, row++, "Penalty (fewer ↔ more segments):", penField);
+        addFormRow(form, c, row++, "Min. segment length (frames):",    minField);
+        addFormRow(form, c, row++, "Jump (candidate grid step):",       jumpField);
+        c.gridx = 0; c.gridy = row++; c.gridwidth = 2;
+        form.add(rescaleBox, c);
+        c.gridwidth = 1;
+
+        JLabel hint = new JLabel("<html><i>Linear-kernel change-point detection on (D, α). "
+            + "Penalty is the cost per change point.</i></html>");
+        hint.setForeground(new Color(110, 110, 110));
+        c.gridx = 0; c.gridy = row++; c.gridwidth = 2;
+        form.add(hint, c);
+
+        JButton recalcBtn = new JButton("Recalculate");
+        recalcBtn.addActionListener(ev -> {
+            segParams.penalty  = parseDoubleOr(penField.getText(),  segParams.penalty);
+            segParams.minSize  = parseIntOr(minField.getText(),     segParams.minSize);
+            segParams.jump     = parseIntOr(jumpField.getText(),    segParams.jump);
+            segParams.rescaleD = rescaleBox.isSelected();
+            // reflect any clamping back into the fields
+            penField.setText(String.valueOf(segParams.penalty));
+            minField.setText(String.valueOf(segParams.minSize));
+            jumpField.setText(String.valueOf(segParams.jump));
+            recomputeSegments();
+            showSpecified();   // refresh the currently displayed trajectories
+        });
+        JButton closeBtn = new JButton("Close");
+        closeBtn.addActionListener(ev -> paramsDialog.dispose());
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
+        buttons.add(recalcBtn);
+        buttons.add(closeBtn);
+
+        JPanel content = new JPanel(new BorderLayout());
+        content.add(form,    BorderLayout.CENTER);
+        content.add(buttons, BorderLayout.SOUTH);
+        paramsDialog.setContentPane(content);
+        paramsDialog.pack();
+        paramsDialog.setLocationRelativeTo(this);
+        paramsDialog.setVisible(true);
+    }
+
+    private static void addFormRow(JPanel form, GridBagConstraints c, int row,
+                                   String label, JComponent field) {
+        c.gridx = 0; c.gridy = row; c.weightx = 0;
+        form.add(new JLabel(label), c);
+        c.gridx = 1; c.gridy = row; c.weightx = 1;
+        form.add(field, c);
+    }
+
+    private static int parseIntOr(String s, int d) {
+        try { return Math.max(1, Integer.parseInt(s.trim())); } catch (Exception e) { return d; }
+    }
+    private static double parseDoubleOr(String s, double d) {
+        try { return Math.max(0, Double.parseDouble(s.trim())); } catch (Exception e) { return d; }
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // Save segments
+    // ═════════════════════════════════════════════════════════════════════
+
+    private void saveSegments() {
+        if (experiments.stream().noneMatch(ExperimentData::hasSegments)) {
+            JOptionPane.showMessageDialog(this,
+                "No segments available.",
+                "Save segments", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
+        fc.setDialogTitle("Save change-point segments");
+        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+
+        File f = fc.getSelectedFile();
+        if (!f.getName().toLowerCase().endsWith(".csv"))
+            f = new File(f.getParent(), f.getName() + ".csv");
+
+        boolean multiExp = experiments.stream().filter(ExperimentData::hasSegments).count() > 1;
+
+        try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
+            if (multiExp) pw.println("experiment,track_id,segment,start_frame,length,alpha,D");
+            else          pw.println("track_id,segment,start_frame,length,alpha,D");
+
+            for (ExperimentData exp : experiments) {
+                if (!exp.hasSegments()) continue;
+                for (Map.Entry<Integer, List<Segment>> e : exp.segments.entrySet()) {
+                    int id = e.getKey();
+                    List<Segment> segs = e.getValue();
+                    for (int k = 0; k < segs.size(); k++) {
+                        Segment s = segs.get(k);
+                        int startFrame = s.start + 1;   // 1-based
+                        if (multiExp)
+                            pw.printf("%s,%d,%d,%d,%d,%.6f,%.6e%n",
+                                exp.name, id, k + 1, startFrame, s.length, s.alpha, s.d());
+                        else
+                            pw.printf("%d,%d,%d,%d,%.6f,%.6e%n",
+                                id, k + 1, startFrame, s.length, s.alpha, s.d());
+                    }
+                }
+            }
+            IJ.log("AnDi: segments saved → " + f.getAbsolutePath());
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                "Could not save file:\n" + ex.getMessage(),
+                "Save segments – error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -205,11 +377,14 @@ public class SegVisualizationPanel extends JPanel {
                 if (alpha == null && logD == null) {
                     plots[i].setEmpty(id);
                 } else {
-                    plots[i].setData(id, alpha, logD);
+                    List<Segment> segs = (currentExp.segments != null)
+                            ? currentExp.segments.get(id) : null;
+                    plots[i].setData(id, alpha, logD, segs);
                 }
             }
             plots[i].showAlpha = showAlpha;
             plots[i].showD     = showD;
+            plots[i].showSeg   = showSeg;
         }
     }
 
@@ -240,20 +415,23 @@ public class SegVisualizationPanel extends JPanel {
         private int      trackId   = -1;    // -1 = empty slot
         private double[] alpha;             // T-1 α  values  (may be null)
         private double[] logD;              // T-1 logD values (may be null)
+        private List<Segment> segments;     // change-point segments (may be null)
         private boolean  notFound  = false; // track ID not in experiment
 
         boolean showAlpha = true;
         boolean showD     = true;
+        boolean showSeg   = true;
 
         TrajectoryPlot() {
             setBackground(BG_COLOR);
         }
 
         /** Show data for an existing track. */
-        void setData(int id, double[] alpha, double[] logD) {
+        void setData(int id, double[] alpha, double[] logD, List<Segment> segments) {
             this.trackId  = id;
             this.alpha    = alpha;
             this.logD     = logD;
+            this.segments = segments;
             this.notFound = false;
             repaint();
         }
@@ -263,6 +441,7 @@ public class SegVisualizationPanel extends JPanel {
             this.trackId  = id;
             this.alpha    = null;
             this.logD     = null;
+            this.segments = null;
             this.notFound = true;
             repaint();
         }
@@ -272,6 +451,7 @@ public class SegVisualizationPanel extends JPanel {
             this.trackId  = -1;
             this.alpha    = null;
             this.logD     = null;
+            this.segments = null;
             this.notFound = false;
             repaint();
         }
@@ -427,6 +607,37 @@ public class SegVisualizationPanel extends JPanel {
                 g2.setStroke(new BasicStroke(1.2f, BasicStroke.CAP_ROUND,
                                              BasicStroke.JOIN_ROUND));
                 drawLine(g2, alpha, seqLen, aMin, aMax, px, py, pw, ph);
+            }
+
+            // ── Change-point segment overlay ──────────────────────────────
+            if (showSeg && segments != null && !segments.isEmpty()) {
+                // Vertical change-point markers (segment starts, except the first)
+                g2.setColor(new Color(110, 110, 110));
+                g2.setStroke(new BasicStroke(0.8f, BasicStroke.CAP_BUTT,
+                        BasicStroke.JOIN_MITER, 1f, new float[]{3f, 3f}, 0f));
+                for (Segment s : segments) {
+                    if (s.start <= 0) continue;
+                    int xp = px + xToPixel(s.start, seqLen, pw);
+                    g2.drawLine(xp, py, xp, py + ph);
+                }
+                // Per-segment mean step lines
+                g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_BUTT,
+                        BasicStroke.JOIN_MITER));
+                for (Segment s : segments) {
+                    int x0 = px + xToPixel(s.start, seqLen, pw);
+                    int x1 = px + xToPixel(Math.min(seqLen - 1, s.start + s.length - 1),
+                                           seqLen, pw);
+                    if (showD && logD != null && Double.isFinite(s.logD)) {
+                        int yp = py + ph - yToPixel(s.logD, dMin, dMax, ph);
+                        g2.setColor(D_COLOR.darker());
+                        g2.drawLine(x0, yp, x1, yp);
+                    }
+                    if (showAlpha && alpha != null && Double.isFinite(s.alpha)) {
+                        int yp = py + ph - yToPixel(s.alpha, aMin, aMax, ph);
+                        g2.setColor(ALPHA_COLOR.darker());
+                        g2.drawLine(x0, yp, x1, yp);
+                    }
+                }
             }
 
             g2.setClip(oldClip);

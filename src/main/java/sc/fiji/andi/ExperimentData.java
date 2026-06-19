@@ -61,6 +61,12 @@ public class ExperimentData {
 
     public boolean hasDiffModel() { return diffModel != null && !diffModel.isEmpty(); }
 
+    // -- change-point segments (null until ChangePointDetector runs) --
+    /** Per-track list of segments from change-point detection on the STEP predictions. */
+    public Map<Integer, List<Segment>> segments;
+
+    public boolean hasSegments() { return segments != null && !segments.isEmpty(); }
+
     // -- legacy display flags (kept for any external reader; rendering uses TmsdPanel maps) --
     public boolean showAverage = true;
     public boolean showAll     = false;

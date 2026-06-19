@@ -3,7 +3,6 @@ package sc.fiji.andi;
 import ai.onnxruntime.*;
 
 import java.io.*;
-import java.nio.FloatBuffer;
 import java.util.*;
 
 /**
@@ -41,6 +40,11 @@ public class StepPredictor implements Closeable {
      */
     public static final float LOGD_CORRECTION = 3.5f;
 
+    /** Max trajectories per batched inference call. */
+    private static final int MAX_BATCH = 256;
+    /** Cap on batch×seqLen elements, so very long trajectories use smaller batches. */
+    private static final int MAX_BATCH_ELEMENTS = 200_000;
+
     private final OrtEnvironment env;
     private final OrtSession     sessionAlpha;
     private final OrtSession     sessionLogD;
@@ -77,14 +81,31 @@ public class StepPredictor implements Closeable {
      */
     public StepPredictor(byte[] alphaBytes, byte[] logDBytes) throws OrtException {
         env          = OrtEnvironment.getEnvironment();
-        sessionAlpha = env.createSession(alphaBytes, new OrtSession.SessionOptions());
-        sessionLogD  = env.createSession(logDBytes,  new OrtSession.SessionOptions());
+        sessionAlpha = env.createSession(alphaBytes, makeSessionOptions());
+        sessionLogD  = env.createSession(logDBytes,  makeSessionOptions());
         alphaIn  = sessionAlpha.getInputNames().iterator().next();
         alphaOut = sessionAlpha.getOutputNames().iterator().next();
         logDIn   = sessionLogD.getInputNames().iterator().next();
         logDOut  = sessionLogD.getOutputNames().iterator().next();
         printInfo("STEPalpha", sessionAlpha);
         printInfo("STEPlogD",  sessionLogD);
+    }
+
+    /**
+     * Builds session options: CPU intra-op parallelism set to the core count,
+     * and (best-effort) the CUDA GPU execution provider.  If the runtime is the
+     * CPU-only build or no compatible GPU is present, {@code addCUDA} fails and
+     * we silently fall back to CPU.
+     */
+    private static OrtSession.SessionOptions makeSessionOptions() throws OrtException {
+        OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
+        opts.setIntraOpNumThreads(Math.max(1, Runtime.getRuntime().availableProcessors()));
+        try {
+            opts.addCUDA(0);   // device 0; CPU remains as automatic fallback
+        } catch (Throwable t) {
+            System.err.println("[StepPredictor] CUDA GPU unavailable, using CPU: " + t.getMessage());
+        }
+        return opts;
     }
 
     // -----------------------------------------------------------------------
@@ -119,26 +140,66 @@ public class StepPredictor implements Closeable {
         Map<Integer, double[]> outAlpha = new LinkedHashMap<>();
         Map<Integer, double[]> outLogD  = new LinkedHashMap<>();
 
+        // Preprocess eligible tracks to polar form; short tracks get empty output.
+        List<Integer>   ids    = new ArrayList<>();
+        List<float[][]> polars = new ArrayList<>();
         for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
             int            id    = e.getKey();
             List<double[]> spots = e.getValue();
-
             if (spots.size() < 2) {
                 outAlpha.put(id, new double[0]);
                 outLogD.put(id,  new double[0]);
                 if (listener != null) listener.trackDone();
                 continue;
             }
+            ids.add(id);
+            polars.add(cartesianToRelativePolar(extractXY(spots)));
+        }
 
-            double[][] cart  = extractXY(spots);
-            float[][]  polar = cartesianToRelativePolar(cart);
+        // Bucket tracks by sequence length so each batch is a rectangular tensor
+        // (no padding needed → exact, identical to per-trajectory inference).
+        Map<Integer, List<Integer>> byLen = new LinkedHashMap<>();
+        for (int i = 0; i < ids.size(); i++)
+            byLen.computeIfAbsent(polars.get(i).length, k -> new ArrayList<>()).add(i);
 
-            outAlpha.put(id, toDouble(
-                    runSession(sessionAlpha, alphaIn, alphaOut, polar, false)));
-            outLogD.put(id, toDouble(
-                    runSession(sessionLogD,  logDIn,  logDOut,  polar, true)));
+        for (Map.Entry<Integer, List<Integer>> bucket : byLen.entrySet()) {
+            int           L    = bucket.getKey();
+            List<Integer> idxs = bucket.getValue();
+            int maxB = Math.max(1, Math.min(MAX_BATCH, MAX_BATCH_ELEMENTS / Math.max(1, L)));
 
-            if (listener != null) listener.trackDone();
+            for (int off = 0; off < idxs.size(); off += maxB) {
+                int B = Math.min(maxB, idxs.size() - off);
+
+                // Build the two input tensors: α uses raw polar; D uses log10(max(x,1e-10))
+                float[][][] inA = new float[B][L][2];
+                float[][][] inD = new float[B][L][2];
+                for (int b = 0; b < B; b++) {
+                    float[][] p = polars.get(idxs.get(off + b));
+                    for (int t = 0; t < L; t++) {
+                        float v0 = p[t][0], v1 = p[t][1];
+                        inA[b][t][0] = v0;
+                        inA[b][t][1] = v1;
+                        inD[b][t][0] = (float) Math.log10(Math.max(v0, 1e-10f));
+                        inD[b][t][1] = (float) Math.log10(Math.max(v1, 1e-10f));
+                    }
+                }
+
+                float[][] aOut = runBatch(sessionAlpha, alphaIn, alphaOut, inA);
+                float[][] dOut = runBatch(sessionLogD,  logDIn,  logDOut,  inD);
+
+                for (int b = 0; b < B; b++) {
+                    int      id = ids.get(idxs.get(off + b));
+                    double[] a  = new double[L];
+                    double[] d  = new double[L];
+                    for (int t = 0; t < L; t++) {
+                        a[t] = aOut[b][t];
+                        d[t] = dOut[b][t] + LOGD_CORRECTION;
+                    }
+                    outAlpha.put(id, a);
+                    outLogD.put(id, d);
+                    if (listener != null) listener.trackDone();
+                }
+            }
         }
 
         exp.stepAlpha = outAlpha;
@@ -203,40 +264,18 @@ public class StepPredictor implements Closeable {
     // -----------------------------------------------------------------------
 
     /**
-     * Runs one model session on a single trajectory's polar features.
+     * Runs one model session on a batch of equal-length polar sequences.
      *
-     * @param polar       (T−1, 2) relative-polar features
-     * @param log10Input  if true, applies {@code log₁₀(max(x, 1e-10))} to
-     *                    every feature element before inference and adds
-     *                    {@link #LOGD_CORRECTION} to every output
-     * @return            {@code float[T-1]} per-frame predicted values
+     * @param input  {@code [B][L][2]} feature tensor (already preprocessed)
+     * @return       {@code [B][L]} per-frame predictions
      */
-    private float[] runSession(OrtSession session,
-                               String inputName, String outputName,
-                               float[][] polar,
-                               boolean log10Input) throws OrtException {
-        int seqLen = polar.length;
+    private float[][] runBatch(OrtSession session, String inputName, String outputName,
+                               float[][][] input) throws OrtException {
+        int B = input.length;
+        int L = (B > 0) ? input[0].length : 0;
+        float[][] results = new float[B][L];
 
-        // Build flat row-major FloatBuffer with shape [1, seqLen, 2]
-        FloatBuffer buf = FloatBuffer.allocate(seqLen * 2);
-        for (int t = 0; t < seqLen; t++) {
-            float v0 = polar[t][0];
-            float v1 = polar[t][1];
-            if (log10Input) {
-                // torch.log10(torch.maximum(traj_polar, 1e-10))
-                // negative dθ is clipped to 1e-10 before log10
-                v0 = (float) Math.log10(Math.max(v0, 1e-10f));
-                v1 = (float) Math.log10(Math.max(v1, 1e-10f));
-            }
-            buf.put(v0);
-            buf.put(v1);
-        }
-        buf.rewind();
-
-        long[]  shape   = {1L, (long) seqLen, 2L};
-        float[] results = new float[seqLen];
-
-        try (OnnxTensor tensor = OnnxTensor.createTensor(env, buf, shape);
+        try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
              OrtSession.Result res = session.run(
                      Collections.singletonMap(inputName, tensor))) {
 
@@ -246,48 +285,29 @@ public class StepPredictor implements Closeable {
             Object val = outVal.getValue();
 
             if (val instanceof float[][][]) {
-                // shape (1, seqLen, 1)
+                // shape (B, L, 1)
                 float[][][] arr = (float[][][]) val;
-                for (int t = 0; t < seqLen; t++) results[t] = arr[0][t][0];
+                for (int b = 0; b < B; b++)
+                    for (int t = 0; t < L; t++) results[b][t] = arr[b][t][0];
 
             } else if (val instanceof float[][]) {
+                // shape (B, L)
                 float[][] arr = (float[][]) val;
-                if (arr.length == 1) {
-                    // shape (1, seqLen)
-                    System.arraycopy(arr[0], 0, results, 0,
-                            Math.min(arr[0].length, seqLen));
-                } else {
-                    // shape (seqLen, 1)
-                    for (int t = 0; t < Math.min(arr.length, seqLen); t++)
-                        results[t] = arr[t].length > 0 ? arr[t][0] : Float.NaN;
-                }
-
-            } else if (val instanceof float[]) {
-                float[] arr = (float[]) val;
-                System.arraycopy(arr, 0, results, 0, Math.min(arr.length, seqLen));
+                for (int b = 0; b < B; b++)
+                    System.arraycopy(arr[b], 0, results[b], 0, Math.min(L, arr[b].length));
 
             } else {
                 System.err.println("[StepPredictor] unexpected output type: "
                         + (val == null ? "null" : val.getClass().getName()));
-                Arrays.fill(results, Float.NaN);
+                for (float[] row : results) Arrays.fill(row, Float.NaN);
             }
         }
-
-        if (log10Input)
-            for (int t = 0; t < seqLen; t++) results[t] += LOGD_CORRECTION;
-
         return results;
     }
 
     // -----------------------------------------------------------------------
     // Utilities
     // -----------------------------------------------------------------------
-
-    private static double[] toDouble(float[] f) {
-        double[] d = new double[f.length];
-        for (int i = 0; i < f.length; i++) d[i] = f[i];
-        return d;
-    }
 
     private static byte[] loadResource(String path) throws IOException {
         InputStream is = StepPredictor.class.getResourceAsStream(path);

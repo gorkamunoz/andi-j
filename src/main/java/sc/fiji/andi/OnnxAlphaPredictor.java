@@ -3,7 +3,6 @@ package sc.fiji.andi;
 import ai.onnxruntime.*;
 
 import java.io.*;
-import java.nio.FloatBuffer;
 import java.util.*;
 
 /**
@@ -45,6 +44,11 @@ public class OnnxAlphaPredictor implements Closeable {
 
     /** Classpath resource path for the bundled model. */
     public static final String DEFAULT_RESOURCE = "/models/single_traj_alpha.onnx";
+
+    /** Max trajectories per batched inference call. */
+    private static final int MAX_BATCH = 256;
+    /** Cap on batch×seqLen elements, so very long trajectories use smaller batches. */
+    private static final int MAX_BATCH_ELEMENTS = 200_000;
 
     private final OrtEnvironment env;
     private final OrtSession     session;
@@ -91,7 +95,7 @@ public class OnnxAlphaPredictor implements Closeable {
     /** Internal constructor used by all public entry points. */
     public OnnxAlphaPredictor(byte[] modelBytes) throws OrtException {
         env     = OrtEnvironment.getEnvironment();
-        session = env.createSession(modelBytes, new OrtSession.SessionOptions());
+        session = env.createSession(modelBytes, makeSessionOptions());
 
         List<String> inNames = new ArrayList<>(session.getInputNames());
         if (inNames.size() < 2)
@@ -103,6 +107,22 @@ public class OnnxAlphaPredictor implements Closeable {
         outputName = session.getOutputNames().iterator().next();
 
         printModelInfo();
+    }
+
+    /**
+     * Session options: CPU intra-op parallelism set to the core count, plus a
+     * best-effort CUDA provider that silently falls back to CPU (no-op on the
+     * current CPU-only runtime; ready for a future {@code onnxruntime_gpu} build).
+     */
+    private static OrtSession.SessionOptions makeSessionOptions() throws OrtException {
+        OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
+        opts.setIntraOpNumThreads(Math.max(1, Runtime.getRuntime().availableProcessors()));
+        try {
+            opts.addCUDA(0);
+        } catch (Throwable t) {
+            System.err.println("[OnnxAlphaPredictor] CUDA GPU unavailable, using CPU: " + t.getMessage());
+        }
+        return opts;
     }
 
     // -----------------------------------------------------------------------
@@ -122,20 +142,46 @@ public class OnnxAlphaPredictor implements Closeable {
     public void computeForExperiment(ExperimentData exp) throws OrtException {
         Map<Integer, double[]> result = new LinkedHashMap<>();
 
+        // Preprocess eligible tracks; short tracks get NaN.
+        List<Integer>   ids    = new ArrayList<>();
+        List<float[][]> polars = new ArrayList<>();
         for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
             int            id    = e.getKey();
             List<double[]> spots = e.getValue();
-
             if (spots.size() < 2) {
                 result.put(id, new double[]{Double.NaN, Double.NaN, Double.NaN});
                 continue;
             }
+            ids.add(id);
+            polars.add(cartesianToRelativePolar(extractXY(spots)));
+        }
 
-            float[][] polar = cartesianToRelativePolar(extractXY(spots));
-            float     alpha = runSingle(polar);
+        // Bucket by sequence length → rectangular batches (no padding, exact).
+        Map<Integer, List<Integer>> byLen = new LinkedHashMap<>();
+        for (int i = 0; i < ids.size(); i++)
+            byLen.computeIfAbsent(polars.get(i).length, k -> new ArrayList<>()).add(i);
 
-            // Store {alpha_2D, NaN, NaN}: model gives one 2-D result only
-            result.put(id, new double[]{alpha, Double.NaN, Double.NaN});
+        for (Map.Entry<Integer, List<Integer>> bucket : byLen.entrySet()) {
+            int           L    = bucket.getKey();
+            List<Integer> idxs = bucket.getValue();
+            int maxB = Math.max(1, Math.min(MAX_BATCH, MAX_BATCH_ELEMENTS / Math.max(1, L)));
+
+            for (int off = 0; off < idxs.size(); off += maxB) {
+                int B = Math.min(maxB, idxs.size() - off);
+                float[][][] in = new float[B][L][2];
+                for (int b = 0; b < B; b++) {
+                    float[][] p = polars.get(idxs.get(off + b));
+                    for (int t = 0; t < L; t++) {
+                        in[b][t][0] = p[t][0];
+                        in[b][t][1] = p[t][1];
+                    }
+                }
+                float[] alphas = runBatch(in);   // one α per trajectory
+                for (int b = 0; b < B; b++) {
+                    int id = ids.get(idxs.get(off + b));
+                    result.put(id, new double[]{alphas[b], Double.NaN, Double.NaN});
+                }
+            }
         }
 
         exp.alphaCoeffs = result;
@@ -199,38 +245,30 @@ public class OnnxAlphaPredictor implements Closeable {
     // -----------------------------------------------------------------------
 
     /**
-     * Runs the two-input model on one trajectory's polar features and returns
-     * the predicted α.
+     * Runs the two-input model on a batch of equal-length polar sequences.
      *
      * <p>Tensor shapes:
      * <ul>
-     *   <li>{@code "input"}  : {@code [1, seqLen, 2]}</li>
-     *   <li>{@code "log_t"}  : {@code [1, 1]}, value = {@code log(seqLen)}</li>
+     *   <li>{@code "input"}  : {@code [B, seqLen, 2]}</li>
+     *   <li>{@code "log_t"}  : {@code [B, 1]}, every row = {@code log(seqLen)}</li>
      * </ul>
-     * {@code seqLen = T - 1} (number of polar feature vectors).
-     * {@code T} in the Python model equals {@code x.shape[1]} = {@code seqLen}.
+     * {@code seqLen} is identical for the whole batch (length bucketing), so the
+     * single {@code log_t} value applies to every sample.
      *
-     * @param polar (T-1, 2) relative-polar features
-     * @return predicted α, or {@link Float#NaN} on unexpected model output
+     * @param input {@code [B][seqLen][2]} relative-polar features
+     * @return {@code float[B]} predicted α per trajectory (NaN on unexpected output)
      */
-    private float runSingle(float[][] polar) throws OrtException {
-        int seqLen = polar.length;
+    private float[] runBatch(float[][][] input) throws OrtException {
+        int B = input.length;
+        int seqLen = (B > 0) ? input[0].length : 0;
 
-        // Feature tensor: [1, seqLen, 2], row-major
-        FloatBuffer featBuf = FloatBuffer.allocate(seqLen * 2);
-        for (float[] f : polar) { featBuf.put(f[0]); featBuf.put(f[1]); }
-        featBuf.rewind();
+        float[][] logT = new float[B][1];
+        float lv = (float) Math.log(seqLen);
+        for (int b = 0; b < B; b++) logT[b][0] = lv;
 
-        // log_t tensor: [1, 1]
-        // T in the model = x.shape[1] = seqLen (length of polar input)
-        FloatBuffer logTBuf = FloatBuffer.allocate(1);
-        logTBuf.put((float) Math.log(seqLen));
-        logTBuf.rewind();
-
-        try (OnnxTensor featTensor = OnnxTensor.createTensor(
-                 env, featBuf, new long[]{1L, (long) seqLen, 2L});
-             OnnxTensor logTTensor = OnnxTensor.createTensor(
-                 env, logTBuf, new long[]{1L, 1L})) {
+        float[] out = new float[B];
+        try (OnnxTensor featTensor = OnnxTensor.createTensor(env, input);
+             OnnxTensor logTTensor = OnnxTensor.createTensor(env, logT)) {
 
             Map<String, OnnxTensor> inputs = new LinkedHashMap<>();
             inputs.put(inputName, featTensor);
@@ -240,19 +278,21 @@ public class OnnxAlphaPredictor implements Closeable {
                 OnnxValue outVal = res.get(outputName)
                         .orElseThrow(() -> new OrtException(
                                 "Output '" + outputName + "' not found"));
-                return extractScalar(outVal.getValue());
+                Object val = outVal.getValue();
+                if (val instanceof float[][]) {              // (B, 1)
+                    float[][] a = (float[][]) val;
+                    for (int b = 0; b < B; b++) out[b] = a[b][0];
+                } else if (val instanceof float[]) {         // (B,)
+                    float[] a = (float[]) val;
+                    System.arraycopy(a, 0, out, 0, Math.min(B, a.length));
+                } else {
+                    System.err.println("[OnnxAlphaPredictor] unexpected output type: "
+                            + (val == null ? "null" : val.getClass().getName()));
+                    Arrays.fill(out, Float.NaN);
+                }
             }
         }
-    }
-
-    /** Extracts the first float value from whatever shape the output tensor has. */
-    private static float extractScalar(Object val) {
-        if (val instanceof float[][]) return ((float[][]) val)[0][0];
-        if (val instanceof float[])   return ((float[])   val)[0];
-        if (val instanceof Float)     return (Float) val;
-        System.err.println("[OnnxAlphaPredictor] unexpected output type: "
-                + (val == null ? "null" : val.getClass().getName()));
-        return Float.NaN;
+        return out;
     }
 
     // -----------------------------------------------------------------------

@@ -32,9 +32,11 @@ public class SegStatsPanel extends JPanel {
     private final JTextField binsField   = new JTextField("40", 5);
     private final JCheckBox  logCountBox  = new JCheckBox("Log count scale", true);
 
+    private static final int NEVAL = 100;   // marginal-KDE grid resolution
+
     private final Hist1D  lengthHist = new Hist1D();
-    private final Heat2D  timeAlpha  = new Heat2D("Time (frame)", "α");
-    private final Heat2D  timeD      = new Heat2D("Time (frame)", "log₁₀(D)");
+    private final Heat2D  timeAlpha  = new Heat2D("Segment length", "α",         true);
+    private final Heat2D  timeD      = new Heat2D("Segment length", "log₁₀(D)",  false);
 
     // ═════════════════════════════════════════════════════════════════════
 
@@ -159,7 +161,6 @@ public class SegStatsPanel extends JPanel {
         ldMin -= 0.03 * lRng; ldMax += 0.03 * lRng;
 
         final double aMin = 0.0, aMax = 2.0;
-        final double tMin = 0.0, tMax = maxTime + 1.0;
 
         // ── segment-length histogram (per experiment) ─────────────────────
         int lenBins = Math.max(1, Math.min(nBins, maxLen));
@@ -178,31 +179,41 @@ public class SegStatsPanel extends JPanel {
         }
         lengthHist.setData(lenMin, lenMax, lenBins, lenCounts, lenColors, lenNames);
 
-        // ── time-vs-α and time-vs-D 2-D histograms (combined) ─────────────
-        // One point per segment: x = segment's mean frame, y = segment mean.
+        // ── length-vs-α and length-vs-D 2-D histograms (combined) ─────────
+        // One point per segment: x = segment length, y = segment mean.
+        // Shares the x-axis (segment length) with the histogram above.
         int[][] histA = new int[nBins][nBins];
         int[][] histD = new int[nBins][nBins];
         int totA = 0, totD = 0;
+        // Per-experiment y-marginal KDEs (α for the left plot, D for the right)
+        List<double[]> kdeA = new ArrayList<>(), kdeD = new ArrayList<>();
+        List<Color>    kdeColors = new ArrayList<>();
+        double[] evalA = linspace(aMin, aMax, NEVAL);
+        double[] evalD = linspace(ldMin, ldMax, NEVAL);
         for (ExperimentData exp : sel) {
+            List<Double> aVals = new ArrayList<>(), dVals = new ArrayList<>();
             for (List<Segment> segs : exp.segments.values()) {
                 for (Segment s : segs) {
-                    double midT = s.start + (s.length - 1) / 2.0;
-                    int xi = bin(midT, tMin, tMax, nBins);
+                    int xi = bin(s.length, lenMin, lenMax, nBins);
                     histA[xi][bin(s.alpha, aMin, aMax, nBins)]++;
-                    totA++;
+                    totA++; aVals.add(s.alpha);
                     if (Double.isFinite(s.logD)) {
                         histD[xi][bin(s.logD, ldMin, ldMax, nBins)]++;
-                        totD++;
+                        totD++; dVals.add(s.logD);
                     }
                 }
             }
+            double[] a = toArray(aVals), d = toArray(dVals);
+            kdeA.add(gaussianKde1D(a, evalA, silvermanBw(a)));
+            kdeD.add(gaussianKde1D(d, evalD, silvermanBw(d)));
+            kdeColors.add(exp.color);
         }
 
         Color base = sel.size() == 1 ? sel.get(0).color : new Color(0, 50, 180);
         boolean log = logCountBox.isSelected();
-        if (totA > 0) timeAlpha.setHist(histA, nBins, tMin, tMax, aMin, aMax, totA, base);
+        if (totA > 0) timeAlpha.setHist(histA, nBins, lenMin, lenMax, aMin, aMax, totA, base, kdeA, kdeColors);
         else          timeAlpha.setEmpty();
-        if (totD > 0) timeD.setHist(histD, nBins, tMin, tMax, ldMin, ldMax, totD, base);
+        if (totD > 0) timeD.setHist(histD, nBins, lenMin, lenMax, ldMin, ldMax, totD, base, kdeD, kdeColors);
         else          timeD.setEmpty();
         timeAlpha.logScale = log; timeD.logScale = log;
 
@@ -238,6 +249,42 @@ public class SegStatsPanel extends JPanel {
         if (abs >= 0.01 && abs < 10000)
             return String.format("%.4g", v).replaceAll("0+$", "").replaceAll("\\.$", "");
         return String.format("%.2e", v).replace("e+0", "e").replace("e-0", "e-").replace("e+", "e");
+    }
+
+    static double[] linspace(double lo, double hi, int n) {
+        double[] a = new double[n];
+        for (int i = 0; i < n; i++) a[i] = lo + (double) i / (n - 1) * (hi - lo);
+        return a;
+    }
+
+    static double[] toArray(List<Double> list) {
+        double[] a = new double[list.size()];
+        for (int i = 0; i < list.size(); i++) a[i] = list.get(i);
+        return a;
+    }
+
+    static double[] gaussianKde1D(double[] data, double[] eval, double bw) {
+        double[] result = new double[eval.length];
+        if (data.length == 0 || bw <= 0) return result;
+        double c = 1.0 / (data.length * bw * Math.sqrt(2.0 * Math.PI));
+        for (int i = 0; i < eval.length; i++) {
+            double s = 0;
+            for (double d : data) { double u = (eval[i] - d) / bw; s += Math.exp(-0.5 * u * u); }
+            result[i] = s * c;
+        }
+        return result;
+    }
+
+    static double silvermanBw(double[] data) {
+        if (data.length < 2) return 1.0;
+        double mean = 0; for (double d : data) mean += d; mean /= data.length;
+        double var  = 0; for (double d : data) { double dd = d - mean; var += dd * dd; }
+        double std  = Math.sqrt(var / data.length);
+        return std < 1e-10 ? 1.0 : 1.06 * std * Math.pow(data.length, -0.2);
+    }
+
+    static double arrayMax(double[] a) {
+        double m = 0; for (double v : a) if (v > m) m = v; return m;
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -379,29 +426,43 @@ public class SegStatsPanel extends JPanel {
     // ═════════════════════════════════════════════════════════════════════
 
     static class Heat2D extends JPanel {
-        private static final int ML = 60, MR = 70, MT = 26, MB = 42, CBAR_W = 12;
+        private static final int MT = 26, MB = 42;
+        private static final int YLBL = 50;     // y tick-label area
+        private static final int MARGW = 46;    // y-marginal KDE strip width
+        private static final int CBAR_W = 12, CBAR_LBL = 42, GAP = 8;
 
-        private final String xLabel, yLabel;
+        private final String  xLabel, yLabel;
+        private final boolean leftMarginal;     // KDE strip on the left (else right)
+
         private int[][] hist;
         private int     nb;
         private double  xMin, xMax, yMin, yMax;
         private int     total;
         private Color   base = new Color(0, 50, 180);
+        private List<double[]> kde   = java.util.Collections.emptyList();
+        private List<Color>    kdeCol = java.util.Collections.emptyList();
         private boolean hasData = false;
         boolean         logScale = true;
 
-        Heat2D(String xLabel, String yLabel) {
-            this.xLabel = xLabel; this.yLabel = yLabel;
+        Heat2D(String xLabel, String yLabel, boolean leftMarginal) {
+            this.xLabel = xLabel; this.yLabel = yLabel; this.leftMarginal = leftMarginal;
             setBackground(Color.WHITE);
         }
 
         void setHist(int[][] hist, int nb, double xMin, double xMax,
-                     double yMin, double yMax, int total, Color base) {
+                     double yMin, double yMax, int total, Color base,
+                     List<double[]> kde, List<Color> kdeCol) {
             this.hist = hist; this.nb = nb;
             this.xMin = xMin; this.xMax = xMax; this.yMin = yMin; this.yMax = yMax;
-            this.total = total; this.base = base; this.hasData = true;
+            this.total = total; this.base = base;
+            this.kde = kde; this.kdeCol = kdeCol;
+            this.hasData = true;
         }
         void setEmpty() { hasData = false; }
+
+        private int mapYpix(double v, int py, int ph) {
+            return py + ph - (int) ((v - yMin) / (yMax - yMin) * ph);
+        }
 
         @Override
         protected void paintComponent(Graphics g) {
@@ -411,13 +472,21 @@ public class SegStatsPanel extends JPanel {
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
             int W = getWidth(), H = getHeight();
-            int px = ML, py = MT, pw = W - ML - MR, ph = H - MT - MB;
+            int leftPad  = leftMarginal ? (MARGW + GAP + YLBL) : YLBL;
+            int rightPad = leftMarginal ? (GAP + CBAR_W + CBAR_LBL)
+                                        : (GAP + MARGW + GAP + CBAR_W + CBAR_LBL);
+            int px = leftPad, py = MT, pw = W - leftPad - rightPad, ph = H - MT - MB;
             if (pw < 20 || ph < 20) { g2.dispose(); return; }
             g2.setColor(Color.WHITE); g2.fillRect(px, py, pw, ph);
 
             g2.setColor(Color.DARK_GRAY);
             g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
-            g2.drawString(xLabel + " vs " + yLabel, px, py - 10);
+            g2.drawString(yLabel + " vs " + xLabel, px, py - 10);
+
+            // strip + colour-bar x positions
+            int stripX = leftMarginal ? 2 : (px + pw + GAP);
+            int cbarX  = leftMarginal ? (px + pw + GAP)
+                                      : (px + pw + GAP + MARGW + GAP);
 
             if (!hasData) {
                 g2.setColor(new Color(150, 150, 150));
@@ -425,34 +494,37 @@ public class SegStatsPanel extends JPanel {
                 String m = "No segments";
                 g2.drawString(m, px + (pw - g2.getFontMetrics().stringWidth(m)) / 2, py + ph / 2);
                 drawFrame(g2, px, py, pw, ph);
+                drawTitles(g2, px, py, pw, ph);
                 g2.dispose(); return;
             }
 
             int maxCount = 0;
             for (int[] col : hist) for (int v : col) maxCount = Math.max(maxCount, v);
-            if (maxCount == 0) { drawFrame(g2, px, py, pw, ph); g2.dispose(); return; }
-            double logMax = Math.log1p(maxCount);
+            double logMax = Math.log1p(Math.max(1, maxCount));
 
-            double cellW = (double) pw / nb, cellH = (double) ph / nb;
-            Shape oldClip = g2.getClip();
-            g2.setClip(px, py, pw, ph);
-            for (int xi = 0; xi < nb; xi++)
-                for (int yi = 0; yi < nb; yi++) {
-                    int cnt = hist[xi][yi];
-                    if (cnt == 0) continue;
-                    double intensity = logScale ? Math.log1p(cnt) / logMax : (double) cnt / maxCount;
-                    int cx = px + (int) (xi * cellW);
-                    int cy = py + ph - (int) ((yi + 1) * cellH);
-                    g2.setColor(mapColor(intensity, base));
-                    g2.fillRect(cx, cy, (int) Math.ceil(cellW) + 1, (int) Math.ceil(cellH) + 1);
-                }
-            g2.setClip(oldClip);
+            if (maxCount > 0) {
+                double cellW = (double) pw / nb, cellH = (double) ph / nb;
+                Shape oldClip = g2.getClip();
+                g2.setClip(px, py, pw, ph);
+                for (int xi = 0; xi < nb; xi++)
+                    for (int yi = 0; yi < nb; yi++) {
+                        int cnt = hist[xi][yi];
+                        if (cnt == 0) continue;
+                        double intensity = logScale ? Math.log1p(cnt) / logMax : (double) cnt / maxCount;
+                        int cx = px + (int) (xi * cellW);
+                        int cy = py + ph - (int) ((yi + 1) * cellH);
+                        g2.setColor(mapColor(intensity, base));
+                        g2.fillRect(cx, cy, (int) Math.ceil(cellW) + 1, (int) Math.ceil(cellH) + 1);
+                    }
+                g2.setClip(oldClip);
+            }
 
             drawGrid(g2, px, py, pw, ph);
             drawFrame(g2, px, py, pw, ph);
             drawTicks(g2, px, py, pw, ph);
             drawTitles(g2, px, py, pw, ph);
-            drawColorBar(g2, maxCount, logMax, px, py, pw, ph);
+            drawColorBar(g2, cbarX, maxCount, logMax, py, ph);
+            drawYMarginal(g2, stripX, py, ph);
 
             g2.setColor(new Color(80, 80, 80));
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
@@ -460,6 +532,43 @@ public class SegStatsPanel extends JPanel {
             g2.drawString(nlab, px + pw - g2.getFontMetrics().stringWidth(nlab) - 5, py + 13);
 
             g2.dispose();
+        }
+
+        /** Y-axis marginal KDE strip (α or D), one curve per experiment. */
+        private void drawYMarginal(Graphics2D g2, int stripX, int py, int ph) {
+            g2.setColor(new Color(250, 250, 250));
+            g2.fillRect(stripX, py, MARGW, ph);
+            g2.setColor(new Color(190, 190, 190));
+            g2.setStroke(new BasicStroke(0.7f));
+            g2.drawRect(stripX, py, MARGW, ph);
+            if (kde == null || kde.isEmpty()) return;
+
+            Shape oldClip = g2.getClip();
+            g2.setClip(stripX, py, MARGW, ph);
+            double baseX = leftMarginal ? (stripX + MARGW) : stripX;  // baseline near plot
+            for (int s = 0; s < kde.size(); s++) {
+                double[] curve = kde.get(s);
+                int n = curve.length;
+                double kmax = arrayMax(curve);
+                if (kmax < 1e-300) continue;
+                double[] eval = linspace(yMin, yMax, n);
+                int[] xs = new int[n + 2], ys = new int[n + 2];
+                for (int i = 0; i < n; i++) {
+                    int reach = (int) (curve[i] / kmax * (MARGW - 2));
+                    xs[i] = leftMarginal ? (stripX + MARGW - reach) : (stripX + reach);
+                    ys[i] = mapYpix(eval[i], py, ph);
+                }
+                xs[n]     = (int) baseX; ys[n]     = ys[n - 1];
+                xs[n + 1] = (int) baseX; ys[n + 1] = ys[0];
+                Color c = kdeCol.get(s);
+                g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 55));
+                g2.fillPolygon(xs, ys, n + 2);
+                g2.setColor(c);
+                g2.setStroke(new BasicStroke(1.3f));
+                g2.drawPolyline(xs, ys, n);
+            }
+            g2.setClip(oldClip);
+            g2.setStroke(new BasicStroke(1f));
         }
 
         private static Color mapColor(double t, Color b) {
@@ -471,9 +580,9 @@ public class SegStatsPanel extends JPanel {
         }
         private static int clamp(int v) { return Math.max(0, Math.min(255, v)); }
 
-        private void drawColorBar(Graphics2D g2, int maxCount, double logMax,
-                                  int px, int py, int pw, int ph) {
-            int bx = px + pw + 16, by = py, bh = ph;
+        private void drawColorBar(Graphics2D g2, int bx, int maxCount, double logMax,
+                                  int py, int ph) {
+            int by = py, bh = ph;
             for (int y = 0; y < bh; y++) {
                 double frac = (double) (bh - 1 - y) / (bh - 1);
                 g2.setColor(mapColor(frac, base));
@@ -503,7 +612,7 @@ public class SegStatsPanel extends JPanel {
             }
             double yStep = niceStep(yMax - yMin, 5);
             for (double t = Math.ceil(yMin / yStep) * yStep; t <= yMax + yStep * 0.01; t += yStep) {
-                int yp = py + ph - (int) ((t - yMin) / (yMax - yMin) * ph);
+                int yp = mapYpix(t, py, ph);
                 g2.drawLine(px, yp, px + pw, yp);
             }
             g2.setStroke(new BasicStroke(1f));
@@ -521,7 +630,7 @@ public class SegStatsPanel extends JPanel {
             }
             double yStep = niceStep(yMax - yMin, 5);
             for (double t = Math.ceil(yMin / yStep) * yStep; t <= yMax + yStep * 0.01; t += yStep) {
-                int yp = py + ph - (int) ((t - yMin) / (yMax - yMin) * ph);
+                int yp = mapYpix(t, py, ph);
                 g2.drawLine(px - 4, yp, px, yp);
                 String lbl = fmtTick(t);
                 g2.drawString(lbl, px - 6 - fm.stringWidth(lbl), yp + fm.getAscent() / 2 - 1);
@@ -533,7 +642,8 @@ public class SegStatsPanel extends JPanel {
             FontMetrics fm = g2.getFontMetrics();
             g2.drawString(xLabel, px + (pw - fm.stringWidth(xLabel)) / 2, py + ph + MB - 3);
             AffineTransform orig = g2.getTransform();
-            g2.translate(12, py + ph / 2.0); g2.rotate(-Math.PI / 2);
+            int yTitleX = leftMarginal ? (MARGW + GAP + 12) : 12;
+            g2.translate(yTitleX, py + ph / 2.0); g2.rotate(-Math.PI / 2);
             g2.drawString(yLabel, -fm.stringWidth(yLabel) / 2, fm.getAscent() / 2);
             g2.setTransform(orig);
         }

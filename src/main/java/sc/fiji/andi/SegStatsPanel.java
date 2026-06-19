@@ -179,20 +179,20 @@ public class SegStatsPanel extends JPanel {
         lengthHist.setData(lenMin, lenMax, lenBins, lenCounts, lenColors, lenNames);
 
         // ── time-vs-α and time-vs-D 2-D histograms (combined) ─────────────
+        // One point per segment: x = segment's mean frame, y = segment mean.
         int[][] histA = new int[nBins][nBins];
         int[][] histD = new int[nBins][nBins];
         int totA = 0, totD = 0;
         for (ExperimentData exp : sel) {
             for (List<Segment> segs : exp.segments.values()) {
                 for (Segment s : segs) {
-                    for (int t = s.start; t < s.start + s.length; t++) {
-                        int xi = bin(t, tMin, tMax, nBins);
-                        histA[xi][bin(s.alpha, aMin, aMax, nBins)]++;
-                        totA++;
-                        if (Double.isFinite(s.logD)) {
-                            histD[xi][bin(s.logD, ldMin, ldMax, nBins)]++;
-                            totD++;
-                        }
+                    double midT = s.start + (s.length - 1) / 2.0;
+                    int xi = bin(midT, tMin, tMax, nBins);
+                    histA[xi][bin(s.alpha, aMin, aMax, nBins)]++;
+                    totA++;
+                    if (Double.isFinite(s.logD)) {
+                        histD[xi][bin(s.logD, ldMin, ldMax, nBins)]++;
+                        totD++;
                     }
                 }
             }

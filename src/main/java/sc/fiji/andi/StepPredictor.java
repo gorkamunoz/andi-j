@@ -103,6 +103,19 @@ public class StepPredictor implements Closeable {
      * @throws OrtException if ONNX Runtime encounters an inference error
      */
     public void computeForExperiment(ExperimentData exp) throws OrtException {
+        computeForExperiment(exp, null);
+    }
+
+    /** Notified once after each track is processed (for progress reporting). */
+    public interface ProgressListener { void trackDone(); }
+
+    /**
+     * As {@link #computeForExperiment(ExperimentData)}, but invokes
+     * {@code listener.trackDone()} after every track (including skipped ones),
+     * so callers can drive a determinate progress bar.
+     */
+    public void computeForExperiment(ExperimentData exp, ProgressListener listener)
+            throws OrtException {
         Map<Integer, double[]> outAlpha = new LinkedHashMap<>();
         Map<Integer, double[]> outLogD  = new LinkedHashMap<>();
 
@@ -113,6 +126,7 @@ public class StepPredictor implements Closeable {
             if (spots.size() < 2) {
                 outAlpha.put(id, new double[0]);
                 outLogD.put(id,  new double[0]);
+                if (listener != null) listener.trackDone();
                 continue;
             }
 
@@ -123,6 +137,8 @@ public class StepPredictor implements Closeable {
                     runSession(sessionAlpha, alphaIn, alphaOut, polar, false)));
             outLogD.put(id, toDouble(
                     runSession(sessionLogD,  logDIn,  logDOut,  polar, true)));
+
+            if (listener != null) listener.trackDone();
         }
 
         exp.stepAlpha = outAlpha;

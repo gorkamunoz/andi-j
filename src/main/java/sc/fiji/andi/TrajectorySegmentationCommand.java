@@ -50,9 +50,11 @@ public class TrajectorySegmentationCommand implements PlugIn {
                 + "</b> track(s) across <b>" + exps.size()
                 + "</b> experiment(s)…</html>"), BorderLayout.NORTH);
 
-            JProgressBar bar = new JProgressBar();
-            bar.setIndeterminate(true);
-            bar.setPreferredSize(new Dimension(320, 18));
+            final int totalTracks = Math.max(1, nTracks);
+            JProgressBar bar = new JProgressBar(0, totalTracks);
+            bar.setStringPainted(true);
+            bar.setString("0 / " + nTracks);
+            bar.setPreferredSize(new Dimension(320, 20));
             pp.add(bar, BorderLayout.CENTER);
 
             prog.setContentPane(pp);
@@ -65,11 +67,20 @@ public class TrajectorySegmentationCommand implements PlugIn {
 
                 private Exception error;
 
+                private final int[] done = {0};
+
                 @Override
                 protected Void doInBackground() {
                     try (StepPredictor predictor = StepPredictor.fromResources()) {
+                        StepPredictor.ProgressListener tick = () -> {
+                            int d = ++done[0];
+                            SwingUtilities.invokeLater(() -> {
+                                bar.setValue(d);
+                                bar.setString(d + " / " + nTracks);
+                            });
+                        };
                         for (ExperimentData exp : exps)
-                            predictor.computeForExperiment(exp);
+                            predictor.computeForExperiment(exp, tick);
                     } catch (OrtException | java.io.IOException ex) {
                         error = ex;
                     }

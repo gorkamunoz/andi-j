@@ -45,9 +45,10 @@ public class SegVisualizationPanel extends JPanel {
     private final JComboBox<String> expCombo;
     private final JTextField        trajField;
     private final TrajectoryPlot[]  plots;
-    private boolean showAlpha = true;
-    private boolean showD     = true;
-    private boolean showSeg   = true;
+    private boolean showAlpha    = true;
+    private boolean showD        = true;
+    private boolean showSegAlpha = true;
+    private boolean showSegD     = true;
 
     /** Current change-point parameters; edited via the parameters dialog. */
     private final SegmentationParams segParams = new SegmentationParams();
@@ -157,13 +158,23 @@ public class SegVisualizationPanel extends JPanel {
             for (TrajectoryPlot p : plots) { p.showD = showD; p.repaint(); }
         });
 
-        // Segment overlay toggle
-        JToggleButton segToggle = new JToggleButton("Seg", true);
-        segToggle.setFont(segToggle.getFont().deriveFont(Font.BOLD, 12f));
-        segToggle.setToolTipText("Toggle the change-point segment overlay in all plots");
-        segToggle.addActionListener(e -> {
-            showSeg = segToggle.isSelected();
-            for (TrajectoryPlot p : plots) { p.showSeg = showSeg; p.repaint(); }
+        // Segment-overlay toggles (independent of the raw α / D lines)
+        JToggleButton segAlphaToggle = new JToggleButton("α_seg", true);
+        segAlphaToggle.setForeground(ALPHA_COLOR.darker());
+        segAlphaToggle.setFont(segAlphaToggle.getFont().deriveFont(Font.BOLD, 11f));
+        segAlphaToggle.setToolTipText("Toggle the α segment step-lines in all plots");
+        segAlphaToggle.addActionListener(e -> {
+            showSegAlpha = segAlphaToggle.isSelected();
+            for (TrajectoryPlot p : plots) { p.showSegAlpha = showSegAlpha; p.repaint(); }
+        });
+
+        JToggleButton segDToggle = new JToggleButton("D_seg", true);
+        segDToggle.setForeground(D_COLOR.darker());
+        segDToggle.setFont(segDToggle.getFont().deriveFont(Font.BOLD, 11f));
+        segDToggle.setToolTipText("Toggle the log₁₀(D) segment step-lines in all plots");
+        segDToggle.addActionListener(e -> {
+            showSegD = segDToggle.isSelected();
+            for (TrajectoryPlot p : plots) { p.showSegD = showSegD; p.repaint(); }
         });
 
         JButton paramsBtn = new JButton("Segmentation Parameters");
@@ -188,7 +199,8 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(Box.createHorizontalStrut(10));
         bar.add(alphaToggle);
         bar.add(dToggle);
-        bar.add(segToggle);
+        bar.add(segAlphaToggle);
+        bar.add(segDToggle);
         bar.add(Box.createHorizontalStrut(10));
         bar.add(paramsBtn);
         bar.add(saveSegBtn);
@@ -397,9 +409,10 @@ public class SegVisualizationPanel extends JPanel {
                     plots[i].setData(id, alpha, logD, segs);
                 }
             }
-            plots[i].showAlpha = showAlpha;
-            plots[i].showD     = showD;
-            plots[i].showSeg   = showSeg;
+            plots[i].showAlpha    = showAlpha;
+            plots[i].showD        = showD;
+            plots[i].showSegAlpha = showSegAlpha;
+            plots[i].showSegD     = showSegD;
         }
     }
 
@@ -433,9 +446,10 @@ public class SegVisualizationPanel extends JPanel {
         private List<Segment> segments;     // change-point segments (may be null)
         private boolean  notFound  = false; // track ID not in experiment
 
-        boolean showAlpha = true;
-        boolean showD     = true;
-        boolean showSeg   = true;
+        boolean showAlpha    = true;
+        boolean showD        = true;
+        boolean showSegAlpha = true;
+        boolean showSegD     = true;
 
         TrajectoryPlot() {
             setBackground(BG_COLOR);
@@ -528,8 +542,10 @@ public class SegVisualizationPanel extends JPanel {
             if (pw < 10 || ph < 10) return;
 
             // ── Auto-scale logD axis ───────────────────────────────────────
+            boolean dAxis = (showD || showSegD) && logD != null;
+            boolean aAxis = (showAlpha || showSegAlpha) && alpha != null;
             double dMin = Double.MAX_VALUE, dMax = -Double.MAX_VALUE;
-            if (showD && logD != null) {
+            if (dAxis) {
                 for (double v : logD) {
                     if (Double.isFinite(v)) {
                         dMin = Math.min(dMin, v);
@@ -575,7 +591,7 @@ public class SegVisualizationPanel extends JPanel {
             }
 
             // ── Left (D) y-axis ticks ─────────────────────────────────────
-            if (showD && logD != null) {
+            if (dAxis) {
                 g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 7.5f));
                 fm = g2.getFontMetrics();
                 g2.setColor(D_COLOR);
@@ -591,7 +607,7 @@ public class SegVisualizationPanel extends JPanel {
             }
 
             // ── Right (α) y-axis ticks ────────────────────────────────────
-            if (showAlpha && alpha != null) {
+            if (aAxis) {
                 g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 7.5f));
                 fm = g2.getFontMetrics();
                 g2.setColor(ALPHA_COLOR);
@@ -625,7 +641,7 @@ public class SegVisualizationPanel extends JPanel {
             }
 
             // ── Change-point segment overlay ──────────────────────────────
-            if (showSeg && segments != null && !segments.isEmpty()) {
+            if ((showSegAlpha || showSegD) && segments != null && !segments.isEmpty()) {
                 // Vertical change-point markers (segment starts, except the first)
                 g2.setColor(new Color(110, 110, 110));
                 g2.setStroke(new BasicStroke(0.8f, BasicStroke.CAP_BUTT,
@@ -635,19 +651,19 @@ public class SegVisualizationPanel extends JPanel {
                     int xp = px + xToPixel(s.start, seqLen, pw);
                     g2.drawLine(xp, py, xp, py + ph);
                 }
-                // Per-segment mean step lines
+                // Per-segment mean step lines (independent of the raw α / D lines)
                 g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_BUTT,
                         BasicStroke.JOIN_MITER));
                 for (Segment s : segments) {
                     int x0 = px + xToPixel(s.start, seqLen, pw);
                     int x1 = px + xToPixel(Math.min(seqLen - 1, s.start + s.length - 1),
                                            seqLen, pw);
-                    if (showD && logD != null && Double.isFinite(s.logD)) {
+                    if (showSegD && logD != null && Double.isFinite(s.logD)) {
                         int yp = py + ph - yToPixel(s.logD, dMin, dMax, ph);
                         g2.setColor(D_COLOR.darker());
                         g2.drawLine(x0, yp, x1, yp);
                     }
-                    if (showAlpha && alpha != null && Double.isFinite(s.alpha)) {
+                    if (showSegAlpha && alpha != null && Double.isFinite(s.alpha)) {
                         int yp = py + ph - yToPixel(s.alpha, aMin, aMax, ph);
                         g2.setColor(ALPHA_COLOR.darker());
                         g2.drawLine(x0, yp, x1, yp);

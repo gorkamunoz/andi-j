@@ -1,9 +1,12 @@
 package sc.fiji.andi;
 
+import ij.IJ;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
+import java.io.*;
 import java.util.*;
 import java.util.List;
 
@@ -74,6 +77,10 @@ public class SegDvsAlphaPanel extends JPanel {
         refreshBtn.setToolTipText("Recompute the histogram");
         refreshBtn.addActionListener(e -> rebuild());
 
+        JButton saveBtn = new JButton("Save data…");
+        saveBtn.setToolTipText("Export per-frame α and D predictions to CSV");
+        saveBtn.addActionListener(e -> saveData());
+
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
         bar.add(new JLabel("Bins:"));
@@ -82,7 +89,62 @@ public class SegDvsAlphaPanel extends JPanel {
         bar.add(logCountBox);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(refreshBtn);
+        bar.add(Box.createHorizontalStrut(12));
+        bar.add(saveBtn);
         return bar;
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // Save per-frame predictions
+    // ═════════════════════════════════════════════════════════════════════
+
+    private void saveData() {
+        if (experiments.stream().noneMatch(ExperimentData::hasStepPredictions)) {
+            JOptionPane.showMessageDialog(this,
+                "No STEP predictions available.",
+                "Save data", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
+        fc.setDialogTitle("Save per-frame α / D predictions");
+        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+
+        File f = fc.getSelectedFile();
+        if (!f.getName().toLowerCase().endsWith(".csv"))
+            f = new File(f.getParent(), f.getName() + ".csv");
+
+        boolean multiExp = experiments.stream()
+            .filter(ExperimentData::hasStepPredictions).count() > 1;
+
+        try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
+            if (multiExp) pw.println("experiment,track_id,frame,alpha,D");
+            else          pw.println("track_id,frame,alpha,D");
+
+            for (ExperimentData exp : experiments) {
+                if (!exp.hasStepPredictions()) continue;
+                for (Map.Entry<Integer, double[]> e : exp.stepAlpha.entrySet()) {
+                    int      id = e.getKey();
+                    double[] al = e.getValue();
+                    double[] ld = exp.stepLogD != null ? exp.stepLogD.get(id) : null;
+                    if (al == null) continue;
+                    int len = (ld != null) ? Math.min(al.length, ld.length) : al.length;
+                    for (int t = 0; t < len; t++) {
+                        double alpha = al[t];
+                        double d     = (ld != null) ? Math.pow(10, ld[t]) : Double.NaN;
+                        int    frame = t + 1;   // 1 … length of the trajectory's prediction
+                        if (multiExp) pw.printf("%s,%d,%d,%.6f,%.6e%n", exp.name, id, frame, alpha, d);
+                        else          pw.printf("%d,%d,%.6f,%.6e%n", id, frame, alpha, d);
+                    }
+                }
+            }
+            IJ.log("AnDi: per-frame predictions saved → " + f.getAbsolutePath());
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                "Could not save file:\n" + ex.getMessage(),
+                "Save data – error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private JPanel buildExperimentsPanel() {

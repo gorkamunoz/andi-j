@@ -68,7 +68,7 @@ public class SegVisualizationPanel extends JPanel {
         String[] names = new String[experiments.size()];
         for (int i = 0; i < experiments.size(); i++) names[i] = experiments.get(i).name;
         expCombo  = new JComboBox<>(names);
-        trajField = new JTextField(24);
+        trajField = new JTextField(18);
         trajField.setToolTipText(
             "Comma-separated TRACK_IDs to display, e.g.  1, 5, 20, 37\n"
             + "Up to 16 values.  Press Enter or click Apply.");
@@ -115,10 +115,27 @@ public class SegVisualizationPanel extends JPanel {
         sampleBtn.setToolTipText("Pick 16 random trajectories from the selected experiment");
         sampleBtn.addActionListener(e -> sampleRandom());
 
+        // "Show trajectories…" opens a small popup with the ID field (saves space)
+        JButton showTrajBtn = new JButton("Show trajectories…");
+        showTrajBtn.setToolTipText("Enter specific track IDs to display");
+        final JPopupMenu trajPopup = new JPopupMenu();
+        JPanel pp = new JPanel(new BorderLayout(4, 4));
+        pp.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        pp.add(new JLabel("Track IDs (comma-separated):"), BorderLayout.NORTH);
+        pp.add(trajField, BorderLayout.CENTER);
         JButton applyBtn = new JButton("Apply");
-        applyBtn.setToolTipText("Display the trajectories listed in the text field");
-        applyBtn.addActionListener(e -> showSpecified());
-        trajField.addActionListener(e -> showSpecified());  // Enter key
+        JPanel applyRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        applyRow.add(applyBtn);
+        pp.add(applyRow, BorderLayout.SOUTH);
+        trajPopup.add(pp);
+
+        Runnable apply = () -> { showSpecified(); trajPopup.setVisible(false); };
+        applyBtn.addActionListener(e -> apply.run());
+        trajField.addActionListener(e -> apply.run());   // Enter key
+        showTrajBtn.addActionListener(e -> {
+            trajPopup.show(showTrajBtn, 0, showTrajBtn.getHeight());
+            SwingUtilities.invokeLater(trajField::requestFocusInWindow);
+        });
 
         // α toggle
         JToggleButton alphaToggle = new JToggleButton("α", true);
@@ -167,9 +184,7 @@ public class SegVisualizationPanel extends JPanel {
         }
         bar.add(sampleBtn);
         bar.add(Box.createHorizontalStrut(8));
-        bar.add(new JLabel("Show trajectories:"));
-        bar.add(trajField);
-        bar.add(applyBtn);
+        bar.add(showTrajBtn);
         bar.add(Box.createHorizontalStrut(10));
         bar.add(alphaToggle);
         bar.add(dToggle);

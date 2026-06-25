@@ -46,8 +46,8 @@ public class AnomalousExponentPanel extends JPanel {
     private final JTextField mlBinsField;
 
     // ML model file and live predictor (null until loaded)
-    private File               mlModelFile = null;
-    private OnnxAlphaPredictor mlPredictor = null;
+    private File                mlModelFile = null;
+    private SingleTrajPredictor mlPredictor = null;
 
     // Sub-panels
     private final AlphaHistogramPanel histPanel;
@@ -279,7 +279,7 @@ public class AnomalousExponentPanel extends JPanel {
     }
 
     // -----------------------------------------------------------------------
-    // ML model loader – creates a live OnnxAlphaPredictor from the chosen file
+    // ML model loader – creates a live SingleTrajPredictor from the chosen file
     // -----------------------------------------------------------------------
 
     private void loadMlModel(JLabel statusLabel) {
@@ -292,7 +292,7 @@ public class AnomalousExponentPanel extends JPanel {
         File f = fc.getSelectedFile();
         try {
             if (mlPredictor != null) { mlPredictor.close(); mlPredictor = null; }
-            mlPredictor = new OnnxAlphaPredictor(f);
+            mlPredictor = new SingleTrajPredictor(f);
             mlModelFile = f;
             statusLabel.setText(f.getName());
             statusLabel.setForeground(new Color(0, 120, 0));
@@ -314,13 +314,13 @@ public class AnomalousExponentPanel extends JPanel {
         // If no predictor loaded yet, try the bundled classpath resource first
         if (mlPredictor == null) {
             try {
-                mlPredictor = OnnxAlphaPredictor.fromResource();
+                mlPredictor = SingleTrajPredictor.fromResource();
             } catch (Exception ex) {
                 // Bundled model not present – ask the user to load one
                 JOptionPane.showMessageDialog(this,
                     "<html>No ML model is loaded and no bundled model was found.<br><br>"
                   + "Please:<br>"
-                  + "1. Run <tt>ML_analysis/convert_single_traj_to_onnx.py</tt> to create the ONNX file.<br>"
+                  + "1. Run <tt>ML_analysis/pythons_for_plugin/convert_single_traj_v2_to_onnx.py</tt> to create the ONNX file.<br>"
                   + "2. Rebuild the plugin (<tt>mvn clean package</tt>), <b>or</b><br>"
                   + "   click <b>Load…</b> and select the <tt>.onnx</tt> file directly.<br><br>"
                   + "Details: " + ex.getMessage() + "</html>",
@@ -357,7 +357,7 @@ public class AnomalousExponentPanel extends JPanel {
             @Override
             protected Void doInBackground() {
                 try {
-                    OnnxAlphaPredictor.ProgressListener tick = () -> {
+                    SingleTrajPredictor.ProgressListener tick = () -> {
                         int d = ++done[0];
                         SwingUtilities.invokeLater(() -> {
                             bar.setValue(d);

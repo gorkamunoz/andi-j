@@ -1,5 +1,6 @@
 package sc.fiji.andi;
 
+import ai.onnxruntime.OrtException;
 import ij.IJ;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -16,11 +17,11 @@ import java.util.List;
  * diffusion models and shows, per experiment, the percentage of trajectories
  * predicted as each model in a grouped bar chart.
  *
- * <p><b>Placeholder predictions:</b> the real classifier is still being
- * trained.  Until then each trajectory is assigned a uniformly random model
- * (stored in {@link ExperimentData#diffModel} so it stays stable within a
- * session and can be saved).  When the trained model is wired in, only the
- * {@link #ensurePredictions()} method needs to change.</p>
+ * <p>Predictions come from the V2 single-trajectory model
+ * ({@link SingleTrajPredictor}); "Compute models (ML)" runs the classifier
+ * (with a progress bar) and fills {@link ExperimentData#diffModel}.  Running
+ * the ML α prediction in the Anomalous-exponent tab fills the same map, so the
+ * bars appear here automatically in that case.</p>
  *
  * Experiment selection (right-side column of colour-coded toggles + "Deselect
  * all") mirrors the Turning Angles tab.  "Save models…" exports one row per
@@ -28,13 +29,19 @@ import java.util.List;
  */
 public class DiffusionModelPanel extends JPanel {
 
-    /** The five canonical anomalous-diffusion models (classifier output classes). */
-    public static final String[] MODEL_NAMES = {"ATTM", "CTRW", "FBM", "SBM", "LW"};
+    /**
+     * The five anomalous-diffusion model classes, in the classifier's output
+     * (logit) order.  Must match the training label order of the V2 model.
+     */
+    public static final String[] MODEL_NAMES = {"ATTM", "CTRW", "FBM", "LW", "SBM"};
 
     private final List<ExperimentData>         experiments;
     /** Working list = original experiments plus any tagged populations added later. */
     private final List<ExperimentData>         shown      = new ArrayList<>();
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
+
+    /** Live predictor (null until first compute). */
+    private SingleTrajPredictor predictor = null;
 
     private final BarPanel barPanel;
     private JComponent     sideColumn;
@@ -49,13 +56,10 @@ public class DiffusionModelPanel extends JPanel {
 
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
-        ensurePredictions();
-
         // ── top bar (info) ───────────────────────────────────────────────
         JLabel infoLabel = new JLabel(
             "<html><i>Percentage of trajectories classified into each diffusion model " +
-            "(2D). Predictions are currently random placeholders until the classifier " +
-            "is trained.</i></html>");
+            "(2D). Click \"Compute models (ML)\" to run the classifier.</i></html>");
         infoLabel.setBorder(new EmptyBorder(2, 4, 4, 4));
         infoLabel.setForeground(new Color(80, 80, 80));
         add(infoLabel, BorderLayout.NORTH);
@@ -64,7 +68,7 @@ public class DiffusionModelPanel extends JPanel {
         barPanel = new BarPanel();
         add(barPanel, BorderLayout.CENTER);
 
-        // ── right column: experiment toggles + save ──────────────────────
+        // ── right column: experiment toggles + compute + save ─────────────
         sideColumn = buildSideColumn();
         add(sideColumn, BorderLayout.EAST);
     }
@@ -77,12 +81,6 @@ public class DiffusionModelPanel extends JPanel {
         if (shown.contains(exp)) return;
         shown.add(exp);
         expVisible.put(exp, true);
-        if (!exp.hasDiffModel()) {           // safety: parent predictions weren't copied
-            Random rnd = new Random(exp.name.hashCode() * 31L + exp.tracks.size());
-            Map<Integer, Integer> m = new LinkedHashMap<>();
-            for (Integer id : exp.tracks.keySet()) m.put(id, rnd.nextInt(MODEL_NAMES.length));
-            exp.diffModel = m;
-        }
         remove(sideColumn);
         sideColumn = buildSideColumn();
         add(sideColumn, BorderLayout.EAST);
@@ -131,6 +129,14 @@ public class DiffusionModelPanel extends JPanel {
 
         col.add(Box.createVerticalGlue());
 
+        JButton computeBtn = new JButton("Compute models (ML)");
+        computeBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        computeBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+        computeBtn.setFocusPainted(false);
+        computeBtn.addActionListener(e -> computeModels());
+        col.add(computeBtn);
+        col.add(Box.createVerticalStrut(4));
+
         JButton saveBtn = new JButton("Save models…");
         saveBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
         saveBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
@@ -147,19 +153,92 @@ public class DiffusionModelPanel extends JPanel {
     }
 
     // -----------------------------------------------------------------------
-    // Predictions (placeholder – random until the classifier is trained)
+    // ML prediction (V2 single-trajectory model)
     // -----------------------------------------------------------------------
 
-    private void ensurePredictions() {
-        for (ExperimentData exp : experiments) {
-            if (exp.hasDiffModel()) continue;
-            // Deterministic seed so the placeholder is stable across re-opens
-            Random rnd = new Random(exp.name.hashCode() * 31L + exp.tracks.size());
-            Map<Integer, Integer> m = new LinkedHashMap<>();
-            for (Integer id : exp.tracks.keySet())
-                m.put(id, rnd.nextInt(MODEL_NAMES.length));
-            exp.diffModel = m;
+    private void computeModels() {
+        // Lazily load the bundled model (also lets the user pick a file on failure)
+        if (predictor == null) {
+            try {
+                predictor = SingleTrajPredictor.fromResource();
+            } catch (Exception ex) {
+                int choice = JOptionPane.showConfirmDialog(this,
+                    "<html>No bundled model was found.<br>"
+                  + "Run <tt>convert_single_traj_v2_to_onnx.py</tt> and rebuild, or load an "
+                  + ".onnx file now?<br><br>Details: " + ex.getMessage() + "</html>",
+                    "Diffusion-model classifier", JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+                if (choice != JOptionPane.OK_OPTION) return;
+                JFileChooser fc = new JFileChooser();
+                fc.setFileFilter(new FileNameExtensionFilter("ONNX models (*.onnx)", "onnx"));
+                if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+                try {
+                    predictor = new SingleTrajPredictor(fc.getSelectedFile());
+                } catch (Exception ex2) {
+                    JOptionPane.showMessageDialog(this,
+                        "Could not load model:\n" + ex2.getMessage(),
+                        "Diffusion-model classifier", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+            }
         }
+
+        // ── progress dialog over number of trajectories ──────────────────
+        final int nTracks     = shown.stream().mapToInt(e -> e.tracks.size()).sum();
+        final int totalTracks = Math.max(1, nTracks);
+
+        JDialog prog = new JDialog(SwingUtilities.getWindowAncestor(this),
+                "AnDi – Classifying diffusion models", Dialog.ModalityType.APPLICATION_MODAL);
+        JPanel pp = new JPanel(new BorderLayout(12, 12));
+        pp.setBorder(BorderFactory.createEmptyBorder(18, 24, 18, 24));
+        pp.add(new JLabel("<html>Running the classifier on <b>" + nTracks
+                + "</b> track(s)…</html>"), BorderLayout.NORTH);
+        JProgressBar bar = new JProgressBar(0, totalTracks);
+        bar.setStringPainted(true);
+        bar.setString("0 / " + nTracks);
+        bar.setPreferredSize(new Dimension(320, 20));
+        pp.add(bar, BorderLayout.CENTER);
+        prog.setContentPane(pp);
+        prog.setResizable(false);
+        prog.pack();
+        prog.setLocationRelativeTo(this);
+
+        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
+            private Exception error;
+            private final int[] done = {0};
+
+            @Override
+            protected Void doInBackground() {
+                try {
+                    SingleTrajPredictor.ProgressListener tick = () -> {
+                        int d = ++done[0];
+                        SwingUtilities.invokeLater(() -> {
+                            bar.setValue(d);
+                            bar.setString(d + " / " + nTracks);
+                        });
+                    };
+                    for (ExperimentData exp : shown)
+                        predictor.computeForExperiment(exp, tick);
+                } catch (OrtException ex) {
+                    error = ex;
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                prog.dispose();
+                if (error != null) {
+                    JOptionPane.showMessageDialog(DiffusionModelPanel.this,
+                        "Classification failed:\n" + error.getMessage(),
+                        "Diffusion-model classifier", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                barPanel.repaint();
+            }
+        };
+        worker.execute();
+        prog.setVisible(true);
     }
 
     // -----------------------------------------------------------------------
@@ -261,9 +340,11 @@ public class DiffusionModelPanel extends JPanel {
             g2.fillRect(px, py, pw, ph);
 
             if (visible.isEmpty()) {
+                boolean anyComputed = shown.stream().anyMatch(ExperimentData::hasDiffModel);
+                String msg = anyComputed ? "No experiments selected"
+                                         : "Click \"Compute models (ML)\" to run the classifier";
                 g2.setColor(new Color(160, 160, 160));
                 g2.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 13));
-                String msg = "No experiments selected";
                 FontMetrics fm = g2.getFontMetrics();
                 g2.drawString(msg, px + (pw - fm.stringWidth(msg)) / 2,
                               py + ph / 2 + fm.getAscent() / 2);

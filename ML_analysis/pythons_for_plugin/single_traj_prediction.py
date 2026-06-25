@@ -134,8 +134,7 @@ if __name__ == "__main__":
     # EXAMPLE USAGE
     from andi_datasets.datasets_challenge import challenge_theory_dataset
 
-    X1, Y1, X2, Y2, X3, Y3 = challenge_theory_dataset(N = 1000, tasks = 1, dimensions = 2,
-                                            min_T = 10, max_T = 200, load_dataset = False)
+    X1, Y1, X2, Y2, X3, Y3 = challenge_theory_dataset(N = 1000, tasks = 1, dimensions = 2, min_T = 10, max_T = 200, load_dataset = False)
 
     # Prepare data in polar representation
     inputs = X1[1]

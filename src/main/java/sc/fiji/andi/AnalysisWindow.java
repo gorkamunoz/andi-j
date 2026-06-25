@@ -21,8 +21,27 @@ public class AnalysisWindow extends JFrame {
 
         // Build the panels that receive tagged populations first, so the
         // D vs α tab can push new populations to them via a callback.
-        final DiffusionModelPanel diffusionPanel = new DiffusionModelPanel(experiments);
-        final AnglesPanel         anglesPanel     = new AnglesPanel(experiments);
+        final DiffusionModelPanel    diffusionPanel = new DiffusionModelPanel(experiments);
+        final AnglesPanel            anglesPanel     = new AnglesPanel(experiments);
+        final AnomalousExponentPanel anomalousPanel  = new AnomalousExponentPanel(experiments);
+
+        // The V2 single-trajectory model predicts α AND the diffusion model in
+        // one pass, so running ML in either tab updates both. Sync the other
+        // tab and inform the user (so the change isn't silent).
+        anomalousPanel.setOnMlComputed(() -> {
+            diffusionPanel.refreshBars();
+            JOptionPane.showMessageDialog(this,
+                "<html>ML prediction complete.<br><br>Both the <b>Anomalous exponent</b> "
+              + "(ML) and <b>Diffusion Model</b> tabs were updated.</html>",
+                "AnDi – ML prediction", JOptionPane.INFORMATION_MESSAGE);
+        });
+        diffusionPanel.setOnModelsComputed(() -> {
+            anomalousPanel.syncToMlResults();
+            JOptionPane.showMessageDialog(this,
+                "<html>ML prediction complete.<br><br>Both the <b>Diffusion Model</b> and "
+              + "<b>Anomalous exponent</b> (switched to ML) tabs were updated.</html>",
+                "AnDi – ML prediction", JOptionPane.INFORMATION_MESSAGE);
+        });
 
         // Sink: a population created in D vs α appears as a new dataset in the
         // Turning Angles and Diffusion Model tabs.
@@ -36,8 +55,7 @@ public class AnalysisWindow extends JFrame {
             new TmsdPanel(experiments, initMaxLag, initInterval));
         tabs.addTab("Diffusion coefficient",
             new DiffusionCoeffPanel(experiments, initInterval));
-        tabs.addTab("Anomalous exponent",
-            new AnomalousExponentPanel(experiments));
+        tabs.addTab("Anomalous exponent", anomalousPanel);
         tabs.addTab("D vs α",
             new FullAnalysisPanel(experiments, initInterval, populationSink));
         tabs.addTab("Diffusion Model", diffusionPanel);

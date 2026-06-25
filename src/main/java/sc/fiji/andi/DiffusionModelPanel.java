@@ -43,6 +43,9 @@ public class DiffusionModelPanel extends JPanel {
     /** Live predictor (null until first compute). */
     private SingleTrajPredictor predictor = null;
 
+    /** Invoked after a successful ML model computation (set by the window). */
+    private Runnable onModelsComputed;
+
     private final BarPanel barPanel;
     private JComponent     sideColumn;
 
@@ -235,11 +238,18 @@ public class DiffusionModelPanel extends JPanel {
                     return;
                 }
                 barPanel.repaint();
+                if (onModelsComputed != null) onModelsComputed.run();
             }
         };
         worker.execute();
         prog.setVisible(true);
     }
+
+    /** Set a callback invoked after a successful ML model computation. */
+    void setOnModelsComputed(Runnable r) { this.onModelsComputed = r; }
+
+    /** Repaint the bars (e.g. after diffModel was filled by an external ML run). */
+    void refreshBars() { barPanel.repaint(); }
 
     // -----------------------------------------------------------------------
     // Save

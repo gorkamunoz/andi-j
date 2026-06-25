@@ -53,6 +53,14 @@ public class AnomalousExponentPanel extends JPanel {
     private final AlphaHistogramPanel histPanel;
     private final DefaultTableModel   tableModel;
 
+    // Method selector (promoted to fields so it can be switched programmatically)
+    private JComboBox<String> methodCombo;
+    private CardLayout         methodCards;
+    private JPanel             methodParamsPanel;
+
+    /** Invoked after a successful ML α computation (set by the window). */
+    private Runnable onMlComputed;
+
     // -----------------------------------------------------------------------
 
     AnomalousExponentPanel(List<ExperimentData> experiments) {
@@ -68,7 +76,7 @@ public class AnomalousExponentPanel extends JPanel {
         }
 
         // ── Row 1: method selector ───────────────────────────────────────
-        JComboBox<String> methodCombo = new JComboBox<>(new String[]{"TMSD", "ML"});
+        methodCombo = new JComboBox<>(new String[]{"TMSD", "ML"});
         JButton selectMethodBtn = new JButton("Select");
 
         JPanel methodRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
@@ -111,8 +119,8 @@ public class AnomalousExponentPanel extends JPanel {
         mlParamBar.add(mlSaveBtn);
 
         // ── CardLayout switches between TMSD and ML rows ─────────────────
-        CardLayout methodCards   = new CardLayout();
-        JPanel     methodParamsPanel = new JPanel(methodCards);
+        methodCards       = new CardLayout();
+        methodParamsPanel = new JPanel(methodCards);
         methodParamsPanel.add(tmsdParamBar, "TMSD");
         methodParamsPanel.add(mlParamBar,   "ML");
 
@@ -385,10 +393,32 @@ public class AnomalousExponentPanel extends JPanel {
                 histPanel.setNBins(finalNBins);
                 histPanel.repaint();
                 refreshTable();
+                if (onMlComputed != null) onMlComputed.run();
             }
         };
         worker.execute();
         prog.setVisible(true);   // blocks via modal event loop until done() disposes it
+    }
+
+    // -----------------------------------------------------------------------
+    // Cross-tab synchronisation
+    // -----------------------------------------------------------------------
+
+    /** Set a callback invoked after a successful ML α computation in this tab. */
+    void setOnMlComputed(Runnable r) { this.onMlComputed = r; }
+
+    /**
+     * Switches this tab to the ML method and refreshes the histogram/table.
+     * Called when α was (re)computed externally (e.g. from the Diffusion Model
+     * tab, which runs the same model and overwrites {@code alphaCoeffs}).
+     */
+    void syncToMlResults() {
+        methodCombo.setSelectedItem("ML");
+        methodCards.show(methodParamsPanel, "ML");
+        histPanel.resetViewport();
+        histPanel.setNBins(parseIntOr(mlBinsField.getText(), 20));
+        histPanel.repaint();
+        refreshTable();
     }
 
     // -----------------------------------------------------------------------

@@ -48,6 +48,7 @@ public class DiffusionModelPanel extends JPanel {
 
     private final BarPanel barPanel;
     private JComponent     sideColumn;
+    private JSplitPane      split;
 
     // -----------------------------------------------------------------------
 
@@ -67,13 +68,13 @@ public class DiffusionModelPanel extends JPanel {
         infoLabel.setForeground(new Color(80, 80, 80));
         add(infoLabel, BorderLayout.NORTH);
 
-        // ── center: bar chart ────────────────────────────────────────────
-        barPanel = new BarPanel();
-        add(barPanel, BorderLayout.CENTER);
-
-        // ── right column: experiment toggles + compute + save ─────────────
+        // ── center: bar chart + draggable right experiment column ─────────
+        barPanel   = new BarPanel();
         sideColumn = buildSideColumn();
-        add(sideColumn, BorderLayout.EAST);
+        split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, barPanel, sideColumn);
+        split.setResizeWeight(1.0);          // extra space → plot; column stays draggable
+        split.setContinuousLayout(true);
+        add(split, BorderLayout.CENTER);
     }
 
     /**
@@ -84,9 +85,10 @@ public class DiffusionModelPanel extends JPanel {
         if (shown.contains(exp)) return;
         shown.add(exp);
         expVisible.put(exp, true);
-        remove(sideColumn);
+        int loc = split.getDividerLocation();
         sideColumn = buildSideColumn();
-        add(sideColumn, BorderLayout.EAST);
+        split.setRightComponent(sideColumn);
+        split.setDividerLocation(loc);
         revalidate();
         barPanel.repaint();
     }

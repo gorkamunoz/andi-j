@@ -37,6 +37,7 @@ public class AnglesPanel extends JPanel {
     private final JTextField binsField;
     private final PolarPanel polarPanel;
     private JComponent       sideColumn;
+    private JSplitPane       split;
 
     // -----------------------------------------------------------------------
 
@@ -60,15 +61,17 @@ public class AnglesPanel extends JPanel {
 
         // ── center: polar plot ───────────────────────────────────────────
         polarPanel = new PolarPanel();
-        add(polarPanel, BorderLayout.CENTER);
 
         // Listeners registered after polarPanel is assigned
         applyBtn.addActionListener(e -> polarPanel.repaint());
         binsField.addActionListener(e -> polarPanel.repaint());
 
-        // ── right column: experiment toggles + save ──────────────────────
+        // ── plot + draggable right experiment column ──────────────────────
         sideColumn = buildSideColumn();
-        add(sideColumn, BorderLayout.EAST);
+        split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, polarPanel, sideColumn);
+        split.setResizeWeight(1.0);          // extra space → plot; column stays draggable
+        split.setContinuousLayout(true);
+        add(split, BorderLayout.CENTER);
 
         // Compute angles from raw tracks immediately
         computeAngles();
@@ -83,9 +86,10 @@ public class AnglesPanel extends JPanel {
         shown.add(exp);
         expVisible.put(exp, true);
         anglesMap.put(exp, computeAnglesFor(exp));
-        remove(sideColumn);
+        int loc = split.getDividerLocation();
         sideColumn = buildSideColumn();
-        add(sideColumn, BorderLayout.EAST);
+        split.setRightComponent(sideColumn);
+        split.setDividerLocation(loc);
         revalidate();
         polarPanel.repaint();
     }
@@ -141,7 +145,7 @@ public class AnglesPanel extends JPanel {
         JScrollPane scroll = new JScrollPane(col,
             ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
             ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.setPreferredSize(new Dimension(160, 0));
+        scroll.setPreferredSize(new Dimension(200, 0));
         scroll.setBorder(BorderFactory.createTitledBorder("Experiments"));
         return scroll;
     }

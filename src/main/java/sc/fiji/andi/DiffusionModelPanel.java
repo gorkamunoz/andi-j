@@ -150,7 +150,7 @@ public class DiffusionModelPanel extends JPanel {
         JScrollPane scroll = new JScrollPane(col,
             ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
             ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.setPreferredSize(new Dimension(160, 0));
+        scroll.setPreferredSize(new Dimension(200, 0));
         scroll.setBorder(BorderFactory.createTitledBorder("Experiments"));
         return scroll;
     }

@@ -39,11 +39,11 @@ public class AnomalousExponentPanel extends JPanel {
     // All 2D/X/Y toggle buttons – used by "Deselect all"
     private final List<JToggleButton> allCompButtons = new ArrayList<>();
 
-    // Parameter fields (TMSD method)
-    private final JTextField tLagsField, binsField;
+    // Parameter field (TMSD method)
+    private final JTextField tLagsField;
 
-    // Parameter field (ML method – separate bins so each method has its own)
-    private final JTextField mlBinsField;
+    // Histogram bins – decoupled from the α computation (re-bins the plot only)
+    private JTextField binsPlotField;
 
     // ML model file and live predictor (null until loaded)
     private File                mlModelFile = null;
@@ -86,7 +86,6 @@ public class AnomalousExponentPanel extends JPanel {
 
         // ── Row 2a – TMSD params ─────────────────────────────────────────
         tLagsField = new JTextField("[1, 0.1]", 8);
-        binsField  = new JTextField("20",      4);
         JButton computeBtn = new JButton("Compute α");
         JButton saveBtn    = new JButton("Save α…");
 
@@ -97,12 +96,10 @@ public class AnomalousExponentPanel extends JPanel {
         JPanel tmsdParamBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         tmsdParamBar.add(new JLabel("Time lags:")); tmsdParamBar.add(tLagsField);
         tmsdParamBar.add(aHint);
-        tmsdParamBar.add(new JLabel("Bins:"));      tmsdParamBar.add(binsField);
         tmsdParamBar.add(computeBtn);
         tmsdParamBar.add(saveBtn);
 
         // ── Row 2b – ML params ───────────────────────────────────────────
-        mlBinsField = new JTextField("20", 4);
         JLabel  mlStatusLabel  = new JLabel("No model loaded  (bundled model used if available)");
         mlStatusLabel.setForeground(new Color(130, 130, 130));
         JButton loadModelBtn   = new JButton("Load…");
@@ -113,8 +110,6 @@ public class AnomalousExponentPanel extends JPanel {
         mlParamBar.add(new JLabel("ML model:"));
         mlParamBar.add(loadModelBtn);
         mlParamBar.add(mlStatusLabel);
-        mlParamBar.add(new JLabel("  Bins:"));
-        mlParamBar.add(mlBinsField);
         mlParamBar.add(mlComputeBtn);
         mlParamBar.add(mlSaveBtn);
 
@@ -135,7 +130,7 @@ public class AnomalousExponentPanel extends JPanel {
         selectMethodBtn.addActionListener(e ->
             methodCards.show(methodParamsPanel, (String) methodCombo.getSelectedItem()));
         loadModelBtn .addActionListener(e -> loadMlModel(mlStatusLabel));
-        mlComputeBtn .addActionListener(e -> recomputeML(parseIntOr(mlBinsField.getText(), 20)));
+        mlComputeBtn .addActionListener(e -> recomputeML(parseIntOr(binsPlotField.getText(), 20)));
         mlSaveBtn    .addActionListener(e -> saveAlpha());
 
         // ── histogram panel ──────────────────────────────────────────────
@@ -151,10 +146,28 @@ public class AnomalousExponentPanel extends JPanel {
             b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
             b.setFocusPainted(false);
         }
+        // Bins control – re-bins the histogram live, without recomputing α
+        binsPlotField = new JTextField("20", 4);
+        binsPlotField.setToolTipText(
+            "Number of histogram bins. Re-bins the plot instantly — does NOT recompute α.");
+        Runnable applyBins = () -> {
+            histPanel.setNBins(parseIntOr(binsPlotField.getText(), 20));
+            histPanel.repaint();
+        };
+        binsPlotField.addActionListener(e -> applyBins.run());   // Enter
+        JButton applyBinsBtn = new JButton("Apply");
+        applyBinsBtn.setFont(applyBinsBtn.getFont().deriveFont(Font.PLAIN, 11f));
+        applyBinsBtn.setFocusPainted(false);
+        applyBinsBtn.addActionListener(e -> applyBins.run());
+
         JPanel histToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         histToolbar.add(zoomBtn);
         histToolbar.add(panBtn);
         histToolbar.add(resetViewBtn);
+        histToolbar.add(Box.createHorizontalStrut(12));
+        histToolbar.add(new JLabel("Bins:"));
+        histToolbar.add(binsPlotField);
+        histToolbar.add(applyBinsBtn);
         zoomBtn.addActionListener(e -> histPanel.setPanMode(false));
         panBtn .addActionListener(e -> histPanel.setPanMode(true));
         resetViewBtn.addActionListener(e -> { histPanel.resetViewport(); histPanel.repaint(); });
@@ -416,7 +429,7 @@ public class AnomalousExponentPanel extends JPanel {
         methodCombo.setSelectedItem("ML");
         methodCards.show(methodParamsPanel, "ML");
         histPanel.resetViewport();
-        histPanel.setNBins(parseIntOr(mlBinsField.getText(), 20));
+        histPanel.setNBins(parseIntOr(binsPlotField.getText(), 20));
         histPanel.repaint();
         refreshTable();
     }
@@ -427,7 +440,7 @@ public class AnomalousExponentPanel extends JPanel {
 
     private void recompute() {
         LagSpec lagSpec = DiffusionCoeffPanel.parseTLags(tLagsField.getText());
-        int     nBins   = parseIntOr(binsField.getText(), 20);
+        int     nBins   = parseIntOr(binsPlotField.getText(), 20);
 
         for (ExperimentData exp : experiments)
             exp.computeAnomalousExponents(lagSpec);

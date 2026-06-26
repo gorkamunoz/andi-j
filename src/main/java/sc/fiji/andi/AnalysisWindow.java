@@ -53,8 +53,6 @@ public class AnalysisWindow extends JFrame {
         final JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("TMSD Visualization",
             new TmsdPanel(experiments, initMaxLag, initInterval));
-        tabs.addTab("PSD",
-            new PsdPanel(experiments));
         tabs.addTab("Diffusion coefficient",
             new DiffusionCoeffPanel(experiments, initInterval));
         tabs.addTab("Anomalous exponent", anomalousPanel);
@@ -62,6 +60,7 @@ public class AnalysisWindow extends JFrame {
             new FullAnalysisPanel(experiments, initInterval, populationSink));
         tabs.addTab("Diffusion Model", diffusionPanel);
         tabs.addTab("Turning Angles",  anglesPanel);
+        tabs.addTab("PSD",             new PsdPanel(experiments));
 
         // ── "Manage Data" button overlaid on the tab bar ──────────────────
         final JButton manageBtn = new JButton("Manage Data ▶");

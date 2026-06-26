@@ -1,12 +1,6 @@
 # AnDi Fiji
 
-**AnDi Fiji** is a [Fiji](https://fiji.sc/)/ImageJ plugin for **anomalous‑diffusion
-analysis of single‑particle tracking (SPT) data**. It takes trajectories exported
-from [TrackMate](https://imagej.net/plugins/trackmate/) and provides classical
-ensemble/time‑averaged MSD analysis, diffusion‑coefficient and anomalous‑exponent
-estimation, turning‑angle statistics, deep‑learning predictions of the anomalous
-exponent and the underlying diffusion model, and per‑frame **change‑point
-segmentation** of heterogeneous trajectories.
+**AnDi Fiji** is a [Fiji](https://fiji.sc/)/ImageJ plugin for **anomalous‑diffusion analysis of single‑particle tracking (SPT) data**. Given input trajectories, it provides state-of-the-art machinery to analyze them, combining statistical  and machine learning (ML) analysis. The plugin works at two scales: from single trajectory analysis, returning properties for each of the input trajectories to "*per-frame*" predictions, allowing for a fine grained analysis and the segmentation of trajectories with expected diffusion changes.
 
 > This page is the project documentation, written to be published as the GitHub
 > **Wiki Home** page. See [Publishing this documentation](#publishing-this-documentation)
@@ -29,6 +23,7 @@ segmentation** of heterogeneous trajectories.
   - [D vs α](#d-vs-α)
   - [Diffusion Model](#diffusion-model)
   - [Turning Angles](#turning-angles)
+  - [PSD](#psd)
 - [Trajectory Segmentation](#trajectory-segmentation)
   - [Visualization](#visualization)
   - [D vs α (density)](#d-vs-α-density)
@@ -49,15 +44,12 @@ AnDi Fiji is organised around two menu commands under **`Plugins ▸ AnDi`**:
 
 | Command | Purpose |
 |---|---|
-| **Trajectory Analysis** | Per‑trajectory observables: tMSD/eMSD, diffusion coefficient *D*, anomalous exponent *α*, the *D*–*α* plane, diffusion‑model classification, and turning angles. |
+| **Trajectory Analysis** | Per‑trajectory observables: mean square displacement (MSD) analysis, diffusion coefficient *D*, anomalous exponent *α*, the *D*–*α* plane, diffusion‑model classification, and turning angles. |
 | **Trajectory Segmentation** | Per‑frame predictions of *α* and *D* along each trajectory (STEP models) and change‑point detection that splits a trajectory into homogeneous segments. |
 
 Both commands share the same **Data Manager** for loading and grouping data, and
 both can analyse several experiments (conditions) at once, each with its own
 colour, overlaid for comparison.
-
-<!-- IMAGE: overview_menu.png -->
-![AnDi menu under Plugins ▸ AnDi](images/overview_menu.png)
 
 ---
 
@@ -73,15 +65,13 @@ colour, overlaid for comparison.
      machine‑learning predictions)
 3. Restart Fiji. The commands appear under **`Plugins ▸ AnDi`**.
 
-> The deep‑learning models are bundled inside the plugin JAR as resources, so no
-> extra download is required for ML predictions to work.
+> The default deep‑learning models are bundled inside the plugin JAR as resources, so no extra download is required for ML predictions to work.
 
 ---
 
 ## Input data
 
-AnDi Fiji reads **TrackMate spot CSV exports**. The parser expects the standard
-TrackMate layout: a header row, three further description/units rows, then one
+AnDi Fiji gets as inputs `.csv` files containing the trajectories of a given experiment. To ease its combination with existing tools, the expected `.csv` must follow the standard layout of a [TrackMate](https://imagej.net/plugins/trackmate/) output: a header row, three further description/units rows, then one
 row per spot. The required columns are:
 
 | Column | Meaning |
@@ -94,27 +84,14 @@ row per spot. The required columns are:
 Spots are grouped by `TRACK_ID` and sorted by frame; gaps in `FRAME` are handled
 where relevant (e.g. MSD and eMSD lookups are gap‑aware).
 
-> **Generating test data.** `ML_analysis/pythons_for_plugin/andi_to_trackmate.py`
-> produces TrackMate‑format CSVs from
-> [`andi_datasets`](https://github.com/AnDiChallenge/andi_datasets) simulations,
-> in 1‑D or 2‑D, for any of the five diffusion models and a chosen anomalous
-> exponent.
+> **Generating test data.** `pythons_helpers/andi_to_trackmate.py` use python and the library [`andi_datasets`](https://github.com/AnDiChallenge/andi_datasets) to produce example test `csv` files with trajectories in 1‑D or 2‑D, for any of the five diffusion models and a chosen anomalous exponent.
 
----
-
-## Quick start
-
-1. **`Plugins ▸ AnDi ▸ Trajectory Analysis`** (or **Trajectory Segmentation**).
-2. In the Data Manager, **Load Data…** and select one or more TrackMate CSVs.
-3. Optionally set a **Tag** (to group files into one experiment) and a **Cut
-   length** (truncate/drop short trajectories).
-4. Click **Perform Analysis**. The analysis window opens with all tabs populated.
 
 ---
 
 ## The Data Manager
 
-The Data Manager is the shared entry point for both commands.
+The Data Manager is the same for both Trajectory Analysis and Segmentation analysis, although each will open in different windows.
 
 - **Load Data…** — add one or more CSV files (multi‑select).
 - **Merge / Tag** — files sharing a tag are merged into a single *experiment*
@@ -127,6 +104,9 @@ The Data Manager is the shared entry point for both commands.
   In the Segmentation command this first runs the STEP models (with a progress
   bar over the number of trajectories).
 
+The Data Manager can be accesses at any time during analysis, allowing to remove or add experiments at will.
+
+> **Example:** below we have loaded test experiments (see above). The first three experiments were loaded as separate ones. Then, the same three experiments were loaded as a merged experiment, with a cut length of 10. The later will appear as a single experiment in the analysis.
 <!-- IMAGE: data_manager.png -->
 ![Data Manager window](images/data_manager.png)
 
@@ -135,19 +115,19 @@ The Data Manager is the shared entry point for both commands.
 ## Trajectory Analysis
 
 A tabbed window. Every tab has a left/right **Experiments** panel where each
-experiment (and each tagged sub‑population) can be toggled on/off and, where
+experiment can be toggled on/off and, where
 relevant, restricted to the **2D**, **X**, or **Y** component.
 
 ### tMSD Visualization
 
-Time‑averaged MSD curves.
+This windows shows the time‑averaged MSD curves for each experiment, allowing for an initial visual inspection on the diffusive properties of the loaded experiments.
 
 - Per‑experiment selectors for **Avg** (the average tMSD), **All** (every
   individual trajectory, faint), and **eMSD** (ensemble MSD, dashed).
 - The lag axis is controlled by **Min lag**, **Max lag**, **Log‑spaced**, and a
   **Frame interval** / **Unit**. The number of lag points is chosen
   automatically (every integer lag when linear; capped, log‑spaced sampling when
-  log‑spaced is selected).
+  log‑spaced is selected). 
 - **Draw line** lets you place a reference line and read its slope live; in
   log–log mode the slope is labelled *α*.
 - **eMSD vs taMSD as an ergodicity test:** for ergodic processes the ensemble
@@ -155,6 +135,8 @@ Time‑averaged MSD curves.
   diverge — eMSD ~ Δ^α while the time‑average tends toward a linear slope.
   Overlaying both (solid = taMSD, dashed = eMSD) makes weak ergodicity breaking
   visible at a glance.
+
+> See **Analysing MSD** tutorial for tips on how to extract valuable information from this analysis.
 
 <!-- IMAGE: tmsd_tab.png -->
 ![tMSD tab with eMSD overlay](images/tmsd_tab.png)
@@ -231,6 +213,28 @@ comparable. Configurable bin count; **Save angles…** exports every angle.
 
 <!-- IMAGE: turning_angles_tab.png -->
 ![Turning‑angle polar rose](images/turning_angles_tab.png)
+
+### PSD
+
+Ensemble‑averaged **power spectral density** of the trajectories, adapting
+`andi_datasets.analysis.psd` (which wraps `scipy.signal.periodogram` with its
+defaults: unit sampling, boxcar window, constant detrend, one‑sided, density
+scaling). For 2‑D the per‑dimension periodograms are summed.
+
+- Each single‑trajectory periodogram is averaged over all trajectories of an
+  experiment on a shared log‑frequency grid (from `1/max‑length` up to the
+  Nyquist frequency 0.5). Only the **global average** is shown — no per‑track
+  curves — with independent **2D / X / Y** selectors per experiment.
+- **Freq. points** sets the number of frequency bins; **Log–log** toggles the
+  axes.
+- A **Draw line** tool (as in the tMSD tab) reports the slope of a reference
+  line — useful since the PSD of an anomalous process scales as a power law in
+  frequency (the spectral slope is related to the anomalous exponent).
+- The frequency axis is in cycles per frame (sampling = 1), matching the
+  `andi_datasets` default.
+
+<!-- IMAGE: psd_tab.png -->
+![PSD tab with a drawn slope line](images/psd_tab.png)
 
 ---
 
@@ -407,6 +411,7 @@ Suggested shots:
 | `d_vs_alpha_tab.png` | *D*–α scatter with marginal KDEs **and** one tagged population (management table visible). |
 | `diffusion_model_tab.png` | Diffusion‑model bar chart after **Compute models**, two experiments. |
 | `turning_angles_tab.png` | Polar rose for one or two experiments. |
+| `psd_tab.png` | PSD tab in log–log with a drawn slope line over the averaged curve. |
 | `seg_visualization_tab.png` | 4×4 grid with α/D lines + segmentation step‑lines and change‑point markers. |
 | `seg_parameters_dialog.png` | The Segmentation Parameters dialog. |
 | `seg_dvsa_tab.png` | Per‑frame *D*–α density heatmap with colour bar + marginals. |

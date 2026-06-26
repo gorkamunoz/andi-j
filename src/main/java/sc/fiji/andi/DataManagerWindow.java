@@ -35,6 +35,11 @@ public class DataManagerWindow extends JFrame {
     private final Map<String, Color>   tagColors    = new LinkedHashMap<>();
     private int                        nextColorIdx = 0;
 
+    /** Folder of the most recently loaded CSV; reused as the file chooser's
+     *  starting directory. Static so it persists across data-manager windows
+     *  and re-openings within the session. */
+    private static File lastLoadDir = null;
+
     /** Called with the assembled experiments when "Perform Analysis" is clicked. */
     private final AnalysisLauncher launcher;
 
@@ -183,11 +188,16 @@ public class DataManagerWindow extends JFrame {
         chooser.setMultiSelectionEnabled(true);
         chooser.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
         chooser.setDialogTitle("Select CSV files");
+        if (lastLoadDir != null && lastLoadDir.isDirectory())
+            chooser.setCurrentDirectory(lastLoadDir);
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
 
         File[] files = chooser.getSelectedFiles();
         if (files == null || files.length == 0) return;
         Arrays.sort(files, Comparator.comparing(File::getName));
+
+        // Remember the folder for next time (shared across data managers)
+        lastLoadDir = files[0].getParentFile();
 
         boolean merge  = mergeBtn.isSelected();
         String  tagTxt = tagField.getText().trim();

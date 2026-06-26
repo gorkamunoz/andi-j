@@ -53,6 +53,8 @@ public class AnalysisWindow extends JFrame {
         final JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("TMSD Visualization",
             new TmsdPanel(experiments, initMaxLag, initInterval));
+        tabs.addTab("PSD",
+            new PsdPanel(experiments));
         tabs.addTab("Diffusion coefficient",
             new DiffusionCoeffPanel(experiments, initInterval));
         tabs.addTab("Anomalous exponent", anomalousPanel);

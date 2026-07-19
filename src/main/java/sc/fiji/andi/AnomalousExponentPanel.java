@@ -38,6 +38,20 @@ public class AnomalousExponentPanel extends JPanel {
 
     // All 2D/X/Y toggle buttons – used by "Deselect all"
     private final List<JToggleButton> allCompButtons = new ArrayList<>();
+    /** Only the X and Y toggles – disabled while ML results are shown (2D only). */
+    private final List<JToggleButton> xyCompButtons  = new ArrayList<>();
+    /** Rows holding the toggles; carry the tooltip when X/Y are disabled
+     *  (disabled components don't receive mouse events, the parent does). */
+    private final List<JPanel>        compRows       = new ArrayList<>();
+
+    /** True once α has been computed with the ML method. */
+    private boolean mlAlphaComputed = false;
+    /** Snapshot of the ML 2D average per experiment (survives later TMSD runs). */
+    private final Map<ExperimentData, Double> mlAlphaAvg = new LinkedHashMap<>();
+
+    private static final String ML_2D_ONLY_MSG = "Only 2D predictions available with ML";
+    private static final int DEFAULT_TOOLTIP_DELAY =
+            ToolTipManager.sharedInstance().getInitialDelay();
 
     // Parameter field (TMSD method)
     private final JTextField tLagsField;
@@ -100,7 +114,7 @@ public class AnomalousExponentPanel extends JPanel {
         tmsdParamBar.add(saveBtn);
 
         // ── Row 2b – ML params ───────────────────────────────────────────
-        JLabel  mlStatusLabel  = new JLabel("No model loaded  (bundled model used if available)");
+        JLabel  mlStatusLabel  = new JLabel("Default model loaded");
         mlStatusLabel.setForeground(new Color(130, 130, 130));
         JButton loadModelBtn   = new JButton("Load…");
         JButton mlComputeBtn   = new JButton("Compute α");
@@ -285,11 +299,54 @@ public class AnomalousExponentPanel extends JPanel {
         allCompButtons.add(btn2D);
         allCompButtons.add(btnX);
         allCompButtons.add(btnY);
+        xyCompButtons.add(btnX);
+        xyCompButtons.add(btnY);
+
+        // Own tooltip so the 2D button never inherits the row's "ML is 2D only" note
+        btn2D.setToolTipText("2D component");
 
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         btnRow.add(btn2D); btnRow.add(btnX); btnRow.add(btnY);
+        compRows.add(btnRow);
+        installInstantTooltip(btnRow);
         row.add(btnRow);
         return row;
+    }
+
+    /**
+     * Makes a component's tooltip appear immediately on hover (Swing's default
+     * delay is ~750 ms), restoring the default when the pointer leaves.
+     */
+    private static void installInstantTooltip(JComponent c) {
+        c.addMouseListener(new MouseAdapter() {
+            @Override public void mouseEntered(MouseEvent e) {
+                ToolTipManager.sharedInstance().setInitialDelay(0);
+            }
+            @Override public void mouseExited(MouseEvent e) {
+                ToolTipManager.sharedInstance().setInitialDelay(DEFAULT_TOOLTIP_DELAY);
+            }
+        });
+    }
+
+    /**
+     * Enables/disables the X and Y component toggles. The ML predictor returns a
+     * single 2-D α, so while ML results are displayed X/Y are greyed out and the
+     * row shows an explanatory tooltip on hover.
+     */
+    private void setXyEnabled(boolean enabled) {
+        for (JToggleButton b : xyCompButtons) {
+            b.setEnabled(enabled);
+            if (!enabled) b.setSelected(false);
+        }
+        for (JPanel r : compRows) r.setToolTipText(enabled ? null : ML_2D_ONLY_MSG);
+        if (!enabled) {
+            for (Set<Integer> sel : componentSelection.values()) {
+                sel.remove(1);
+                sel.remove(2);
+            }
+            histPanel.resetViewport();
+            histPanel.repaint();
+        }
     }
 
     private static void styleToggle(JToggleButton btn) {
@@ -402,6 +459,8 @@ public class AnomalousExponentPanel extends JPanel {
                         "ML Inference", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
+                captureMlAverages();
+                setXyEnabled(false);          // ML gives a single 2D α
                 histPanel.resetViewport();
                 histPanel.setNBins(finalNBins);
                 histPanel.repaint();
@@ -428,6 +487,8 @@ public class AnomalousExponentPanel extends JPanel {
     void syncToMlResults() {
         methodCombo.setSelectedItem("ML");
         methodCards.show(methodParamsPanel, "ML");
+        captureMlAverages();
+        setXyEnabled(false);          // ML gives a single 2D α
         histPanel.resetViewport();
         histPanel.setNBins(parseIntOr(binsPlotField.getText(), 20));
         histPanel.repaint();
@@ -445,20 +506,45 @@ public class AnomalousExponentPanel extends JPanel {
         for (ExperimentData exp : experiments)
             exp.computeAnomalousExponents(lagSpec);
 
+        setXyEnabled(true);   // TMSD provides X and Y again
         histPanel.resetViewport();
         histPanel.setNBins(nBins);
         histPanel.repaint();
         refreshTable();
     }
 
-    private void refreshTable() {
-        tableModel.setRowCount(0);
+    /**
+     * Snapshots the ML 2-D average per experiment so the "2D (ML)" column keeps
+     * showing the ML result even if the user later recomputes with TMSD
+     * (which overwrites {@code alphaCoeffs}).
+     */
+    private void captureMlAverages() {
+        mlAlphaAvg.clear();
         for (ExperimentData exp : experiments)
-            tableModel.addRow(new Object[]{
-                exp.name,
-                fmtAlpha(alphaForTable(exp, 0)),
-                fmtAlpha(alphaForTable(exp, 1)),
-                fmtAlpha(alphaForTable(exp, 2))});
+            mlAlphaAvg.put(exp, exp.avgAlpha(0));
+        mlAlphaComputed = true;
+    }
+
+    private void refreshTable() {
+        // The "2D (ML)" column only appears once α has been computed with ML
+        tableModel.setColumnIdentifiers(mlAlphaComputed
+            ? new String[]{"Experiment", "2D (eMSD)", "X (eMSD)", "Y (eMSD)", "2D (ML)"}
+            : new String[]{"Experiment", "2D (eMSD)", "X (eMSD)", "Y (eMSD)"});
+
+        tableModel.setRowCount(0);
+        for (ExperimentData exp : experiments) {
+            Object[] row = mlAlphaComputed
+                ? new Object[]{exp.name,
+                        fmtAlpha(alphaForTable(exp, 0)),
+                        fmtAlpha(alphaForTable(exp, 1)),
+                        fmtAlpha(alphaForTable(exp, 2)),
+                        fmtAlpha(mlAlphaAvg.getOrDefault(exp, Double.NaN))}
+                : new Object[]{exp.name,
+                        fmtAlpha(alphaForTable(exp, 0)),
+                        fmtAlpha(alphaForTable(exp, 1)),
+                        fmtAlpha(alphaForTable(exp, 2))};
+            tableModel.addRow(row);
+        }
     }
 
     /**

@@ -218,7 +218,7 @@ public class DataManagerWindow extends JFrame {
         // Keep the label no wider than the original "No files chosen" text so it
         // never pushes the Tag / Cut length / Load Data controls out of view.
         String text = files.length == 1
-            ? truncateName(files[0].getName(), 15)
+            ? truncateName(files[0].getName(), 10)
             : files.length + " files chosen";
         chosenLabel.setText(text);
         chosenLabel.setToolTipText(files.length == 1

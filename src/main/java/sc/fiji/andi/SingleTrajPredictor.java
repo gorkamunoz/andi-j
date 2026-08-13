@@ -30,7 +30,7 @@ import java.util.*;
  * ({@code {α, NaN, NaN}}) and {@link ExperimentData#diffModel} (class index).
  * Tracks with fewer than 2 frames get {@code NaN} α and no model entry.</p>
  */
-public class SingleTrajPredictor implements Closeable {
+public class SingleTrajPredictor implements MlPredictor {
 
     /** Classpath resource path for the bundled V2 model. */
     public static final String DEFAULT_RESOURCE = "/models/single_traj_v2.onnx";
@@ -74,9 +74,6 @@ public class SingleTrajPredictor implements Closeable {
     // Inference
     // -----------------------------------------------------------------------
 
-    /** Notified once after each track is processed (for progress reporting). */
-    public interface ProgressListener { void trackDone(); }
-
     public void computeForExperiment(ExperimentData exp) throws OrtException {
         computeForExperiment(exp, null);
     }
@@ -86,7 +83,8 @@ public class SingleTrajPredictor implements Closeable {
      * {@link ExperimentData#alphaCoeffs} and the model class in
      * {@link ExperimentData#diffModel}.  Existing values are replaced.
      */
-    public void computeForExperiment(ExperimentData exp, ProgressListener listener)
+    @Override
+    public void computeForExperiment(ExperimentData exp, MlPredictor.ProgressListener listener)
             throws OrtException {
         Map<Integer, double[]> alpha  = new LinkedHashMap<>();
         Map<Integer, Integer>  models = new LinkedHashMap<>();

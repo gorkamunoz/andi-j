@@ -40,8 +40,12 @@ public class DiffusionModelPanel extends JPanel {
     private final List<ExperimentData>         shown      = new ArrayList<>();
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
 
-    /** Live predictor (null until first compute). */
-    private SingleTrajPredictor predictor = null;
+    /** Bundled default predictor (α + diffusion model), lazily loaded. */
+    private SingleTrajPredictor defaultPredictor = null;
+    /** Optional user-loaded model-only predictor. */
+    private CustomOnnxPredictor customPredictor  = null;
+    private boolean             useDefault       = true;
+    private JLabel              modelStatusLabel;
 
     /** Invoked after a successful ML model computation (set by the window). */
     private Runnable onModelsComputed;
@@ -134,6 +138,56 @@ public class DiffusionModelPanel extends JPanel {
 
         col.add(Box.createVerticalGlue());
 
+        // Model type: bundled default (α + model) or a user-loaded model-only ONNX
+        JRadioButton defaultRadio = new JRadioButton("Default", useDefault);
+        JRadioButton loadRadio    = new JRadioButton("Load", !useDefault);
+        ButtonGroup  typeGroup    = new ButtonGroup();
+        typeGroup.add(defaultRadio); typeGroup.add(loadRadio);
+        defaultRadio.setAlignmentX(Component.LEFT_ALIGNMENT);
+        loadRadio.setAlignmentX(Component.LEFT_ALIGNMENT);
+        defaultRadio.setToolTipText("Bundled model: predicts the diffusion model and α");
+        loadRadio.setToolTipText("Load your own ONNX model (model-only)");
+
+        JButton chooseModelBtn = new JButton("Choose model…");
+        chooseModelBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
+        chooseModelBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+        chooseModelBtn.setFocusPainted(false);
+        chooseModelBtn.setEnabled(!useDefault);
+        chooseModelBtn.addActionListener(e -> chooseCustomModel());
+
+        modelStatusLabel = new JLabel(useDefault ? "Default model"
+                                                 : (customPredictor == null ? "No model chosen"
+                                                                            : "Custom model"));
+        modelStatusLabel.setForeground(new Color(130, 130, 130));
+        modelStatusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        modelStatusLabel.setFont(modelStatusLabel.getFont().deriveFont(Font.PLAIN, 10f));
+
+        defaultRadio.addActionListener(e -> {
+            useDefault = true;
+            chooseModelBtn.setEnabled(false);
+            modelStatusLabel.setText("Default model");
+            modelStatusLabel.setForeground(new Color(130, 130, 130));
+        });
+        loadRadio.addActionListener(e -> {
+            useDefault = false;
+            chooseModelBtn.setEnabled(true);
+            if (customPredictor == null) {
+                modelStatusLabel.setText("No model chosen");
+                modelStatusLabel.setForeground(new Color(180, 90, 0));
+            }
+        });
+
+        JPanel typeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        typeRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        typeRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+        typeRow.add(new JLabel("Type:"));
+        typeRow.add(defaultRadio);
+        typeRow.add(loadRadio);
+        col.add(typeRow);
+        col.add(chooseModelBtn);
+        col.add(modelStatusLabel);
+        col.add(Box.createVerticalStrut(4));
+
         JButton computeBtn = new JButton("Compute models (ML)");
         computeBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
         computeBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
@@ -161,31 +215,56 @@ public class DiffusionModelPanel extends JPanel {
     // ML prediction (V2 single-trajectory model)
     // -----------------------------------------------------------------------
 
+    /** Load a user model-only ONNX for the "Load" type. */
+    private void chooseCustomModel() {
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle("Select ONNX model file (model-only)");
+        fc.setFileFilter(new FileNameExtensionFilter("ONNX models (*.onnx)", "onnx"));
+        if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        try {
+            if (customPredictor != null) { customPredictor.close(); customPredictor = null; }
+            customPredictor = new CustomOnnxPredictor(fc.getSelectedFile(),
+                    CustomOnnxPredictor.Mode.MODEL);
+            modelStatusLabel.setText(fc.getSelectedFile().getName());
+            modelStatusLabel.setForeground(new Color(0, 120, 0));
+        } catch (Exception ex) {
+            customPredictor = null;
+            modelStatusLabel.setText("Load failed");
+            modelStatusLabel.setForeground(Color.RED);
+            JOptionPane.showMessageDialog(this,
+                "Could not load model:\n" + ex.getMessage(),
+                "Diffusion-model classifier", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private void computeModels() {
-        // Lazily load the bundled model (also lets the user pick a file on failure)
-        if (predictor == null) {
-            try {
-                predictor = SingleTrajPredictor.fromResource();
-            } catch (Exception ex) {
-                int choice = JOptionPane.showConfirmDialog(this,
-                    "<html>No bundled model was found.<br>"
-                  + "Run <tt>convert_single_traj_v2_to_onnx.py</tt> and rebuild, or load an "
-                  + ".onnx file now?<br><br>Details: " + ex.getMessage() + "</html>",
-                    "Diffusion-model classifier", JOptionPane.OK_CANCEL_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-                if (choice != JOptionPane.OK_OPTION) return;
-                JFileChooser fc = new JFileChooser();
-                fc.setFileFilter(new FileNameExtensionFilter("ONNX models (*.onnx)", "onnx"));
-                if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        // Pick the active predictor. Default = bundled (model + α), Load =
+        // user's model-only ONNX (no α update).
+        final MlPredictor active;
+        final boolean usingDefault = useDefault;
+        if (usingDefault) {
+            if (defaultPredictor == null) {
                 try {
-                    predictor = new SingleTrajPredictor(fc.getSelectedFile());
-                } catch (Exception ex2) {
+                    defaultPredictor = SingleTrajPredictor.fromResource();
+                } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this,
-                        "Could not load model:\n" + ex2.getMessage(),
-                        "Diffusion-model classifier", JOptionPane.ERROR_MESSAGE);
+                        "<html>No bundled model was found.<br>"
+                      + "Run <tt>convert_single_traj_v2_to_onnx.py</tt> and rebuild, or switch "
+                      + "<b>Type</b> to <b>Load</b> and choose an ONNX file.<br><br>"
+                      + "Details: " + ex.getMessage() + "</html>",
+                        "Diffusion-model classifier", JOptionPane.WARNING_MESSAGE);
                     return;
                 }
             }
+            active = defaultPredictor;
+        } else {
+            if (customPredictor == null) {
+                JOptionPane.showMessageDialog(this,
+                    "Click \"Choose model…\" to select your model ONNX file first.",
+                    "Diffusion-model classifier", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            active = customPredictor;
         }
 
         // ── progress dialog over number of trajectories ──────────────────
@@ -215,7 +294,7 @@ public class DiffusionModelPanel extends JPanel {
             @Override
             protected Void doInBackground() {
                 try {
-                    SingleTrajPredictor.ProgressListener tick = () -> {
+                    MlPredictor.ProgressListener tick = () -> {
                         int d = ++done[0];
                         SwingUtilities.invokeLater(() -> {
                             bar.setValue(d);
@@ -223,7 +302,7 @@ public class DiffusionModelPanel extends JPanel {
                         });
                     };
                     for (ExperimentData exp : shown)
-                        predictor.computeForExperiment(exp, tick);
+                        active.computeForExperiment(exp, tick);
                 } catch (OrtException ex) {
                     error = ex;
                 }
@@ -240,7 +319,9 @@ public class DiffusionModelPanel extends JPanel {
                     return;
                 }
                 barPanel.repaint();
-                if (onModelsComputed != null) onModelsComputed.run();
+                // Only the bundled model also fills α, so only then sync the
+                // Anomalous-exponent tab / show the "both updated" dialog.
+                if (usingDefault && onModelsComputed != null) onModelsComputed.run();
             }
         };
         worker.execute();

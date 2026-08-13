@@ -59,9 +59,11 @@ public class AnomalousExponentPanel extends JPanel {
     // Histogram bins – decoupled from the α computation (re-bins the plot only)
     private JTextField binsPlotField;
 
-    // ML model file and live predictor (null until loaded)
-    private File                mlModelFile = null;
-    private SingleTrajPredictor mlPredictor = null;
+    // ML predictors: bundled default (predicts α AND diffusion model) and an
+    // optional user-loaded α-only model.
+    private SingleTrajPredictor mlDefaultPredictor = null;
+    private CustomOnnxPredictor mlCustomPredictor  = null;
+    private boolean             mlUseDefault       = true;
 
     // Sub-panels
     private final AlphaHistogramPanel histPanel;
@@ -114,18 +116,44 @@ public class AnomalousExponentPanel extends JPanel {
         tmsdParamBar.add(saveBtn);
 
         // ── Row 2b – ML params ───────────────────────────────────────────
-        JLabel  mlStatusLabel  = new JLabel("Default model loaded");
+        JRadioButton defaultRadio = new JRadioButton("Default", true);
+        JRadioButton loadRadio    = new JRadioButton("Load");
+        ButtonGroup  typeGroup    = new ButtonGroup();
+        typeGroup.add(defaultRadio); typeGroup.add(loadRadio);
+        defaultRadio.setToolTipText("Bundled model: predicts α and the diffusion model");
+        loadRadio.setToolTipText("Load your own ONNX model (α-only)");
+
+        JButton chooseModelBtn = new JButton("Choose model…");
+        chooseModelBtn.setEnabled(false);
+        JLabel  mlStatusLabel  = new JLabel("Default model");
         mlStatusLabel.setForeground(new Color(130, 130, 130));
-        JButton loadModelBtn   = new JButton("Load…");
         JButton mlComputeBtn   = new JButton("Compute α");
         JButton mlSaveBtn      = new JButton("Save α…");
 
         JPanel mlParamBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-        mlParamBar.add(new JLabel("ML model:"));
-        mlParamBar.add(loadModelBtn);
+        mlParamBar.add(new JLabel("Type:"));
+        mlParamBar.add(defaultRadio);
+        mlParamBar.add(loadRadio);
+        mlParamBar.add(chooseModelBtn);
         mlParamBar.add(mlStatusLabel);
+        mlParamBar.add(Box.createHorizontalStrut(6));
         mlParamBar.add(mlComputeBtn);
         mlParamBar.add(mlSaveBtn);
+
+        defaultRadio.addActionListener(e -> {
+            mlUseDefault = true;
+            chooseModelBtn.setEnabled(false);
+            mlStatusLabel.setText("Default model");
+            mlStatusLabel.setForeground(new Color(130, 130, 130));
+        });
+        loadRadio.addActionListener(e -> {
+            mlUseDefault = false;
+            chooseModelBtn.setEnabled(true);
+            if (mlCustomPredictor == null) {
+                mlStatusLabel.setText("No model chosen");
+                mlStatusLabel.setForeground(new Color(180, 90, 0));
+            }
+        });
 
         // ── CardLayout switches between TMSD and ML rows ─────────────────
         methodCards       = new CardLayout();
@@ -143,9 +171,9 @@ public class AnomalousExponentPanel extends JPanel {
         // Wire method-selector and ML loader actions
         selectMethodBtn.addActionListener(e ->
             methodCards.show(methodParamsPanel, (String) methodCombo.getSelectedItem()));
-        loadModelBtn .addActionListener(e -> loadMlModel(mlStatusLabel));
-        mlComputeBtn .addActionListener(e -> recomputeML(parseIntOr(binsPlotField.getText(), 20)));
-        mlSaveBtn    .addActionListener(e -> saveAlpha());
+        chooseModelBtn.addActionListener(e -> chooseCustomModel(mlStatusLabel));
+        mlComputeBtn  .addActionListener(e -> recomputeML(parseIntOr(binsPlotField.getText(), 20)));
+        mlSaveBtn     .addActionListener(e -> saveAlpha());
 
         // ── histogram panel ──────────────────────────────────────────────
         histPanel = new AlphaHistogramPanel(experiments, componentSelection);
@@ -368,26 +396,25 @@ public class AnomalousExponentPanel extends JPanel {
     }
 
     // -----------------------------------------------------------------------
-    // ML model loader – creates a live SingleTrajPredictor from the chosen file
+    // Custom α-only model loader (Load type)
     // -----------------------------------------------------------------------
 
-    private void loadMlModel(JLabel statusLabel) {
+    private void chooseCustomModel(JLabel statusLabel) {
         JFileChooser fc = new JFileChooser();
-        fc.setDialogTitle("Select ONNX model file");
+        fc.setDialogTitle("Select ONNX model file (α-only)");
         fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
                 "ONNX models (*.onnx)", "onnx"));
         if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
 
         File f = fc.getSelectedFile();
         try {
-            if (mlPredictor != null) { mlPredictor.close(); mlPredictor = null; }
-            mlPredictor = new SingleTrajPredictor(f);
-            mlModelFile = f;
+            if (mlCustomPredictor != null) { mlCustomPredictor.close(); mlCustomPredictor = null; }
+            mlCustomPredictor = new CustomOnnxPredictor(f, CustomOnnxPredictor.Mode.ALPHA);
             statusLabel.setText(f.getName());
             statusLabel.setForeground(new Color(0, 120, 0));
         } catch (Exception ex) {
-            mlPredictor = null;
-            statusLabel.setText("Load failed: " + ex.getMessage());
+            mlCustomPredictor = null;
+            statusLabel.setText("Load failed");
             statusLabel.setForeground(Color.RED);
             JOptionPane.showMessageDialog(this,
                 "Could not load ONNX model:\n" + ex.getMessage(),
@@ -400,22 +427,33 @@ public class AnomalousExponentPanel extends JPanel {
     // -----------------------------------------------------------------------
 
     private void recomputeML(int nBins) {
-        // If no predictor loaded yet, try the bundled classpath resource first
-        if (mlPredictor == null) {
-            try {
-                mlPredictor = SingleTrajPredictor.fromResource();
-            } catch (Exception ex) {
-                // Bundled model not present – ask the user to load one
+        // Pick the active predictor. Default = bundled model (α + diffusion),
+        // Load = user's α-only model (no diffusion-model update).
+        final MlPredictor predictor;
+        final boolean useDefault = mlUseDefault;
+        if (useDefault) {
+            if (mlDefaultPredictor == null) {
+                try {
+                    mlDefaultPredictor = SingleTrajPredictor.fromResource();
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(this,
+                        "<html>No bundled model was found.<br><br>"
+                      + "Run <tt>convert_single_traj_v2_to_onnx.py</tt> and rebuild, or "
+                      + "switch <b>Type</b> to <b>Load</b> and choose an ONNX file.<br><br>"
+                      + "Details: " + ex.getMessage() + "</html>",
+                        "ML model not found", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+            }
+            predictor = mlDefaultPredictor;
+        } else {
+            if (mlCustomPredictor == null) {
                 JOptionPane.showMessageDialog(this,
-                    "<html>No ML model is loaded and no bundled model was found.<br><br>"
-                  + "Please:<br>"
-                  + "1. Run <tt>ML_analysis/pythons_for_plugin/convert_single_traj_v2_to_onnx.py</tt> to create the ONNX file.<br>"
-                  + "2. Rebuild the plugin (<tt>mvn clean package</tt>), <b>or</b><br>"
-                  + "   click <b>Load…</b> and select the <tt>.onnx</tt> file directly.<br><br>"
-                  + "Details: " + ex.getMessage() + "</html>",
-                    "ML model not found", JOptionPane.WARNING_MESSAGE);
+                    "Click \"Choose model…\" to select your α ONNX file first.",
+                    "ML model", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
+            predictor = mlCustomPredictor;
         }
 
         // ── progress dialog (determinate, over number of trajectories) ────
@@ -446,7 +484,7 @@ public class AnomalousExponentPanel extends JPanel {
             @Override
             protected Void doInBackground() {
                 try {
-                    SingleTrajPredictor.ProgressListener tick = () -> {
+                    MlPredictor.ProgressListener tick = () -> {
                         int d = ++done[0];
                         SwingUtilities.invokeLater(() -> {
                             bar.setValue(d);
@@ -454,7 +492,7 @@ public class AnomalousExponentPanel extends JPanel {
                         });
                     };
                     for (ExperimentData exp : experiments)
-                        mlPredictor.computeForExperiment(exp, tick);
+                        predictor.computeForExperiment(exp, tick);
                 } catch (Exception ex) {
                     error = ex;
                 }
@@ -476,7 +514,9 @@ public class AnomalousExponentPanel extends JPanel {
                 histPanel.setNBins(finalNBins);
                 histPanel.repaint();
                 refreshTable();
-                if (onMlComputed != null) onMlComputed.run();
+                // Only the bundled model also fills the diffusion model, so only
+                // then do we sync the other tab / show the "both updated" dialog.
+                if (useDefault && onMlComputed != null) onMlComputed.run();
             }
         };
         worker.execute();

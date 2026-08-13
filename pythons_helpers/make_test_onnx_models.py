@@ -9,10 +9,10 @@ to check that the Load path works end-to-end; then drop in your real models.
 
 Plugin I/O contract (what the plugin feeds / reads)
 ---------------------------------------------------
-  Input  : one tensor "input" of shape (1, T-1, 2), float32.
-           Column 0 = dr  (displacement magnitude of each step)
-           Column 1 = dθ  (turn angle between successive steps, dθ[0] = 0)
-           i.e. the trajectory in *relative-polar* form. The T-1 axis is dynamic.
+  Input  : one tensor "input" of shape (1, T, 2), float32 — the raw trajectory
+           coordinates (column 0 = x, column 1 = y), one row per frame.
+           The T (sequence-length) axis is dynamic. The plugin does no
+           preprocessing; any representation your model needs is up to it.
 
   Output (α model)     : "output" shape (1, 1) — the predicted anomalous exponent.
   Output (model model) : "output" shape (1, 5) — one logit per diffusion model,
@@ -20,9 +20,9 @@ Plugin I/O contract (what the plugin feeds / reads)
 
 What these test models compute
 ------------------------------
-  test_alpha.onnx : reconstructs the 2-D positions from (dr, dθ), computes the
-                    time-averaged MSD at lags 1..4 and returns the log-log slope
-                    (clamped to [0, 2]) — the same idea as the tMSD α method.
+  test_alpha.onnx : computes the time-averaged MSD of the (x, y) trajectory at
+                    lags 1..4 and returns the log-log slope (clamped to [0, 2])
+                    — the same idea as the tMSD α method.
   test_model.onnx : takes that same α estimate and returns logits = -|α - proto|
                     against per-model prototype exponents, so argmax picks the
                     nearest one. (Purely illustrative.)
@@ -55,22 +55,14 @@ LAGS       = [1, 2, 3, 4]  # tMSD lags used by the α estimator
 MODEL_PROTOTYPES = [0.4, 0.7, 1.0, 1.7, 0.6]
 
 
-def _alpha_from_polar(x: torch.Tensor) -> torch.Tensor:
+def _alpha_from_xy(x: torch.Tensor) -> torch.Tensor:
     """
-    x: (B, N, 2) relative-polar [dr, dθ]  ->  (B, 1) tMSD log-log slope in [0,2].
-    Reconstructs positions (rotation-invariant, so MSD is unaffected) then fits
-    log(MSD) vs log(lag) by least squares over LAGS.
+    x: (B, T, 2) raw positions [x, y]  ->  (B, 1) tMSD log-log slope in [0,2].
+    Computes the time-averaged MSD at each lag in LAGS then fits log(MSD) vs
+    log(lag) by least squares.
     """
-    dr    = x[:, :, 0]
-    dth   = x[:, :, 1]
-    theta = torch.cumsum(dth, dim=1)                 # absolute heading (θ[0]=0)
-    vx    = dr * torch.cos(theta)
-    vy    = dr * torch.sin(theta)
-
-    # positions p[0..N] with p0 = origin
-    z  = vx.new_zeros((vx.shape[0], 1))
-    px = torch.cat([z, torch.cumsum(vx, dim=1)], dim=1)   # (B, N+1)
-    py = torch.cat([z, torch.cumsum(vy, dim=1)], dim=1)
+    px = x[:, :, 0]
+    py = x[:, :, 1]
 
     log_msd = []
     for L in LAGS:
@@ -91,12 +83,12 @@ def _alpha_from_polar(x: torch.Tensor) -> torch.Tensor:
 
 class TestAlpha(nn.Module):
     def forward(self, x):
-        return _alpha_from_polar(x)          # (B, 1)
+        return _alpha_from_xy(x)             # (B, 1)
 
 
 class TestModel(nn.Module):
     def forward(self, x):
-        alpha  = _alpha_from_polar(x)                              # (B, 1)
+        alpha  = _alpha_from_xy(x)                                 # (B, 1)
         protos = alpha.new_tensor(MODEL_PROTOTYPES).reshape(1, -1) # (1, 5)
         logits = -torch.abs(alpha - protos)                        # (B, 5)
         return logits

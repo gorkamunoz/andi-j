@@ -12,9 +12,10 @@ import java.util.*;
  *
  * <h3>Model contract for custom models</h3>
  * <ul>
- *   <li>Input: one tensor of shape {@code (1, T-1, 2)} float32 — the trajectory
- *       in relative-polar form ({@code [dr, dθ]}, same preprocessing the bundled
- *       model uses). The first two dimensions may be dynamic.</li>
+ *   <li>Input: one tensor of shape {@code (1, T, 2)} float32 — the raw
+ *       trajectory as {@code [x, y]} coordinates (one row per frame). The
+ *       sequence-length axis may be dynamic. Any further representation the
+ *       model needs (displacements, polar, …) is up to the model itself.</li>
  *   <li>Output (ALPHA): a tensor whose first element is the predicted α, e.g.
  *       shape {@code (1, 1)} or {@code (1,)}.</li>
  *   <li>Output (MODEL): a tensor of per-class scores/logits, e.g. {@code (1, K)};
@@ -70,8 +71,7 @@ public class CustomOnnxPredictor implements MlPredictor {
                 continue;
             }
 
-            float[][] polar = SingleTrajPredictor.cartesianToRelativePolar(extractXY(spots));
-            float[]   out   = runSingle(polar);
+            float[] out = runSingle(extractXY(spots));   // raw (x, y) positions
 
             if (mode == Mode.ALPHA) {
                 alpha.put(id, new double[]{out.length > 0 ? out[0] : Float.NaN,
@@ -88,12 +88,12 @@ public class CustomOnnxPredictor implements MlPredictor {
 
     // -----------------------------------------------------------------------
 
-    private float[] runSingle(float[][] polar) throws OrtException {
-        int L = polar.length;
-        float[][][] input = new float[1][L][2];
-        for (int t = 0; t < L; t++) {
-            input[0][t][0] = polar[t][0];
-            input[0][t][1] = polar[t][1];
+    private float[] runSingle(double[][] xy) throws OrtException {
+        int T = xy.length;
+        float[][][] input = new float[1][T][2];
+        for (int t = 0; t < T; t++) {
+            input[0][t][0] = (float) xy[t][0];
+            input[0][t][1] = (float) xy[t][1];
         }
         try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
              OrtSession.Result res = session.run(

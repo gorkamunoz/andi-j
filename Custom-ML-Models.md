@@ -41,38 +41,25 @@ For every trajectory the plugin builds one input tensor and calls your model:
 | | |
 |---|---|
 | **Name** | `input` (the first/only model input) |
-| **Shape** | `(1, T-1, 2)` — batch 1, one row per step, two features |
+| **Shape** | `(1, T, 2)` — batch 1, one row per **frame**, two features |
 | **Type** | `float32` |
-| **Dynamic axis** | the `T-1` (sequence‑length) axis **must be dynamic** |
+| **Dynamic axis** | the `T` (sequence‑length) axis **must be dynamic** |
 
-The two features are the trajectory in **relative‑polar** form:
+The two features are the **raw trajectory coordinates**:
 
-- column `0` = `dr` — the magnitude of each displacement `|r[i+1] − r[i]|`
-- column `1` = `dθ` — the signed turning angle between successive displacements
-  (`dθ[0] = 0`)
+- column `0` = `x`
+- column `1` = `y`
 
-The plugin computes this from the loaded (x, y) trajectory exactly as in
-`andi_datasets` (`cartesian_to_relative_polar`):
+i.e. exactly the (x, y) positions from your loaded data (in µm), one row per
+frame. The plugin feeds these directly — it does **no** preprocessing.
 
-```python
-import numpy as np
-
-def cartesian_to_relative_polar(traj):        # traj: (1, T, 2)
-    disp = traj[:, 1:] - traj[:, :-1]         # (1, T-1, 2)
-    polar = np.zeros_like(disp)
-    polar[..., 0] = np.hypot(disp[..., 0], disp[..., 1])          # dr
-    v1 = traj[:, 1:-1] - traj[:, :-2]
-    v2 = traj[:, 2:]   - traj[:, 1:-1]
-    det = v1[..., 0] * v2[..., 1] - v1[..., 1] * v2[..., 0]
-    dot = v1[..., 0] * v2[..., 0] + v1[..., 1] * v2[..., 1]
-    polar[:, 1:, 1] = np.arctan2(det, dot)                        # dθ
-    return polar                                                  # (1, T-1, 2)
-```
-
-**Train your model on this same representation** so training and inference match.
-(If you prefer to feed raw coordinates, you can still reconstruct them inside the
-graph from `dr`/`dθ` — see the α test model in
-`pythons_helpers/make_test_onnx_models.py`.)
+> **Choose your own representation inside the model.** If your method works on
+> displacements, relative‑polar features `(dr, dθ)`, images, etc., compute that
+> transform as the first layers of your model (or in the exported graph). That
+> way training and inference stay identical and the plugin's contract stays
+> simple. The bundled *Default* model, for example, converts (x, y) to
+> relative‑polar internally — that choice lives inside the model, not the
+> plugin.
 
 ---
 
@@ -117,7 +104,7 @@ model = MyModel()                     # your trained nn.Module
 model.load_state_dict(torch.load("my_weights.pth", map_location="cpu"))
 model.eval()
 
-dummy = torch.zeros(1, 50, 2)         # (1, T-1, 2); 50 is arbitrary here
+dummy = torch.zeros(1, 50, 2)         # (1, T, 2) raw (x, y); 50 is arbitrary here
 
 torch.onnx.export(
     model, dummy, "my_alpha.onnx",
@@ -162,7 +149,7 @@ import numpy as np, onnxruntime as ort
 
 sess = ort.InferenceSession("my_alpha.onnx")
 for T in (12, 137):                              # different trajectory lengths
-    x = np.random.randn(1, T - 1, 2).astype(np.float32)
+    x = np.random.randn(1, T, 2).astype(np.float32)   # (1, T, 2) raw (x, y)
     out = sess.run(["output"], {"input": x})[0]
     print(T, out.shape, out.ravel()[:5])
 ```

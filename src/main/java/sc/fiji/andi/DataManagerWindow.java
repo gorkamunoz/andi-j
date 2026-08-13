@@ -215,10 +215,22 @@ public class DataManagerWindow extends JFrame {
         lastLoadDir = files[0].getParentFile();
 
         chosenFiles = files;
-        chosenLabel.setText(files.length == 1
+        // Keep the label no wider than the original "No files chosen" text so it
+        // never pushes the Tag / Cut length / Load Data controls out of view.
+        String text = files.length == 1
+            ? truncateName(files[0].getName(), 15)
+            : files.length + " files chosen";
+        chosenLabel.setText(text);
+        chosenLabel.setToolTipText(files.length == 1
             ? files[0].getName()
             : files.length + " files chosen");
         chosenLabel.setForeground(new Color(0, 120, 0));
+    }
+
+    /** Truncates a file name to {@code max} characters, adding an ellipsis. */
+    private static String truncateName(String name, int max) {
+        if (name.length() <= max) return name;
+        return name.substring(0, Math.max(1, max - 1)) + "…";
     }
 
     /** Step 2 – add the chosen files with the current Tag / Cut length settings. */

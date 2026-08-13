@@ -62,6 +62,10 @@ public class DataManagerWindow extends JFrame {
     private final JTextField    tagField, cutField;
     private final FileRowModel  model;
     private final JTable        table;
+    private final JLabel        chosenLabel;
+
+    /** Files picked via "Choose Files…", pending until "Load Data" is clicked. */
+    private File[] chosenFiles = null;
 
     // ═════════════════════════════════════════════════════════════════════════
     // Constructor
@@ -89,13 +93,23 @@ public class DataManagerWindow extends JFrame {
         cutField = new JTextField(5);
         cutField.setToolTipText("Blank = no filtering");
 
-        JButton loadBtn = new JButton("Load Data…");
+        JButton chooseBtn = new JButton("Choose Files…");
+        chooseBtn.setToolTipText("Pick the CSV files; then set Tag / Cut length and click Load Data");
+        chooseBtn.addActionListener(e -> chooseFiles());
+
+        chosenLabel = new JLabel("No files chosen");
+        chosenLabel.setForeground(new Color(130, 130, 130));
+
+        JButton loadBtn = new JButton("Load Data");
         loadBtn.addActionListener(e -> loadData());
 
         JPanel loadBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         loadBar.setBorder(BorderFactory.createTitledBorder("Load"));
         loadBar.add(separateBtn);
         loadBar.add(mergeBtn);
+        loadBar.add(Box.createHorizontalStrut(8));
+        loadBar.add(chooseBtn);
+        loadBar.add(chosenLabel);
         loadBar.add(Box.createHorizontalStrut(8));
         loadBar.add(new JLabel("Tag:"));
         loadBar.add(tagField);
@@ -183,7 +197,8 @@ public class DataManagerWindow extends JFrame {
     // Load data
     // ═════════════════════════════════════════════════════════════════════════
 
-    private void loadData() {
+    /** Step 1 – pick the CSV files (does not add them yet). */
+    private void chooseFiles() {
         JFileChooser chooser = new JFileChooser();
         chooser.setMultiSelectionEnabled(true);
         chooser.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
@@ -199,6 +214,22 @@ public class DataManagerWindow extends JFrame {
         // Remember the folder for next time (shared across data managers)
         lastLoadDir = files[0].getParentFile();
 
+        chosenFiles = files;
+        chosenLabel.setText(files.length == 1
+            ? files[0].getName()
+            : files.length + " files chosen");
+        chosenLabel.setForeground(new Color(0, 120, 0));
+    }
+
+    /** Step 2 – add the chosen files with the current Tag / Cut length settings. */
+    private void loadData() {
+        if (chosenFiles == null || chosenFiles.length == 0) {
+            JOptionPane.showMessageDialog(this,
+                "No files chosen yet. Click \"Choose Files…\" first.",
+                "Load Data", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
         boolean merge  = mergeBtn.isSelected();
         String  tagTxt = tagField.getText().trim();
         int     cut    = parseCut(cutField.getText());
@@ -206,9 +237,9 @@ public class DataManagerWindow extends JFrame {
         if (merge) {
             String tag = tagTxt.isEmpty() ? nextExpTag() : tagTxt;
             ensureColor(tag);
-            for (File f : files) addFile(f, tag, cut);
+            for (File f : chosenFiles) addFile(f, tag, cut);
         } else {
-            for (File f : files) {
+            for (File f : chosenFiles) {
                 String tag = tagTxt.isEmpty()
                     ? f.getName().replaceFirst("\\.[^.]+$", "")
                     : tagTxt;
@@ -217,6 +248,11 @@ public class DataManagerWindow extends JFrame {
             }
         }
         model.fireTableDataChanged();
+
+        // Consume the selection so the next batch starts fresh
+        chosenFiles = null;
+        chosenLabel.setText("No files chosen");
+        chosenLabel.setForeground(new Color(130, 130, 130));
     }
 
     private void addFile(File f, String tag, int cut) {

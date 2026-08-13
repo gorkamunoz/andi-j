@@ -90,10 +90,21 @@ public class DiffusionCoeffPanel extends JPanel {
             b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
             b.setFocusPainted(false);
         }
+        JCheckBox normalizeBox = new JCheckBox("Normalize (%)");
+        normalizeBox.setFont(normalizeBox.getFont().deriveFont(Font.PLAIN, 11f));
+        normalizeBox.setFocusPainted(false);
+        normalizeBox.setToolTipText("Show each series as a percentage of its own total (density)");
+        normalizeBox.addActionListener(e -> {
+            histPanel.setNormalize(normalizeBox.isSelected());
+            histPanel.repaint();
+        });
+
         JPanel histToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         histToolbar.add(zoomBtn);
         histToolbar.add(panBtn);
         histToolbar.add(resetViewBtn);
+        histToolbar.add(Box.createHorizontalStrut(8));
+        histToolbar.add(normalizeBox);
         zoomBtn.addActionListener(e -> histPanel.setPanMode(false));
         panBtn .addActionListener(e -> histPanel.setPanMode(true));
         resetViewBtn.addActionListener(e -> { histPanel.resetViewport(); histPanel.repaint(); });
@@ -412,8 +423,10 @@ public class DiffusionCoeffPanel extends JPanel {
 
         private final List<ExperimentData>               experiments;
         private final Map<ExperimentData, Set<Integer>>  componentSel;
-        private int    nBins    = 20;
-        private String timeUnit = "frames";
+        private int     nBins    = 20;
+        private String  timeUnit = "frames";
+        /** When true each series is shown as % of its own total (density-like). */
+        private boolean normalize = false;
 
         // ── Viewport state ──────────────────────────────────────────────
         private double[] viewport = null;  // null=auto; {xMin,xMax,0,yMax}
@@ -462,7 +475,14 @@ public class DiffusionCoeffPanel extends JPanel {
 
         void setNBins(int n)       { this.nBins    = Math.max(2, n); }
         void setTimeUnit(String u) { this.timeUnit = u; }
+        void setNormalize(boolean n) { if (normalize != n) { normalize = n; viewport = null; } }
         void resetViewport()       { this.viewport = null; }
+
+        /** Bar height for entry {@code he}, bin {@code b}: raw count or % of total. */
+        private double barValue(HistEntry he, int b) {
+            if (!normalize) return he.counts[b];
+            return he.total > 0 ? 100.0 * he.counts[b] / he.total : 0;
+        }
 
         void setPanMode(boolean pan) {
             this.panMode = pan;
@@ -567,6 +587,7 @@ public class DiffusionCoeffPanel extends JPanel {
             final int  component;
             final Color fillColor;
             int[]  counts;
+            int    total;
             double avg;
             HistEntry(ExperimentData exp, int comp) {
                 this.exp       = exp;
@@ -634,7 +655,6 @@ public class DiffusionCoeffPanel extends JPanel {
             double binW  = (globalXMax - globalXMin) / nBins;
 
             // ── Build histograms ─────────────────────────────────────────
-            int maxCount = 1;
             for (HistEntry he : entries) {
                 he.counts = new int[nBins];
                 double sum = 0; int n = 0;
@@ -646,20 +666,24 @@ public class DiffusionCoeffPanel extends JPanel {
                     he.counts[bin]++;
                     sum += v; n++;
                 }
+                he.total = n;
                 he.avg = n > 0 ? sum / n : Double.NaN;
-                for (int c : he.counts) maxCount = Math.max(maxCount, c);
             }
+            double maxY = normalize ? 1e-9 : 1;
+            for (HistEntry he : entries)
+                for (int b = 0; b < nBins; b++) maxY = Math.max(maxY, barValue(he, b));
 
             // ── Display range (viewport or auto) ─────────────────────────
+            double yFloor   = normalize ? 1e-9 : 1;
             double dispXMin = (viewport != null) ? viewport[0] : globalXMin;
             double dispXMax = (viewport != null) ? viewport[1] : globalXMax;
-            double dispYMax = (viewport != null) ? Math.max(1, viewport[3]) : maxCount;
+            double dispYMax = (viewport != null) ? Math.max(yFloor, viewport[3]) : maxY;
 
             renderXMin = dispXMin; renderXMax = dispXMax; renderYMax = dispYMax;
             renderPx = px; renderPy = py; renderPw = pw; renderPh = ph;
 
             // ── Draw ─────────────────────────────────────────────────────
-            drawLinearGrid(g2, dispXMin, dispXMax, 0, dispYMax, px, py, pw, ph);
+            drawLinearGrid(g2, dispXMin, dispXMax, 0, dispYMax, px, py, pw, ph, normalize);
 
             g2.setClip(px, py, pw, ph);
             Stroke dashed = new BasicStroke(1.5f, BasicStroke.CAP_BUTT,
@@ -674,7 +698,7 @@ public class DiffusionCoeffPanel extends JPanel {
                     if (he.counts[b] == 0) continue;
                     int bx  = linPxX(globalXMin + b * binW,       dispXMin, dispXMax, px, pw);
                     int bx2 = linPxX(globalXMin + (b + 1) * binW, dispXMin, dispXMax, px, pw);
-                    int by  = linPxY((double) he.counts[b],        0, dispYMax, py, ph);
+                    int by  = linPxY(barValue(he, b),              0, dispYMax, py, ph);
                     int by0 = linPxY(0,                             0, dispYMax, py, ph);
                     g2.setColor(fill);
                     g2.fillRect(bx, by, Math.max(1, bx2 - bx), by0 - by);
@@ -694,8 +718,8 @@ public class DiffusionCoeffPanel extends JPanel {
 
             drawFrame(g2, px, py, pw, ph);
             drawXTicks(g2, dispXMin, dispXMax, px, py, pw, ph);
-            drawYTicks(g2, 0, dispYMax, px, py, pw, ph);
-            drawAxisTitles(g2, px, py, pw, ph);
+            drawYTicks(g2, 0, dispYMax, px, py, pw, ph, normalize);
+            drawAxisTitles(g2, px, py, pw, ph, normalize);
             drawLegend(g2, entries, px, py, pw, ph);
 
             // ── Rubber-band rectangle (zoom mode only) ───────────────────
@@ -736,7 +760,8 @@ public class DiffusionCoeffPanel extends JPanel {
         private static void drawLinearGrid(Graphics2D g2,
                                            double xMin, double xMax,
                                            double yMin, double yMax,
-                                           int px, int py, int pw, int ph) {
+                                           int px, int py, int pw, int ph,
+                                           boolean normalize) {
             g2.setColor(new Color(220, 220, 220));
             g2.setStroke(new BasicStroke(0.5f));
             double xStep = niceStep(xMax - xMin, 6);
@@ -745,7 +770,8 @@ public class DiffusionCoeffPanel extends JPanel {
                 int p = linPxX(t, xMin, xMax, px, pw);
                 g2.drawLine(p, py, p, py + ph);
             }
-            double yStep = Math.max(1, niceStep(yMax - yMin, 5));
+            double yStep = niceStep(yMax - yMin, 5);
+            if (!normalize) yStep = Math.max(1, yStep);
             for (double t = 0; t <= yMax + yStep * 0.01; t += yStep) {
                 int p = linPxY(t, yMin, yMax, py, ph);
                 g2.drawLine(px, p, px + pw, p);
@@ -771,23 +797,31 @@ public class DiffusionCoeffPanel extends JPanel {
         }
 
         private static void drawYTicks(Graphics2D g2, double yMin, double yMax,
-                                       int px, int py, int pw, int ph) {
+                                       int px, int py, int pw, int ph,
+                                       boolean normalize) {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double step = Math.max(1, niceStep(yMax - yMin, 5));
+            double step = niceStep(yMax - yMin, 5);
+            if (!normalize) step = Math.max(1, step);
             for (double t = 0; t <= yMax + step * 0.01; t += step) {
                 int p = linPxY(t, yMin, yMax, py, ph);
                 g2.drawLine(px - 4, p, px, p);
-                String lbl = String.valueOf((int) Math.round(t));
+                String lbl = normalize ? fmtPct(t) : String.valueOf((int) Math.round(t));
                 g2.drawString(lbl, px - 6 - fm.stringWidth(lbl),
                               p + fm.getAscent() / 2 - 1);
             }
         }
 
+        private static String fmtPct(double v) {
+            if (Math.abs(v - Math.rint(v)) < 1e-9) return String.format("%d%%", (int) Math.rint(v));
+            return String.format("%.1f%%", v);
+        }
+
         // -- axis titles ---
 
-        private void drawAxisTitles(Graphics2D g2, int px, int py, int pw, int ph) {
+        private void drawAxisTitles(Graphics2D g2, int px, int py, int pw, int ph,
+                                    boolean normalize) {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             FontMetrics fm = g2.getFontMetrics();
@@ -797,7 +831,7 @@ public class DiffusionCoeffPanel extends JPanel {
                 px + (pw - fm.stringWidth(xTitle)) / 2,
                 py + ph + MB - 8);
 
-            String yTitle = "Count";
+            String yTitle = normalize ? "%" : "Count";
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph / 2.0);
             g2.rotate(-Math.PI / 2);

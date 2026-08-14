@@ -197,7 +197,7 @@ public class AnglesPanel extends JPanel {
                     }
                 }
             }
-            ij.IJ.log("AnDi: turning angles saved → " + f.getAbsolutePath());
+            ij.IJ.log("AnDi-J: turning angles saved → " + f.getAbsolutePath());
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this,
                 "Could not save file:\n" + ex.getMessage(),

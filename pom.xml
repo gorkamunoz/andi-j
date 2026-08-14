@@ -18,18 +18,18 @@
     </parent>
 
     <groupId>sc.fiji</groupId>
-    <artifactId>andi-fiji</artifactId>
-    <version>0.0.2</version>
+    <artifactId>andi-j</artifactId>
+    <version>0.0.1</version>
     <packaging>jar</packaging>
 
-    <name>AnDi Fiji</name>
+    <name>AnDi-J</name>
     <description>Anomalous Diffusion trajectory analysis plugin for Fiji</description>
-    <url>https://github.com/your-username/andi-fiji</url>
+    <url>https://github.com/your-username/andi-j</url>
     <inceptionYear>2026</inceptionYear>
 
     <organization>
-        <name>AnDi Fiji</name>
-        <url>https://github.com/your-username/andi-fiji</url>
+        <name>AnDi-J</name>
+        <url>https://github.com/your-username/andi-j</url>
     </organization>
 
     <licenses>
@@ -60,14 +60,14 @@
     </mailingLists>
 
     <scm>
-        <connection>scm:git:git://github.com/your-username/andi-fiji</connection>
-        <developerConnection>scm:git:git@github.com:your-username/andi-fiji</developerConnection>
-        <url>https://github.com/your-username/andi-fiji</url>
+        <connection>scm:git:git://github.com/your-username/andi-j</connection>
+        <developerConnection>scm:git:git@github.com:your-username/andi-j</developerConnection>
+        <url>https://github.com/your-username/andi-j</url>
     </scm>
 
     <issueManagement>
         <system>GitHub Issues</system>
-        <url>https://github.com/your-username/andi-fiji/issues</url>
+        <url>https://github.com/your-username/andi-j/issues</url>
     </issueManagement>
 
     <ciManagement>
@@ -76,7 +76,7 @@
 
     <properties>
         <license.licenseName>gpl_v3</license.licenseName>
-        <license.copyrightOwners>AnDi Fiji contributors</license.copyrightOwners>
+        <license.copyrightOwners>AnDi-J contributors</license.copyrightOwners>
         <!-- Target Java 8 for maximum Fiji compatibility -->
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>

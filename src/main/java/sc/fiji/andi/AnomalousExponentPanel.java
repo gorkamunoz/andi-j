@@ -461,7 +461,7 @@ public class AnomalousExponentPanel extends JPanel {
         final int totalTracks = Math.max(1, nTracks);
 
         JDialog prog = new JDialog(SwingUtilities.getWindowAncestor(this),
-                "AnDi – Computing α (ML)", Dialog.ModalityType.APPLICATION_MODAL);
+                "AnDi-J – Computing α (ML)", Dialog.ModalityType.APPLICATION_MODAL);
         JPanel pp = new JPanel(new BorderLayout(12, 12));
         pp.setBorder(BorderFactory.createEmptyBorder(18, 24, 18, 24));
         pp.add(new JLabel("<html>Running ML α prediction on <b>" + nTracks
@@ -653,7 +653,7 @@ public class AnomalousExponentPanel extends JPanel {
                                   id, a[0], a[1], a[2]);
                 }
             }
-            IJ.log("AnDi: α values saved → " + f.getAbsolutePath());
+            IJ.log("AnDi-J: α values saved → " + f.getAbsolutePath());
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this,
                 "Could not save file:\n" + ex.getMessage(),

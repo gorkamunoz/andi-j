@@ -13,7 +13,7 @@ import java.util.List;
  * for segmentation:  on "Perform Analysis" it runs the STEP models and
  * opens {@link TrajectorySegmentationWindow}.
  *
- * Registered in plugins.config as: Plugins > AnDi > Trajectory Segmentation
+ * Registered in plugins.config as: Plugins > AnDi-J > Trajectory Segmentation
  */
 public class TrajectorySegmentationCommand implements PlugIn {
 
@@ -38,7 +38,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
         return (exps, maxLag, interval, dm) -> {
 
             // ── Progress dialog (modal, dismissed when the worker finishes) ─
-            JDialog prog = new JDialog(dm, "AnDi – Running STEP Predictions", true);
+            JDialog prog = new JDialog(dm, "AnDi-J – Running STEP Predictions", true);
             JPanel pp = new JPanel(new BorderLayout(12, 12));
             pp.setBorder(BorderFactory.createEmptyBorder(18, 24, 18, 24));
 
@@ -96,7 +96,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
                             "<html>Could not run STEP predictions:<br><br>"
                             + "<tt>" + error.getMessage().replace("\n", "<br>")
                             + "</tt></html>",
-                            "AnDi – STEP Error",
+                            "AnDi-J – STEP Error",
                             JOptionPane.ERROR_MESSAGE);
                         return;
                     }

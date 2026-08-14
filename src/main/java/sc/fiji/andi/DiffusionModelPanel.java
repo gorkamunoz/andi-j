@@ -272,7 +272,7 @@ public class DiffusionModelPanel extends JPanel {
         final int totalTracks = Math.max(1, nTracks);
 
         JDialog prog = new JDialog(SwingUtilities.getWindowAncestor(this),
-                "AnDi – Classifying diffusion models", Dialog.ModalityType.APPLICATION_MODAL);
+                "AnDi-J – Classifying diffusion models", Dialog.ModalityType.APPLICATION_MODAL);
         JPanel pp = new JPanel(new BorderLayout(12, 12));
         pp.setBorder(BorderFactory.createEmptyBorder(18, 24, 18, 24));
         pp.add(new JLabel("<html>Running the classifier on <b>" + nTracks
@@ -370,7 +370,7 @@ public class DiffusionModelPanel extends JPanel {
                     else          pw.printf("%d,%s%n", id, model);
                 }
             }
-            IJ.log("AnDi: diffusion-model predictions saved → " + f.getAbsolutePath());
+            IJ.log("AnDi-J: diffusion-model predictions saved → " + f.getAbsolutePath());
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this,
                 "Could not save file:\n" + ex.getMessage(),

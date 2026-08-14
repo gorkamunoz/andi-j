@@ -314,7 +314,7 @@ public class DiffusionCoeffPanel extends JPanel {
                                   id, d[0], d[1], d[2]);
                 }
             }
-            IJ.log("AnDi: D values saved → " + f.getAbsolutePath());
+            IJ.log("AnDi-J: D values saved → " + f.getAbsolutePath());
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this,
                 "Could not save file:\n" + ex.getMessage(),

@@ -1,4 +1,4 @@
-# AnDi Fiji Plugin
+# AnDi-J
 
 A [Fiji/ImageJ](https://fiji.sc) plugin for analysing single-particle tracking (SPT) trajectories exported from [TrackMate](https://imagej.net/plugins/trackmate/).  
 It computes the **time-averaged Mean Squared Displacement (tMSD)**, **diffusion coefficient *D***, and **anomalous exponent *α*** for each trajectory, following the algorithms of the [AnDi-datasets](https://github.com/AnDiChallenge/ANDI_datasets) library.
@@ -38,7 +38,7 @@ Required columns (case-insensitive): `TRACK_ID`, `POSITION_X`, `POSITION_Y`, `FR
 
 1. During beta testing: go to folder [**Target**](https://github.com/gorkamunoz/andi_fiji/tree/main/target)
 1. (When released, no beta testing) Go to the [**Releases**](https://github.com/gorkamunoz/andi_fiji/releases) page of this repository.
-2. Under the latest release, download the file **`andi-fiji-X.Y.Z.jar`**.
+2. Under the latest release, download the file **`andi-j-X.Y.Z.jar`**.
 3. Drag the `.jar` file into the **`Fiji.app/plugins/`** folder  
    *(on Windows: `C:\Users\<you>\Fiji.app\plugins\`)*
 4. **Restart Fiji.**
@@ -50,7 +50,7 @@ Required columns (case-insensitive): `TRACK_ID`, `POSITION_X`, `POSITION_Y`, `FR
 git clone https://github.com/gorkamunoz/andi_fiji.git
 cd andi_fiji
 mvn clean package
-# then copy target/andi-fiji-*-SNAPSHOT.jar into Fiji.app/plugins/
+# then copy target/andi-j-*.jar into Fiji.app/plugins/
 ```
 
 Requires Java 8+ and Maven. The build uses the [pom-scijava](https://github.com/scijava/pom-scijava) parent POM.

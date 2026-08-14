@@ -9,7 +9,7 @@ import java.util.List;
  * Entry-point plugin for multi-file trajectory analysis.
  * Opens (or brings to front) the persistent DataManagerWindow.
  *
- * Registered in plugins.config as: Plugins > AnDi > Trajectory Analysis
+ * Registered in plugins.config as: Plugins > AnDi-J > Trajectory Analysis
  */
 public class TrajectoryAnalysisCommand implements PlugIn {
 

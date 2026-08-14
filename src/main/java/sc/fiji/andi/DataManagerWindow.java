@@ -16,7 +16,7 @@ import java.util.List;
 /**
  * Persistent "Manage Data" window.
  *
- * Opened by AnDi > Trajectory Analysis and by the "Manage Data" button
+ * Opened by AnDi-J > Trajectory Analysis and by the "Manage Data" button
  * inside AnalysisWindow.  State (loaded files, tags, cut lengths) is
  * preserved across show/hide cycles.
  *
@@ -72,7 +72,7 @@ public class DataManagerWindow extends JFrame {
     // ═════════════════════════════════════════════════════════════════════════
 
     public DataManagerWindow(AnalysisLauncher launcher) {
-        super("AnDi – Manage Data");
+        super("AnDi-J – Manage Data");
         this.launcher = launcher;
 
         model = new FileRowModel();
@@ -272,7 +272,7 @@ public class DataManagerWindow extends JFrame {
             TrajectoryIO.ParseResult parsed = TrajectoryIO.parseCsv(f);
             rows.add(new FileRow(f, parsed, tag, cut));
         } catch (IOException e) {
-            IJ.error("AnDi – Load error",
+            IJ.error("AnDi-J – Load error",
                 "Could not parse " + f.getName() + ":\n" + e.getMessage());
         }
     }
@@ -295,7 +295,7 @@ public class DataManagerWindow extends JFrame {
         if (rows.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                 "No files loaded. Use \"Load Data…\" first.",
-                "AnDi", JOptionPane.WARNING_MESSAGE);
+                "AnDi-J", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -331,7 +331,7 @@ public class DataManagerWindow extends JFrame {
         if (experiments.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                 "No tracks survive the length filters.",
-                "AnDi", JOptionPane.WARNING_MESSAGE);
+                "AnDi-J", JOptionPane.WARNING_MESSAGE);
             return;
         }
 

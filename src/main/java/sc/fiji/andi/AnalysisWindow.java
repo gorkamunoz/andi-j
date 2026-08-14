@@ -17,7 +17,7 @@ public class AnalysisWindow extends JFrame {
     public AnalysisWindow(List<ExperimentData> experiments,
                           int initMaxLag, double initInterval,
                           DataManagerWindow dataManager) {
-        super("AnDi – Trajectory Analysis");
+        super("AnDi-J – Trajectory Analysis");
 
         // Build the panels that receive tagged populations first, so the
         // D vs α tab can push new populations to them via a callback.
@@ -33,14 +33,14 @@ public class AnalysisWindow extends JFrame {
             JOptionPane.showMessageDialog(this,
                 "<html>ML prediction complete.<br><br>Both the <b>Anomalous exponent</b> "
               + "(ML) and <b>Diffusion Model</b> tabs were updated.</html>",
-                "AnDi – ML prediction", JOptionPane.INFORMATION_MESSAGE);
+                "AnDi-J – ML prediction", JOptionPane.INFORMATION_MESSAGE);
         });
         diffusionPanel.setOnModelsComputed(() -> {
             anomalousPanel.syncToMlResults();
             JOptionPane.showMessageDialog(this,
                 "<html>ML prediction complete.<br><br>Both the <b>Diffusion Model</b> and "
               + "<b>Anomalous exponent</b> (switched to ML) tabs were updated.</html>",
-                "AnDi – ML prediction", JOptionPane.INFORMATION_MESSAGE);
+                "AnDi-J – ML prediction", JOptionPane.INFORMATION_MESSAGE);
         });
 
         // Sink: a population created in D vs α appears as a new dataset in the

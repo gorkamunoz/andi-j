@@ -335,7 +335,7 @@ public class SegVisualizationPanel extends JPanel {
                     }
                 }
             }
-            IJ.log("AnDi: segments saved → " + f.getAbsolutePath());
+            IJ.log("AnDi-J: segments saved → " + f.getAbsolutePath());
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this,
                 "Could not save file:\n" + ex.getMessage(),

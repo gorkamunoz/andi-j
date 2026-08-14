@@ -18,7 +18,7 @@ public class TrajectorySegmentationWindow extends JFrame {
 
     public TrajectorySegmentationWindow(List<ExperimentData> experiments,
                                         DataManagerWindow    dataManager) {
-        super("AnDi – Trajectory Segmentation");
+        super("AnDi-J – Trajectory Segmentation");
 
         final JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Visualization",    new SegVisualizationPanel(experiments));

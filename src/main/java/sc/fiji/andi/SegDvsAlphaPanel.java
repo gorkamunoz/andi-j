@@ -139,7 +139,7 @@ public class SegDvsAlphaPanel extends JPanel {
                     }
                 }
             }
-            IJ.log("AnDi: per-frame predictions saved → " + f.getAbsolutePath());
+            IJ.log("AnDi-J: per-frame predictions saved → " + f.getAbsolutePath());
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this,
                 "Could not save file:\n" + ex.getMessage(),

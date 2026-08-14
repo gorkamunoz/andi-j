@@ -17,7 +17,7 @@ import java.util.*;
  * ImageJ1 plugin that reads a TrackMate CSV spot export and shows a log-log
  * plot of the time-averaged MSD (tMSD) vs time lag for every trajectory.
  *
- * Registered in plugins.config as:  Plugins > AnDi > Plot tMSD
+ * Registered in plugins.config as:  Plugins > AnDi-J > Plot tMSD
  */
 public class TamsdPlotCommand implements PlugIn {
 
@@ -53,14 +53,14 @@ public class TamsdPlotCommand implements PlugIn {
         try {
             parsed = parseCsv(csvFile);
         } catch (IOException e) {
-            IJ.error("AnDi tMSD", "Could not read file:\n" + e.getMessage());
+            IJ.error("AnDi-J tMSD", "Could not read file:\n" + e.getMessage());
             return;
         }
         if (parsed.tracks.isEmpty()) {
-            IJ.error("AnDi tMSD", "No tracks found in the file.");
+            IJ.error("AnDi-J tMSD", "No tracks found in the file.");
             return;
         }
-        IJ.log("AnDi tMSD: loaded " + parsed.tracks.size() + " track(s) from " + csvFile.getName());
+        IJ.log("AnDi-J tMSD: loaded " + parsed.tracks.size() + " track(s) from " + csvFile.getName());
 
         int maxTrackLen = parsed.tracks.values().stream().mapToInt(List::size).max().orElse(4);
         int defaultMaxLag = Math.max(1, maxTrackLen / 4);
@@ -85,7 +85,7 @@ public class TamsdPlotCommand implements PlugIn {
 
         // 4. Build lag array
         int[] lags = makeLags(minLag, maxLag, nLags, logSpaced);
-        IJ.log("AnDi tMSD: lags (frames) = " + Arrays.toString(lags));
+        IJ.log("AnDi-J tMSD: lags (frames) = " + Arrays.toString(lags));
 
         // 5. Compute tMSD for every track
         Map<Integer, double[]> tamsdByTrack = new LinkedHashMap<>();
@@ -94,7 +94,7 @@ public class TamsdPlotCommand implements PlugIn {
 
         // 6. Plot
         buildPlot(tamsdByTrack, lags, frameInterval, timeUnit);
-        IJ.log("AnDi tMSD: done.");
+        IJ.log("AnDi-J tMSD: done.");
     }
 
     // ==================================================================
@@ -245,7 +245,7 @@ public class TamsdPlotCommand implements PlugIn {
             for (double v : vals)
                 if (!Double.isNaN(v) && v > 0) { yMin = Math.min(yMin, v); yMax = Math.max(yMax, v); }
 
-        if (yMin == Double.MAX_VALUE) { IJ.error("AnDi tMSD", "No valid tMSD values to plot."); return; }
+        if (yMin == Double.MAX_VALUE) { IJ.error("AnDi-J tMSD", "No valid tMSD values to plot."); return; }
 
         Plot plot = new Plot("tMSD vs time lag", "Time lag (" + unit + ")", "tMSD (μm²)");
         plot.setLogScaleX();

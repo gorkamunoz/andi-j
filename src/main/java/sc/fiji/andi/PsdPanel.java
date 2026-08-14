@@ -1,10 +1,13 @@
 package sc.fiji.andi;
 
+import ij.IJ;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.AffineTransform;
+import java.io.*;
 import java.util.*;
 import java.util.List;
 
@@ -59,11 +62,14 @@ public class PsdPanel extends JPanel {
         nFreqField = new JTextField("30", 4);
         logLogBox  = new JCheckBox("Log–log", true);
         JButton computeBtn = new JButton("Compute PSD");
+        JButton saveBtn    = new JButton("Save PSD…");
+        saveBtn.setToolTipText("Export the averaged 2D PSD curve per experiment to CSV");
 
         JPanel paramBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         paramBar.add(new JLabel("Freq. points:")); paramBar.add(nFreqField);
         paramBar.add(logLogBox);
         paramBar.add(computeBtn);
+        paramBar.add(saveBtn);
         add(paramBar, BorderLayout.NORTH);
 
         // ── plot toolbar (draw line) ─────────────────────────────────────
@@ -94,6 +100,7 @@ public class PsdPanel extends JPanel {
         add(split, BorderLayout.CENTER);
 
         computeBtn.addActionListener(e -> recompute());
+        saveBtn   .addActionListener(e -> savePsd());
         logLogBox .addActionListener(e -> { plotPanel.setLogScale(logLogBox.isSelected()); plotPanel.repaint(); });
 
         recompute();   // compute on open
@@ -265,6 +272,47 @@ public class PsdPanel extends JPanel {
 
     private static int parseIntOr(String s, int d) {
         try { return Integer.parseInt(s.trim()); } catch (Exception e) { return d; }
+    }
+
+    // -----------------------------------------------------------------------
+    // Save PSD curve
+    // -----------------------------------------------------------------------
+
+    /** Exports the averaged 2D PSD per experiment: columns experiment, frequency, psd. */
+    private void savePsd() {
+        if (freqAxis == null || psdByComp.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                "No PSD computed yet. Click «Compute PSD» first.",
+                "Save PSD", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
+        fc.setDialogTitle("Save PSD curve");
+        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+
+        File f = fc.getSelectedFile();
+        if (!f.getName().toLowerCase().endsWith(".csv"))
+            f = new File(f.getParent(), f.getName() + ".csv");
+
+        try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
+            pw.println("experiment,frequency,psd");
+            for (ExperimentData exp : experiments) {
+                double[][] psd = psdByComp.get(exp);
+                if (psd == null) continue;
+                for (int i = 0; i < freqAxis.length; i++) {
+                    double v = psd[0][i];              // 2D component
+                    if (!Double.isFinite(v)) continue; // skip empty frequency bins
+                    pw.printf("%s,%.8e,%.8e%n", exp.name, freqAxis[i], v);
+                }
+            }
+            IJ.log("AnDi-J: PSD saved → " + f.getAbsolutePath());
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                "Could not save file:\n" + ex.getMessage(),
+                "Save PSD – error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     // ======================================================================

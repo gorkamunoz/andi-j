@@ -507,6 +507,12 @@ public class FullAnalysisPanel extends JPanel {
         private int hoverPx = -1, hoverPy = -1;
         private static final int PT_R = 4;
 
+        // Movable legend: null = default (top-right); otherwise top-left corner in px.
+        private Integer legendX = null, legendY = null;
+        private int     legX, legY, legW, legH;      // bounds from last paint (hit-test)
+        private boolean draggingLegend = false;
+        private int     legGrabDX, legGrabDY;
+
         // ── One series ───────────────────────────────────────────────────
         private static class Series {
             final ExperimentData parentExp;  // underlying experiment (selection + lookup)
@@ -560,6 +566,12 @@ public class FullAnalysisPanel extends JPanel {
             if (sel) panMode = false;
             updateCursor();
         }
+        /** True if (x,y) is inside the last-painted legend box. */
+        private boolean overLegend(int x, int y) {
+            return legW > 0 && x >= legX && x <= legX + legW
+                            && y >= legY && y <= legY + legH;
+        }
+
         private void updateCursor() {
             setCursor(Cursor.getPredefinedCursor(
                 panMode ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR));
@@ -570,7 +582,12 @@ public class FullAnalysisPanel extends JPanel {
         private void addMouseInteraction() {
             MouseAdapter ma = new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent e) {
-                    if (selectMode) {
+                    if (overLegend(e.getX(), e.getY())) {   // drag the legend (any mode)
+                        draggingLegend = true;
+                        legGrabDX = e.getX() - legX;
+                        legGrabDY = e.getY() - legY;
+                        setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    } else if (selectMode) {
                         selecting = true;
                         pendingSel.clear();
                         lassoPts = new ArrayList<>();
@@ -587,7 +604,11 @@ public class FullAnalysisPanel extends JPanel {
                     }
                 }
                 @Override public void mouseDragged(MouseEvent e) {
-                    if (selecting) {
+                    if (draggingLegend) {
+                        legendX = e.getX() - legGrabDX;
+                        legendY = e.getY() - legGrabDY;
+                        repaint();
+                    } else if (selecting) {
                         lassoPts.add(new double[]{e.getX(), e.getY()});
                         repaint();
                     } else if (dragging) {
@@ -612,6 +633,11 @@ public class FullAnalysisPanel extends JPanel {
                     }
                 }
                 @Override public void mouseReleased(MouseEvent e) {
+                    if (draggingLegend) {
+                        draggingLegend = false;
+                        updateCursor();
+                        return;
+                    }
                     if (selecting) {
                         selecting = false;
                         computeLassoSelection();
@@ -634,7 +660,12 @@ public class FullAnalysisPanel extends JPanel {
                     if (e.getClickCount() == 2 && !selectMode) { viewport = null; repaint(); }
                 }
                 @Override public void mouseMoved(MouseEvent e) {
-                    hoverPx = e.getX(); hoverPy = e.getY(); repaint();
+                    hoverPx = e.getX(); hoverPy = e.getY();
+                    if (overLegend(e.getX(), e.getY()))
+                        setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    else
+                        updateCursor();
+                    repaint();
                 }
                 @Override public void mouseExited(MouseEvent e) {
                     hoverPx = -1; repaint();
@@ -1146,9 +1177,9 @@ public class FullAnalysisPanel extends JPanel {
             }
         }
 
-        private static void drawLegend(Graphics2D g2, List<Series> seriesList,
-                                        int px, int py, int pw, int ph) {
-            if (seriesList.isEmpty()) return;
+        private void drawLegend(Graphics2D g2, List<Series> seriesList,
+                                 int px, int py, int pw, int ph) {
+            if (seriesList.isEmpty()) { legW = 0; return; }
 
             // Aggregate series by (groupKey, comp): a population spanning several
             // datasets shares one groupKey, so it collapses to a single entry.
@@ -1170,7 +1201,14 @@ public class FullAnalysisPanel extends JPanel {
                 maxW = Math.max(maxW, fm.stringWidth(lbl));
             }
             int boxW = maxW + 28 + pad*2, boxH = entries.size()*lineH + pad*2;
-            int lx = px + pw - boxW - 6, ly = py + 6;
+            // Default top-right, or the user-dragged position (clamped to the plot).
+            int lx, ly;
+            if (legendX == null) { lx = px + pw - boxW - 6; ly = py + 6; }
+            else {
+                lx = Math.max(px, Math.min(legendX, px + pw - boxW));
+                ly = Math.max(py, Math.min(legendY, py + ph - boxH));
+            }
+            legX = lx; legY = ly; legW = boxW; legH = boxH;   // for hit-testing
             g2.setColor(new Color(255,255,255,210));
             g2.fillRoundRect(lx, ly, boxW, boxH, 6, 6);
             g2.setColor(new Color(180,180,180)); g2.setStroke(new BasicStroke(0.7f));

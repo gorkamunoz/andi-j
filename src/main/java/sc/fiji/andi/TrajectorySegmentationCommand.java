@@ -71,8 +71,8 @@ public class TrajectorySegmentationCommand implements PlugIn {
 
                 @Override
                 protected Void doInBackground() {
-                    try (StepPredictor predictor = StepPredictor.fromResources()) {
-                        StepPredictor.ProgressListener tick = () -> {
+                    try (UclStepPredictor predictor = UclStepPredictor.fromResources()) {
+                        UclStepPredictor.ProgressListener tick = () -> {
                             int d = ++done[0];
                             SwingUtilities.invokeLater(() -> {
                                 bar.setValue(d);

@@ -92,10 +92,15 @@ public class SegVisualizationPanel extends JPanel {
         if (currentExp != null) sampleRandom();
     }
 
-    /** (Re)runs change-point detection for every experiment with the current params. */
+    /**
+     * Ensures every experiment has segments. Change points now come from the
+     * segmentation model (filled by {@link UclStepPredictor}); the kernel-based
+     * {@link ChangePointDetector} is kept only as a fallback for experiments
+     * that somehow arrive without model segments (and is otherwise hidden).
+     */
     private void recomputeSegments() {
         for (ExperimentData exp : experiments)
-            if (exp.hasStepPredictions())
+            if (exp.hasStepPredictions() && !exp.hasSegments())
                 ChangePointDetector.computeForExperiment(exp, segParams);
     }
 
@@ -187,9 +192,12 @@ public class SegVisualizationPanel extends JPanel {
             for (TrajectoryPlot p : plots) { p.showCP = showCP; p.repaint(); }
         });
 
+        // Kernel-CP parameter dialog — hidden for now (change points come from
+        // the segmentation model). Kept for later use.
         JButton paramsBtn = new JButton("Segmentation Parameters");
         paramsBtn.setToolTipText("Change the change-point detection parameters and recalculate");
         paramsBtn.addActionListener(e -> openParamsDialog());
+        paramsBtn.setVisible(false);
 
         JButton saveSegBtn = new JButton("Save segments…");
         saveSegBtn.setToolTipText("Export all segments (length, α, D) to CSV");

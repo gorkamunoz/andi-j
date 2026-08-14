@@ -49,6 +49,7 @@ public class SegVisualizationPanel extends JPanel {
     private boolean showD        = true;
     private boolean showSegAlpha = true;
     private boolean showSegD     = true;
+    private boolean showCP       = true;   // vertical change-point markers
 
     /** Current change-point parameters; edited via the parameters dialog. */
     private final SegmentationParams segParams = new SegmentationParams();
@@ -177,6 +178,15 @@ public class SegVisualizationPanel extends JPanel {
             for (TrajectoryPlot p : plots) { p.showSegD = showSegD; p.repaint(); }
         });
 
+        // Change-point vertical markers toggle
+        JToggleButton cpToggle = new JToggleButton("CP", true);
+        cpToggle.setFont(cpToggle.getFont().deriveFont(Font.BOLD, 11f));
+        cpToggle.setToolTipText("Show/hide the vertical change-point lines in all plots");
+        cpToggle.addActionListener(e -> {
+            showCP = cpToggle.isSelected();
+            for (TrajectoryPlot p : plots) { p.showCP = showCP; p.repaint(); }
+        });
+
         JButton paramsBtn = new JButton("Segmentation Parameters");
         paramsBtn.setToolTipText("Change the change-point detection parameters and recalculate");
         paramsBtn.addActionListener(e -> openParamsDialog());
@@ -201,6 +211,7 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(dToggle);
         bar.add(segAlphaToggle);
         bar.add(segDToggle);
+        bar.add(cpToggle);
         bar.add(Box.createHorizontalStrut(10));
         bar.add(paramsBtn);
         bar.add(saveSegBtn);
@@ -413,6 +424,7 @@ public class SegVisualizationPanel extends JPanel {
             plots[i].showD        = showD;
             plots[i].showSegAlpha = showSegAlpha;
             plots[i].showSegD     = showSegD;
+            plots[i].showCP       = showCP;
         }
     }
 
@@ -450,6 +462,7 @@ public class SegVisualizationPanel extends JPanel {
         boolean showD        = true;
         boolean showSegAlpha = true;
         boolean showSegD     = true;
+        boolean showCP       = true;
 
         TrajectoryPlot() {
             setBackground(BG_COLOR);
@@ -641,15 +654,17 @@ public class SegVisualizationPanel extends JPanel {
             }
 
             // ── Change-point segment overlay ──────────────────────────────
-            if ((showSegAlpha || showSegD) && segments != null && !segments.isEmpty()) {
+            if ((showSegAlpha || showSegD || showCP) && segments != null && !segments.isEmpty()) {
                 // Vertical change-point markers (segment starts, except the first)
-                g2.setColor(new Color(110, 110, 110));
-                g2.setStroke(new BasicStroke(0.8f, BasicStroke.CAP_BUTT,
-                        BasicStroke.JOIN_MITER, 1f, new float[]{3f, 3f}, 0f));
-                for (Segment s : segments) {
-                    if (s.start <= 0) continue;
-                    int xp = px + xToPixel(s.start, seqLen, pw);
-                    g2.drawLine(xp, py, xp, py + ph);
+                if (showCP) {
+                    g2.setColor(new Color(110, 110, 110));
+                    g2.setStroke(new BasicStroke(0.8f, BasicStroke.CAP_BUTT,
+                            BasicStroke.JOIN_MITER, 1f, new float[]{3f, 3f}, 0f));
+                    for (Segment s : segments) {
+                        if (s.start <= 0) continue;
+                        int xp = px + xToPixel(s.start, seqLen, pw);
+                        g2.drawLine(xp, py, xp, py + ph);
+                    }
                 }
                 // Per-segment mean step lines (independent of the raw α / D lines)
                 g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_BUTT,

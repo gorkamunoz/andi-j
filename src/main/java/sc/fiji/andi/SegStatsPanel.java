@@ -3,6 +3,8 @@ package sc.fiji.andi;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.geom.AffineTransform;
 import java.util.*;
 import java.util.List;
@@ -48,19 +50,26 @@ public class SegStatsPanel extends JPanel {
         add(buildTopBar(), BorderLayout.NORTH);
 
         JScrollPane leftScroll = new JScrollPane(buildExperimentsPanel());
-        leftScroll.setPreferredSize(new Dimension(160, 0));
         leftScroll.setBorder(BorderFactory.createTitledBorder("Experiments"));
-        add(leftScroll, BorderLayout.WEST);
+        leftScroll.setMinimumSize(new Dimension(80, 0));
 
-        JPanel heatRow = new JPanel(new GridLayout(1, 2, 4, 0));
-        heatRow.add(timeAlpha);
-        heatRow.add(timeD);
+        // Draggable dividers between the three plots (and the Experiments column).
+        JSplitPane heatSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, timeAlpha, timeD);
+        heatSplit.setResizeWeight(0.5);
+        heatSplit.setContinuousLayout(true);
 
-        JPanel center = new JPanel(new BorderLayout(0, 4));
+        lengthHist.setMinimumSize(new Dimension(0, 60));
         lengthHist.setPreferredSize(new Dimension(0, 220));
-        center.add(lengthHist, BorderLayout.NORTH);
-        center.add(heatRow,    BorderLayout.CENTER);
-        add(center, BorderLayout.CENTER);
+        JSplitPane vSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, lengthHist, heatSplit);
+        vSplit.setResizeWeight(0.32);
+        vSplit.setContinuousLayout(true);
+        vSplit.setDividerLocation(220);
+
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftScroll, vSplit);
+        mainSplit.setDividerLocation(160);
+        mainSplit.setContinuousLayout(true);
+        mainSplit.setOneTouchExpandable(true);
+        add(mainSplit, BorderLayout.CENTER);
 
         binsField.addActionListener(e -> rebuild());
         logCountBox.addActionListener(e -> {
@@ -77,6 +86,20 @@ public class SegStatsPanel extends JPanel {
         refreshBtn.setToolTipText("Recompute from the current segments");
         refreshBtn.addActionListener(e -> rebuild());
 
+        // Zoom / pan / reset tools — applied to all three plots at once.
+        JToggleButton zoomBtn = new JToggleButton("⊕ Zoom", true);
+        JToggleButton panBtn  = new JToggleButton("✥ Pan",  false);
+        ButtonGroup   viewBG  = new ButtonGroup();
+        viewBG.add(zoomBtn); viewBG.add(panBtn);
+        JButton resetViewBtn = new JButton("↺ Reset view");
+        for (AbstractButton b : new AbstractButton[]{zoomBtn, panBtn, resetViewBtn}) {
+            b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
+            b.setFocusPainted(false);
+        }
+        zoomBtn.addActionListener(e -> setAllPanMode(false));
+        panBtn .addActionListener(e -> setAllPanMode(true));
+        resetViewBtn.addActionListener(e -> resetAllViews());
+
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
         bar.add(new JLabel("Bins:"));
@@ -85,7 +108,19 @@ public class SegStatsPanel extends JPanel {
         bar.add(logCountBox);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(refreshBtn);
+        bar.add(Box.createHorizontalStrut(12));
+        bar.add(zoomBtn);
+        bar.add(panBtn);
+        bar.add(resetViewBtn);
         return bar;
+    }
+
+    private void setAllPanMode(boolean pan) {
+        lengthHist.setPanMode(pan); timeAlpha.setPanMode(pan); timeD.setPanMode(pan);
+    }
+    private void resetAllViews() {
+        lengthHist.resetViewport(); timeAlpha.resetViewport(); timeD.resetViewport();
+        lengthHist.repaint(); timeAlpha.repaint(); timeD.repaint();
     }
 
     private JPanel buildExperimentsPanel() {
@@ -300,12 +335,95 @@ public class SegStatsPanel extends JPanel {
         private List<Color>  colors = java.util.Collections.emptyList();
         private List<String> names  = java.util.Collections.emptyList();
 
-        Hist1D() { setBackground(Color.WHITE); }
+        // ── Viewport / interaction state ──────────────────────────────────
+        private double[] viewport = null;   // null = auto; {xMin,xMax,yMin,yMax}
+        private double dvXMin, dvXMax, dvYMin, dvYMax;
+        private int    renderPx, renderPy, renderPw, renderPh;
+        private boolean panMode, dragging, panning;
+        private int dragX0, dragY0, dragX1, dragY1, panX0, panY0;
+        private double panXMin, panXMax, panYMin, panYMax;
+
+        Hist1D() {
+            setBackground(Color.WHITE);
+            setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+            addMouseInteraction();
+        }
 
         void setData(double xMin, double xMax, int nb,
                      List<int[]> counts, List<Color> colors, List<String> names) {
             this.xMin = xMin; this.xMax = xMax; this.nb = nb;
             this.counts = counts; this.colors = colors; this.names = names;
+        }
+
+        void setPanMode(boolean pan) {
+            this.panMode = pan;
+            setCursor(Cursor.getPredefinedCursor(
+                pan ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR));
+        }
+        void resetViewport() { this.viewport = null; }
+
+        private void addMouseInteraction() {
+            MouseAdapter ma = new MouseAdapter() {
+                @Override public void mousePressed(MouseEvent e) {
+                    if (counts.isEmpty()) return;
+                    if (!panMode) {
+                        dragging = true;
+                        dragX0 = dragX1 = clampPx(e.getX(), renderPx, renderPx + renderPw);
+                        dragY0 = dragY1 = clampPx(e.getY(), renderPy, renderPy + renderPh);
+                    } else {
+                        panning = true; panX0 = e.getX(); panY0 = e.getY();
+                        panXMin = dvXMin; panXMax = dvXMax; panYMin = dvYMin; panYMax = dvYMax;
+                    }
+                }
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (dragging) {
+                        dragX1 = clampPx(e.getX(), renderPx, renderPx + renderPw);
+                        dragY1 = clampPx(e.getY(), renderPy, renderPy + renderPh);
+                        repaint();
+                    } else if (panning && renderPw > 0 && renderPh > 0) {
+                        double dx = (double) (e.getX() - panX0) / renderPw * (panXMax - panXMin);
+                        double dy = (double) (e.getY() - panY0) / renderPh * (panYMax - panYMin);
+                        viewport = new double[]{panXMin - dx, panXMax - dx,
+                                                panYMin + dy, panYMax + dy};
+                        repaint();
+                    }
+                }
+                @Override public void mouseReleased(MouseEvent e) {
+                    if (dragging) {
+                        dragging = false;
+                        int x0 = Math.min(dragX0, dragX1), x1 = Math.max(dragX0, dragX1);
+                        int y0 = Math.min(dragY0, dragY1), y1 = Math.max(dragY0, dragY1);
+                        if (x1 - x0 > 5 && y1 - y0 > 5) {
+                            double xMinV = pxToDataX(x0), xMaxV = pxToDataX(x1);
+                            double yMaxV = pxToDataY(y0), yMinV = pxToDataY(y1);
+                            if (xMinV < xMaxV && yMinV < yMaxV)
+                                viewport = new double[]{xMinV, xMaxV, yMinV, yMaxV};
+                        }
+                        repaint();
+                    } else if (panning) { panning = false; }
+                }
+                @Override public void mouseClicked(MouseEvent e) {
+                    if (e.getClickCount() == 2) { viewport = null; repaint(); }
+                }
+            };
+            addMouseListener(ma);
+            addMouseMotionListener(ma);
+        }
+
+        private double pxToDataX(int p) {
+            if (renderPw <= 0) return dvXMin;
+            return dvXMin + (double) (p - renderPx) / renderPw * (dvXMax - dvXMin);
+        }
+        private double pxToDataY(int p) {
+            if (renderPh <= 0) return dvYMin;
+            return dvYMin + (double) (renderPy + renderPh - p) / renderPh * (dvYMax - dvYMin);
+        }
+        private static int clampPx(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
+        private int mapXpix(double v, int px, int pw) {
+            return px + (int) ((v - dvXMin) / (dvXMax - dvXMin) * pw);
+        }
+        private int mapYpix(double v, int py, int ph) {
+            return py + ph - (int) ((v - dvYMin) / (dvYMax - dvYMin) * ph);
         }
 
         @Override
@@ -336,12 +454,19 @@ public class SegStatsPanel extends JPanel {
             }
             double yMax = niceCeil(maxCount);
 
+            // Display range (viewport or full), saved for mouse maths.
+            dvXMin = (viewport != null) ? viewport[0] : xMin;
+            dvXMax = (viewport != null) ? viewport[1] : xMax;
+            dvYMin = (viewport != null) ? viewport[2] : 0;
+            dvYMax = (viewport != null) ? viewport[3] : yMax;
+            renderPx = px; renderPy = py; renderPw = pw; renderPh = ph;
+
             // grid + y ticks
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double yStep = niceStep(yMax, 4);
-            for (double t = 0; t <= yMax + yStep * 0.01; t += yStep) {
-                int yp = py + ph - (int) (t / yMax * ph);
+            double yStep = niceStep(dvYMax - dvYMin, 4);
+            for (double t = Math.ceil(dvYMin / yStep) * yStep; t <= dvYMax + yStep * 0.01; t += yStep) {
+                int yp = mapYpix(t, py, ph);
                 g2.setColor(new Color(228, 228, 228)); g2.drawLine(px, yp, px + pw, yp);
                 g2.setColor(Color.BLACK); g2.drawLine(px - 4, yp, px, yp);
                 String lbl = fmtTick(t);
@@ -349,16 +474,17 @@ public class SegStatsPanel extends JPanel {
             }
 
             // x ticks (length)
-            double xStep = niceStep(xMax - xMin, 6);
-            for (double t = Math.ceil(xMin / xStep) * xStep; t <= xMax + xStep * 0.01; t += xStep) {
-                int xp = px + (int) ((t - xMin) / (xMax - xMin) * pw);
+            double xStep = niceStep(dvXMax - dvXMin, 6);
+            for (double t = Math.ceil(dvXMin / xStep) * xStep; t <= dvXMax + xStep * 0.01; t += xStep) {
+                int xp = mapXpix(t, px, pw);
                 g2.setColor(Color.BLACK);
                 g2.drawLine(xp, py + ph, xp, py + ph + 4);
                 String lbl = fmtTick(t);
                 g2.drawString(lbl, xp - fm.stringWidth(lbl) / 2, py + ph + 16);
             }
 
-            // per-experiment step outlines
+            // per-experiment step outlines (mapped by data coords for zoom/pan)
+            double binW = (xMax - xMin) / nb;
             Shape oldClip = g2.getClip();
             g2.setClip(px, py, pw, ph);
             for (int s = 0; s < counts.size(); s++) {
@@ -368,19 +494,27 @@ public class SegStatsPanel extends JPanel {
                 int[] ys = new int[nb * 2 + 2];
                 int k = 0;
                 for (int b = 0; b < nb; b++) {
-                    int xL = px + (int) ((double) b / nb * pw);
-                    int xR = px + (int) ((double) (b + 1) / nb * pw);
-                    int yv = py + ph - (int) ((double) c[b] / yMax * ph);
+                    int xL = mapXpix(xMin + b * binW,       px, pw);
+                    int xR = mapXpix(xMin + (b + 1) * binW, px, pw);
+                    int yv = mapYpix(c[b], py, ph);
                     xs[k] = xL; ys[k++] = yv;
                     xs[k] = xR; ys[k++] = yv;
                 }
                 xs[k] = xs[k - 1]; ys[k++] = py + ph;
-                xs[k] = px;        ys[k++] = py + ph;
+                xs[k] = xs[0];     ys[k++] = py + ph;
                 g2.setColor(new Color(col.getRed(), col.getGreen(), col.getBlue(), 45));
                 g2.fillPolygon(xs, ys, k);
                 g2.setColor(col);
                 g2.setStroke(new BasicStroke(1.4f));
                 g2.drawPolyline(xs, ys, nb * 2);
+            }
+            if (dragging) {
+                int rx = Math.min(dragX0, dragX1), ry = Math.min(dragY0, dragY1);
+                g2.setColor(new Color(0, 90, 200, 40));
+                g2.fillRect(rx, ry, Math.abs(dragX1 - dragX0), Math.abs(dragY1 - dragY0));
+                g2.setColor(new Color(0, 90, 200));
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawRect(rx, ry, Math.abs(dragX1 - dragX0), Math.abs(dragY1 - dragY0));
             }
             g2.setClip(oldClip);
 
@@ -444,9 +578,19 @@ public class SegStatsPanel extends JPanel {
         private boolean hasData = false;
         boolean         logScale = true;
 
+        // ── Viewport / interaction state ──────────────────────────────────
+        private double[] viewport = null;   // null = auto; {xMin,xMax,yMin,yMax}
+        private double dvXMin, dvXMax, dvYMin, dvYMax;   // current display range
+        private int    renderPx, renderPy, renderPw, renderPh;
+        private boolean panMode, dragging, panning;
+        private int dragX0, dragY0, dragX1, dragY1, panX0, panY0;
+        private double panXMin, panXMax, panYMin, panYMax;
+
         Heat2D(String xLabel, String yLabel, boolean leftMarginal) {
             this.xLabel = xLabel; this.yLabel = yLabel; this.leftMarginal = leftMarginal;
             setBackground(Color.WHITE);
+            setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+            addMouseInteraction();
         }
 
         void setHist(int[][] hist, int nb, double xMin, double xMax,
@@ -460,8 +604,76 @@ public class SegStatsPanel extends JPanel {
         }
         void setEmpty() { hasData = false; }
 
+        void setPanMode(boolean pan) {
+            this.panMode = pan;
+            setCursor(Cursor.getPredefinedCursor(
+                pan ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR));
+        }
+        void resetViewport() { this.viewport = null; }
+
+        private void addMouseInteraction() {
+            MouseAdapter ma = new MouseAdapter() {
+                @Override public void mousePressed(MouseEvent e) {
+                    if (!hasData) return;
+                    if (!panMode) {
+                        dragging = true;
+                        dragX0 = dragX1 = clampPx(e.getX(), renderPx, renderPx + renderPw);
+                        dragY0 = dragY1 = clampPx(e.getY(), renderPy, renderPy + renderPh);
+                    } else {
+                        panning = true; panX0 = e.getX(); panY0 = e.getY();
+                        panXMin = dvXMin; panXMax = dvXMax; panYMin = dvYMin; panYMax = dvYMax;
+                    }
+                }
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (dragging) {
+                        dragX1 = clampPx(e.getX(), renderPx, renderPx + renderPw);
+                        dragY1 = clampPx(e.getY(), renderPy, renderPy + renderPh);
+                        repaint();
+                    } else if (panning && renderPw > 0 && renderPh > 0) {
+                        double dx = (double) (e.getX() - panX0) / renderPw * (panXMax - panXMin);
+                        double dy = (double) (e.getY() - panY0) / renderPh * (panYMax - panYMin);
+                        viewport = new double[]{panXMin - dx, panXMax - dx,
+                                                panYMin + dy, panYMax + dy};
+                        repaint();
+                    }
+                }
+                @Override public void mouseReleased(MouseEvent e) {
+                    if (dragging) {
+                        dragging = false;
+                        int x0 = Math.min(dragX0, dragX1), x1 = Math.max(dragX0, dragX1);
+                        int y0 = Math.min(dragY0, dragY1), y1 = Math.max(dragY0, dragY1);
+                        if (x1 - x0 > 5 && y1 - y0 > 5) {
+                            double xMinV = pxToDataX(x0), xMaxV = pxToDataX(x1);
+                            double yMaxV = pxToDataY(y0), yMinV = pxToDataY(y1);
+                            if (xMinV < xMaxV && yMinV < yMaxV)
+                                viewport = new double[]{xMinV, xMaxV, yMinV, yMaxV};
+                        }
+                        repaint();
+                    } else if (panning) { panning = false; }
+                }
+                @Override public void mouseClicked(MouseEvent e) {
+                    if (e.getClickCount() == 2) { viewport = null; repaint(); }
+                }
+            };
+            addMouseListener(ma);
+            addMouseMotionListener(ma);
+        }
+
+        private double pxToDataX(int p) {
+            if (renderPw <= 0) return dvXMin;
+            return dvXMin + (double) (p - renderPx) / renderPw * (dvXMax - dvXMin);
+        }
+        private double pxToDataY(int p) {
+            if (renderPh <= 0) return dvYMin;
+            return dvYMin + (double) (renderPy + renderPh - p) / renderPh * (dvYMax - dvYMin);
+        }
+        private static int clampPx(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
+
         private int mapYpix(double v, int py, int ph) {
-            return py + ph - (int) ((v - yMin) / (yMax - yMin) * ph);
+            return py + ph - (int) ((v - dvYMin) / (dvYMax - dvYMin) * ph);
+        }
+        private int mapXpix(double v, int px, int pw) {
+            return px + (int) ((v - dvXMin) / (dvXMax - dvXMin) * pw);
         }
 
         @Override
@@ -498,12 +710,19 @@ public class SegStatsPanel extends JPanel {
                 g2.dispose(); return;
             }
 
+            // Display range (viewport or full), saved for mouse maths.
+            dvXMin = (viewport != null) ? viewport[0] : xMin;
+            dvXMax = (viewport != null) ? viewport[1] : xMax;
+            dvYMin = (viewport != null) ? viewport[2] : yMin;
+            dvYMax = (viewport != null) ? viewport[3] : yMax;
+            renderPx = px; renderPy = py; renderPw = pw; renderPh = ph;
+
             int maxCount = 0;
             for (int[] col : hist) for (int v : col) maxCount = Math.max(maxCount, v);
             double logMax = Math.log1p(Math.max(1, maxCount));
 
             if (maxCount > 0) {
-                double cellW = (double) pw / nb, cellH = (double) ph / nb;
+                double bwx = (xMax - xMin) / nb, bwy = (yMax - yMin) / nb;
                 Shape oldClip = g2.getClip();
                 g2.setClip(px, py, pw, ph);
                 for (int xi = 0; xi < nb; xi++)
@@ -511,10 +730,12 @@ public class SegStatsPanel extends JPanel {
                         int cnt = hist[xi][yi];
                         if (cnt == 0) continue;
                         double intensity = logScale ? Math.log1p(cnt) / logMax : (double) cnt / maxCount;
-                        int cx = px + (int) (xi * cellW);
-                        int cy = py + ph - (int) ((yi + 1) * cellH);
+                        int cx  = mapXpix(xMin + xi * bwx,       px, pw);
+                        int cx2 = mapXpix(xMin + (xi + 1) * bwx, px, pw);
+                        int cy  = mapYpix(yMin + (yi + 1) * bwy, py, ph);
+                        int cy2 = mapYpix(yMin + yi * bwy,       py, ph);
                         g2.setColor(mapColor(intensity, base));
-                        g2.fillRect(cx, cy, (int) Math.ceil(cellW) + 1, (int) Math.ceil(cellH) + 1);
+                        g2.fillRect(cx, cy, Math.max(1, cx2 - cx) + 1, Math.max(1, cy2 - cy) + 1);
                     }
                 g2.setClip(oldClip);
             }
@@ -530,6 +751,15 @@ public class SegStatsPanel extends JPanel {
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             String nlab = "N = " + String.format("%,d", total);
             g2.drawString(nlab, px + pw - g2.getFontMetrics().stringWidth(nlab) - 5, py + 13);
+
+            if (dragging) {
+                int rx = Math.min(dragX0, dragX1), ry = Math.min(dragY0, dragY1);
+                g2.setColor(new Color(0, 90, 200, 40));
+                g2.fillRect(rx, ry, Math.abs(dragX1 - dragX0), Math.abs(dragY1 - dragY0));
+                g2.setColor(new Color(0, 90, 200));
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawRect(rx, ry, Math.abs(dragX1 - dragX0), Math.abs(dragY1 - dragY0));
+            }
 
             g2.dispose();
         }
@@ -605,13 +835,13 @@ public class SegStatsPanel extends JPanel {
 
         private void drawGrid(Graphics2D g2, int px, int py, int pw, int ph) {
             g2.setColor(new Color(0, 0, 0, 35)); g2.setStroke(new BasicStroke(0.5f));
-            double xStep = niceStep(xMax - xMin, 5);
-            for (double t = Math.ceil(xMin / xStep) * xStep; t <= xMax + xStep * 0.01; t += xStep) {
-                int xp = px + (int) ((t - xMin) / (xMax - xMin) * pw);
+            double xStep = niceStep(dvXMax - dvXMin, 5);
+            for (double t = Math.ceil(dvXMin / xStep) * xStep; t <= dvXMax + xStep * 0.01; t += xStep) {
+                int xp = mapXpix(t, px, pw);
                 g2.drawLine(xp, py, xp, py + ph);
             }
-            double yStep = niceStep(yMax - yMin, 5);
-            for (double t = Math.ceil(yMin / yStep) * yStep; t <= yMax + yStep * 0.01; t += yStep) {
+            double yStep = niceStep(dvYMax - dvYMin, 5);
+            for (double t = Math.ceil(dvYMin / yStep) * yStep; t <= dvYMax + yStep * 0.01; t += yStep) {
                 int yp = mapYpix(t, py, ph);
                 g2.drawLine(px, yp, px + pw, yp);
             }
@@ -621,15 +851,15 @@ public class SegStatsPanel extends JPanel {
         private void drawTicks(Graphics2D g2, int px, int py, int pw, int ph) {
             g2.setColor(Color.BLACK); g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double xStep = niceStep(xMax - xMin, 5);
-            for (double t = Math.ceil(xMin / xStep) * xStep; t <= xMax + xStep * 0.01; t += xStep) {
-                int xp = px + (int) ((t - xMin) / (xMax - xMin) * pw);
+            double xStep = niceStep(dvXMax - dvXMin, 5);
+            for (double t = Math.ceil(dvXMin / xStep) * xStep; t <= dvXMax + xStep * 0.01; t += xStep) {
+                int xp = mapXpix(t, px, pw);
                 g2.drawLine(xp, py + ph, xp, py + ph + 4);
                 String lbl = fmtTick(t);
                 g2.drawString(lbl, xp - fm.stringWidth(lbl) / 2, py + ph + 15);
             }
-            double yStep = niceStep(yMax - yMin, 5);
-            for (double t = Math.ceil(yMin / yStep) * yStep; t <= yMax + yStep * 0.01; t += yStep) {
+            double yStep = niceStep(dvYMax - dvYMin, 5);
+            for (double t = Math.ceil(dvYMin / yStep) * yStep; t <= dvYMax + yStep * 0.01; t += yStep) {
                 int yp = mapYpix(t, py, ph);
                 g2.drawLine(px - 4, yp, px, yp);
                 String lbl = fmtTick(t);

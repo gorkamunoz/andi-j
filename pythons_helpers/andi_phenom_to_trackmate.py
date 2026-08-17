@@ -12,7 +12,7 @@ This is a *simplified* front-end to `models_phenom.create_dataset`: it exposes
 the parameters most people want from the terminal and lets everything else
 (trap/compartment positions, per-state variances, …) use library defaults.
 
-Output format matches AnDi Fiji's TrajectoryIO:
+Output format matches AnDi-J's TrajectoryIO:
   Row 1:   column headers
   Rows 2-4: empty filler rows (TrackMate metadata, skipped by the plugin)
   Row 5+:  one data row per spot
@@ -24,22 +24,22 @@ Requirements
 Usage examples
 --------------
   # Single-state 2-D FBM-like: α=0.7, D=1, 100 trajectories, T=200
-  python andi2_to_trackmate.py --model single --alpha 0.7 --D 1 --N 100 --T 200
+  python andi_phenom_to_trackmate.py --model single --alpha 0.7 --D 1 --N 100 --T 200
 
   # Two-state switching diffusion (α and D per state)
-  python andi2_to_trackmate.py --model multi --alpha 1.2 0.5 --D 1.0 0.05 --pswitch 0.03
+  python andi_phenom_to_trackmate.py --model multi --alpha 1.2 0.5 --D 1.0 0.05 --pswitch 0.03
 
   # Immobile traps
-  python andi2_to_trackmate.py --model traps --alpha 1 --D 1 --Nt 20 --Pb 0.02
+  python andi_phenom_to_trackmate.py --model traps --alpha 1 --D 1 --Nt 20 --Pb 0.02
 
   # Dimerization (free + bound state)
-  python andi2_to_trackmate.py --model dimer --alpha 1 1 --D 1 0.05
+  python andi_phenom_to_trackmate.py --model dimer --alpha 1 1 --D 1 0.05
 
   # Confinement in compartments
-  python andi2_to_trackmate.py --model confinement --alpha 1 0.5 --D 1 0.1 --Nc 15
+  python andi_phenom_to_trackmate.py --model confinement --alpha 1 0.5 --D 1 0.1 --Nc 15
 
   # All options
-  python andi2_to_trackmate.py --help
+  python andi_phenom_to_trackmate.py --help
 """
 
 import argparse
@@ -253,7 +253,7 @@ def main():
 
     write_trackmate_csv(output_path, spot_rows)
     print(f"✓  Written {n_trajs} trajectories ({len(spot_rows)} spots)  →  {output_path}")
-    print("   Load this file from AnDi Fiji  →  Manage Data  →  Choose Files / Load Data.")
+    print("   Load this file from AnDi-J  →  Manage Data  →  Choose Files / Load Data.")
 
 
 if __name__ == "__main__":

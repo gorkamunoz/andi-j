@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build small *test* ONNX models to exercise AnDi Fiji's "Load" model type
+Build small *test* ONNX models to exercise AnDi-J's "Load" model type
 (Anomalous exponent → Type: Load, and Diffusion Model → Type: Load).
 
 These are NOT trained networks — they are deterministic estimators that show

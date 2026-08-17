@@ -2,7 +2,7 @@
 """
 Generate TrackMate-format CSV files from andi_datasets simulated trajectories.
 
-The output format matches what AnDi Fiji's TrajectoryIO expects:
+The output format matches what AnDi-J's TrajectoryIO expects:
   Row 1:   column headers
   Rows 2-4: empty filler rows (TrackMate metadata, skipped by the plugin)
   Row 5+:  data
@@ -13,16 +13,16 @@ Requirements:
 Usage examples
 --------------
   # 1-D (X only, Y=0): FBM, 100 trajs per exponent, T=30
-  python andi_to_trackmate.py
+  python andi_theory_to_trackmate.py
 
   # Proper 2-D trajectories (independent X and Y realisations):
-  python andi_to_trackmate.py --2d
+  python andi_theory_to_trackmate.py --2d
 
   # CTRW model, 50 trajs, custom exponents, save to a specific path
-  python andi_to_trackmate.py --model 1 --N 50 --alpha 0.3 0.5 0.7 --output my_data.csv
+  python andi_theory_to_trackmate.py --model 1 --N 50 --alpha 0.3 0.5 0.7 --output my_data.csv
 
   # All options
-  python andi_to_trackmate.py --help
+  python andi_theory_to_trackmate.py --help
 """
 
 import argparse
@@ -106,7 +106,7 @@ FIELDNAMES = ["LABEL", "TRACK_ID", "POSITION_X", "POSITION_Y", "FRAME", "POSITIO
 
 def write_trackmate_csv(path: Path, spot_rows: list) -> None:
     """
-    Write spot_rows to *path* in the TrackMate CSV convention that AnDi Fiji
+    Write spot_rows to *path* in the TrackMate CSV convention that AnDi-J
     expects:
       Row 1:   column headers
       Rows 2-4: blank filler (TrackMate puts unit/type metadata here)
@@ -171,7 +171,7 @@ def main():
 
     model_name = MODEL_NAMES.get(args.model, f"model{args.model}")
     mode_str   = "2d" if args.two_d else "1d"
-    default_name = f"andi_{model_name}_N{args.N}_T{args.T}_{mode_str}.csv"
+    default_name = f"andi_{model_name}_N{args.N}_T{args.T}_a{args.alpha[0]}_{mode_str}.csv"
     output_path  = Path(args.output) if args.output else Path(__file__).parent / default_name
 
     print(
@@ -193,7 +193,7 @@ def main():
 
     write_trackmate_csv(output_path, spot_rows)
     print(f"✓  Written {n_trajs} trajectories ({len(spot_rows)} spots)  →  {output_path}")
-    print("   Load this file from AnDi Fiji  →  Manage Data  →  Load CSV.")
+    print("   Load this file from AnDi-J  →  Manage Data  →  Load CSV.")
 
 
 if __name__ == "__main__":

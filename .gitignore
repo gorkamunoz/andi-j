@@ -6,3 +6,5 @@ ML_analysis/model_weights/
 ML_analysis/autoresearch/ref1.txt
 ML_analysis/autoresearch/task1.txt
 ML_analysis/analysis_trained_models/datasets/
+test_models/
+src/main/resources/models/

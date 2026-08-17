@@ -216,38 +216,34 @@ public class SegDvsAlphaPanel extends JPanel {
         ldMax += 0.03 * lRng;
         final double aMin = 0.0, aMax = 2.0;
 
-        // Combined 2-D histogram (α × D) and 1-D marginal histograms over all
-        // selected experiments, each with its own bin count.
-        int[][] hist   = new int[alphaBins][dBins];
-        int[]   aBars  = new int[alphaBins];
-        int[]   dBarsA = new int[dBins];
+        // Combined 2-D histogram (α × D) over all selected experiments.
+        int[][] hist = new int[alphaBins][dBins];
         for (ExperimentData exp : sel) {
             double[] a = alphaByExp.get(exp), d = logdByExp.get(exp);
-            for (int i = 0; i < a.length; i++) {
-                int ai = bin(a[i], aMin, aMax, alphaBins);
-                int li = bin(d[i], ldMin, ldMax, dBins);
-                hist[ai][li]++;
-                aBars[ai]++;
-                dBarsA[li]++;
-            }
+            for (int i = 0; i < a.length; i++)
+                hist[bin(a[i], aMin, aMax, alphaBins)][bin(d[i], ldMin, ldMax, dBins)]++;
         }
 
-        // Per-experiment marginal KDEs (precomputed over fixed eval grids)
+        // Per-experiment marginal KDEs + histograms (each in the exp colour).
         double[] evalA = linspace(aMin, aMax, NEVAL);
         double[] evalD = linspace(ldMin, ldMax, NEVAL);
         List<Marginal> margs = new ArrayList<>();
         for (ExperimentData exp : sel) {
             double[] a = alphaByExp.get(exp), d = logdByExp.get(exp);
+            int[] aHist = new int[alphaBins], dHist = new int[dBins];
+            for (double v : a) aHist[bin(v, aMin, aMax, alphaBins)]++;
+            for (double v : d) dHist[bin(v, ldMin, ldMax, dBins)]++;
             margs.add(new Marginal(exp.color, a.length,
                 gaussianKde1D(a, evalA, silvermanBw(a)),
-                gaussianKde1D(d, evalD, silvermanBw(d))));
+                gaussianKde1D(d, evalD, silvermanBw(d)),
+                aHist, dHist));
         }
 
         // One experiment → its colour; the combined (additive) density over
         // several experiments is drawn in black ("sum of all colours").
         Color baseColor = sel.size() == 1 ? sel.get(0).color : Color.BLACK;
         canvas.setData(hist, alphaBins, dBins, aMin, aMax, ldMin, ldMax, total,
-                       baseColor, margs, aBars, dBarsA);
+                       baseColor, margs);
         canvas.logScale = logCountBox.isSelected();
         canvas.repaint();
     }
@@ -292,15 +288,19 @@ public class SegDvsAlphaPanel extends JPanel {
         return a;
     }
 
-    /** One experiment's precomputed marginal KDE curves. */
+    /** One experiment's precomputed marginal KDE curves and histograms. */
     static class Marginal {
         final Color    color;
         final int      count;
-        final double[] alphaKde;   // over [aMin, aMax]
-        final double[] logdKde;    // over [ldMin, ldMax]
-        Marginal(Color color, int count, double[] alphaKde, double[] logdKde) {
+        final double[] alphaKde;    // over [aMin, aMax]
+        final double[] logdKde;     // over [ldMin, ldMax]
+        final int[]    alphaHist;   // over [aMin, aMax], α bins
+        final int[]    dHist;       // over [ldMin, ldMax], D bins
+        Marginal(Color color, int count, double[] alphaKde, double[] logdKde,
+                 int[] alphaHist, int[] dHist) {
             this.color = color; this.count = count;
             this.alphaKde = alphaKde; this.logdKde = logdKde;
+            this.alphaHist = alphaHist; this.dHist = dHist;
         }
     }
 
@@ -330,8 +330,6 @@ public class SegDvsAlphaPanel extends JPanel {
         private int            totalPts;
         private Color          baseColor = new Color(0, 50, 180);
         private List<Marginal> marginals = java.util.Collections.emptyList();
-        private int[]          alphaBars = new int[0];   // combined α histogram
-        private int[]          dBars     = new int[0];   // combined log₁₀(D) histogram
         private boolean        hasData   = false;
         boolean                logScale  = true;
 
@@ -424,13 +422,12 @@ public class SegDvsAlphaPanel extends JPanel {
 
         void setData(int[][] hist, int nbX, int nbY, double aMin, double aMax,
                      double ldMin, double ldMax, int totalPts, Color baseColor,
-                     List<Marginal> marginals, int[] alphaBars, int[] dBars) {
+                     List<Marginal> marginals) {
             this.hist = hist; this.nbX = nbX; this.nbY = nbY;
             this.aMin = aMin; this.aMax = aMax;
             this.ldMin = ldMin; this.ldMax = ldMax;
             this.totalPts = totalPts; this.baseColor = baseColor;
             this.marginals = marginals;
-            this.alphaBars = alphaBars; this.dBars = dBars;
             this.hasData = true;
         }
 
@@ -539,9 +536,10 @@ public class SegDvsAlphaPanel extends JPanel {
 
         // ── Marginal strips ─────────────────────────────────────────────────
 
-        /** Light-grey fill for the marginal histogram bars. */
-        private static final Color BAR_FILL   = new Color(150, 150, 150, 90);
-        private static final Color BAR_BORDER = new Color(150, 150, 150, 160);
+        /** Translucent fill (α ≈ 0.5) of the experiment colour for its bars. */
+        private static Color barFill(Color c) {
+            return new Color(c.getRed(), c.getGreen(), c.getBlue(), 128);
+        }
 
         private void drawAlphaMarginal(Graphics2D g2, int px, int py, int pw, int ph,
                                        double dxMin, double dxMax) {
@@ -556,34 +554,37 @@ public class SegDvsAlphaPanel extends JPanel {
             Shape oldClip = g2.getClip();
             g2.setClip(px, stripY, pw, stripH);
 
-            // Histogram bars (combined over experiments) under the KDEs.
-            int barMax = arrayMax(alphaBars);
-            if (barMax > 0) {
-                double bw = (aMax - aMin) / alphaBars.length;
-                for (int i = 0; i < alphaBars.length; i++) {
-                    if (alphaBars[i] == 0) continue;
-                    int x0 = mapXPx(aMin + i * bw,       dxMin, dxMax, px, pw);
-                    int x1 = mapXPx(aMin + (i + 1) * bw, dxMin, dxMax, px, pw);
-                    int h  = (int) ((double) alphaBars[i] / barMax * (stripH - 2));
-                    g2.setColor(BAR_FILL);
-                    g2.fillRect(x0, stripY + stripH - h, Math.max(1, x1 - x0), h);
-                    g2.setColor(BAR_BORDER);
-                    g2.drawRect(x0, stripY + stripH - h, Math.max(1, x1 - x0), h);
-                }
-            }
+            // Shared bar scale across experiments so heights are comparable.
+            int barMax = 0;
+            for (Marginal m : marginals) barMax = Math.max(barMax, arrayMax(m.alphaHist));
 
+            // Per-experiment histogram bars: face-colour only (no edge).
+            if (barMax > 0)
+                for (Marginal m : marginals) {
+                    double bw = (aMax - aMin) / m.alphaHist.length;
+                    g2.setColor(barFill(m.color));
+                    for (int i = 0; i < m.alphaHist.length; i++) {
+                        if (m.alphaHist[i] == 0) continue;
+                        int x0 = mapXPx(aMin + i * bw,       dxMin, dxMax, px, pw);
+                        int x1 = mapXPx(aMin + (i + 1) * bw, dxMin, dxMax, px, pw);
+                        int h  = (int) ((double) m.alphaHist[i] / barMax * (stripH - 2));
+                        g2.fillRect(x0, stripY + stripH - h, Math.max(1, x1 - x0), h);
+                    }
+                }
+
+            // KDE curves: line only (no fill).
             double[] evalA = linspace(aMin, aMax, NEVAL);
+            g2.setStroke(new BasicStroke(1.4f));
             for (Marginal m : marginals) {
                 double kmax = arrayMax(m.alphaKde);
                 if (kmax < 1e-300) continue;
-                int[] xs = new int[NEVAL + 2], ys = new int[NEVAL + 2];
+                int[] xs = new int[NEVAL], ys = new int[NEVAL];
                 for (int i = 0; i < NEVAL; i++) {
                     xs[i] = mapXPx(evalA[i], dxMin, dxMax, px, pw);
                     ys[i] = stripY + stripH - (int) (m.alphaKde[i] / kmax * (stripH - 2));
                 }
-                xs[NEVAL] = xs[NEVAL - 1]; ys[NEVAL] = stripY + stripH;
-                xs[NEVAL + 1] = xs[0];     ys[NEVAL + 1] = stripY + stripH;
-                fillStroke(g2, xs, ys, m.color);
+                g2.setColor(m.color);
+                g2.drawPolyline(xs, ys, NEVAL);
             }
             g2.setClip(oldClip);
             g2.setStroke(new BasicStroke(1f));
@@ -602,45 +603,37 @@ public class SegDvsAlphaPanel extends JPanel {
             Shape oldClip = g2.getClip();
             g2.setClip(stripX, py, stripW, ph);
 
-            // Histogram bars (combined) growing rightward from the plot edge.
-            int barMax = arrayMax(dBars);
-            if (barMax > 0) {
-                double bw = (ldMax - ldMin) / dBars.length;
-                for (int i = 0; i < dBars.length; i++) {
-                    if (dBars[i] == 0) continue;
-                    int y0 = mapYPx(ldMin + (i + 1) * bw, dyMin, dyMax, py, ph);
-                    int y1 = mapYPx(ldMin + i * bw,       dyMin, dyMax, py, ph);
-                    int w  = (int) ((double) dBars[i] / barMax * (stripW - 2));
-                    g2.setColor(BAR_FILL);
-                    g2.fillRect(stripX, y0, w, Math.max(1, y1 - y0));
-                    g2.setColor(BAR_BORDER);
-                    g2.drawRect(stripX, y0, w, Math.max(1, y1 - y0));
+            int barMax = 0;
+            for (Marginal m : marginals) barMax = Math.max(barMax, arrayMax(m.dHist));
+
+            if (barMax > 0)
+                for (Marginal m : marginals) {
+                    double bw = (ldMax - ldMin) / m.dHist.length;
+                    g2.setColor(barFill(m.color));
+                    for (int i = 0; i < m.dHist.length; i++) {
+                        if (m.dHist[i] == 0) continue;
+                        int y0 = mapYPx(ldMin + (i + 1) * bw, dyMin, dyMax, py, ph);
+                        int y1 = mapYPx(ldMin + i * bw,       dyMin, dyMax, py, ph);
+                        int w  = (int) ((double) m.dHist[i] / barMax * (stripW - 2));
+                        g2.fillRect(stripX, y0, w, Math.max(1, y1 - y0));
+                    }
                 }
-            }
 
             double[] evalD = linspace(ldMin, ldMax, NEVAL);
+            g2.setStroke(new BasicStroke(1.4f));
             for (Marginal m : marginals) {
                 double kmax = arrayMax(m.logdKde);
                 if (kmax < 1e-300) continue;
-                int[] xs = new int[NEVAL + 2], ys = new int[NEVAL + 2];
+                int[] xs = new int[NEVAL], ys = new int[NEVAL];
                 for (int i = 0; i < NEVAL; i++) {
                     ys[i] = mapYPx(evalD[i], dyMin, dyMax, py, ph);
                     xs[i] = stripX + (int) (m.logdKde[i] / kmax * (stripW - 2));
                 }
-                xs[NEVAL] = stripX; ys[NEVAL] = ys[NEVAL - 1];
-                xs[NEVAL + 1] = stripX; ys[NEVAL + 1] = ys[0];
-                fillStroke(g2, xs, ys, m.color);
+                g2.setColor(m.color);
+                g2.drawPolyline(xs, ys, NEVAL);
             }
             g2.setClip(oldClip);
             g2.setStroke(new BasicStroke(1f));
-        }
-
-        private static void fillStroke(Graphics2D g2, int[] xs, int[] ys, Color c) {
-            g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), 55));
-            g2.fillPolygon(xs, ys, xs.length);
-            g2.setColor(c);
-            g2.setStroke(new BasicStroke(1.3f));
-            g2.drawPolyline(xs, ys, xs.length - 2);
         }
 
         // ── Legend (top-left inside plot) ───────────────────────────────────

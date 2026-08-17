@@ -70,6 +70,24 @@ public class SegVisualizationPanel extends JPanel {
         String[] names = new String[experiments.size()];
         for (int i = 0; i < experiments.size(); i++) names[i] = experiments.get(i).name;
         expCombo  = new JComboBox<>(names);
+        // Tint each entry (and the selected box) with its experiment colour.
+        expCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value,
+                    int index, boolean isSelected, boolean cellHasFocus) {
+                Component c = super.getListCellRendererComponent(
+                        list, value, index, isSelected, cellHasFocus);
+                int idx = (index >= 0) ? index : expCombo.getSelectedIndex();
+                if (idx >= 0 && idx < experiments.size()) {
+                    Color base = experiments.get(idx).color;
+                    Color bg   = isSelected ? base.darker() : base;
+                    c.setBackground(bg);
+                    c.setForeground(contrastColor(bg));
+                    ((JComponent) c).setOpaque(true);
+                }
+                return c;
+            }
+        });
         trajField = new JTextField(18);
         trajField.setToolTipText(
             "Comma-separated TRACK_IDs to display, e.g.  1, 5, 20, 37\n"
@@ -199,6 +217,11 @@ public class SegVisualizationPanel extends JPanel {
         paramsBtn.addActionListener(e -> openParamsDialog());
         paramsBtn.setVisible(false);
 
+        JButton saveRawBtn = new JButton("Save raw preds.…");
+        saveRawBtn.setToolTipText("Export the per-frame α / D predictions to CSV "
+            + "(experiment, traj_idx, frame, alpha, D)");
+        saveRawBtn.addActionListener(e -> saveRawPredictions());
+
         JButton saveSegBtn = new JButton("Save segments…");
         saveSegBtn.setToolTipText("Export all segments (length, α, D) to CSV");
         saveSegBtn.addActionListener(e -> saveSegments());
@@ -222,6 +245,7 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(cpToggle);
         bar.add(Box.createHorizontalStrut(10));
         bar.add(paramsBtn);
+        bar.add(saveRawBtn);
         bar.add(saveSegBtn);
 
         return bar;
@@ -360,6 +384,63 @@ public class SegVisualizationPanel extends JPanel {
                 "Could not save file:\n" + ex.getMessage(),
                 "Save segments – error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    /**
+     * Exports the per-frame predictions to CSV with columns
+     * {@code experiment, traj_idx, frame, alpha, D}. α is the per-frame
+     * anomalous exponent; D = 10^log₁₀(D) (blank where D is undefined).
+     */
+    private void saveRawPredictions() {
+        if (experiments.stream().noneMatch(ExperimentData::hasStepPredictions)) {
+            JOptionPane.showMessageDialog(this,
+                "No predictions available.",
+                "Save raw predictions", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
+        fc.setDialogTitle("Save raw per-frame predictions");
+        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+
+        File f = fc.getSelectedFile();
+        if (!f.getName().toLowerCase().endsWith(".csv"))
+            f = new File(f.getParent(), f.getName() + ".csv");
+
+        try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
+            pw.println("experiment,traj_idx,frame,alpha,D");
+
+            for (ExperimentData exp : experiments) {
+                if (!exp.hasStepPredictions()) continue;
+                for (Map.Entry<Integer, double[]> e : exp.stepAlpha.entrySet()) {
+                    int      id    = e.getKey();
+                    double[] a     = e.getValue();
+                    double[] ld    = exp.stepLogD != null ? exp.stepLogD.get(id) : null;
+                    List<double[]> spots = exp.tracks.get(id);
+                    if (a == null) continue;
+                    int n = (spots != null) ? Math.min(a.length, spots.size()) : a.length;
+                    for (int t = 0; t < n; t++) {
+                        long   frame = (spots != null) ? Math.round(spots.get(t)[0]) : t;
+                        String dStr  = "";
+                        if (ld != null && t < ld.length && Double.isFinite(ld[t]))
+                            dStr = String.format("%.6e", Math.pow(10, ld[t]));
+                        pw.printf("%s,%d,%d,%.6f,%s%n", exp.name, id, frame, a[t], dStr);
+                    }
+                }
+            }
+            IJ.log("AnDi-J: raw predictions saved → " + f.getAbsolutePath());
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this,
+                "Could not save file:\n" + ex.getMessage(),
+                "Save raw predictions – error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /** Returns black or white, whichever contrasts better with {@code bg}. */
+    private static Color contrastColor(Color bg) {
+        double lum = 0.299 * bg.getRed() + 0.587 * bg.getGreen() + 0.114 * bg.getBlue();
+        return lum > 140 ? Color.BLACK : Color.WHITE;
     }
 
     // ═════════════════════════════════════════════════════════════════════

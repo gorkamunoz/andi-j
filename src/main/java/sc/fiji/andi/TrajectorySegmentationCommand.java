@@ -5,7 +5,9 @@ import ij.plugin.PlugIn;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Entry-point plugin for the Trajectory Segmentation feature.
@@ -22,6 +24,47 @@ public class TrajectorySegmentationCommand implements PlugIn {
 
     /** The currently open segmentation window (may be null or disposed). */
     private static JFrame segWindow;
+
+    /**
+     * Session cache of segmentation predictions, keyed by a content signature of
+     * the experiment (name + TTA flag + all track data). Lets repeated
+     * "Perform Analysis" runs on an already-analysed dataset skip inference.
+     */
+    private static final Map<String, Cached> CACHE = new HashMap<>();
+
+    /** Cached per-experiment predictions. */
+    private static final class Cached {
+        final Map<Integer, double[]>            stepAlpha;
+        final Map<Integer, double[]>            stepLogD;
+        final Map<Integer, List<Segment>>       segments;
+        Cached(Map<Integer, double[]> a, Map<Integer, double[]> d,
+               Map<Integer, List<Segment>> s) { stepAlpha = a; stepLogD = d; segments = s; }
+    }
+
+    /**
+     * Content signature identifying a dataset + TTA setting, so an identical
+     * re-analysis is served from {@link #CACHE}. Uses 64-bit FNV-1a over the
+     * experiment name, the TTA flag and every track's id / frame / x / y.
+     */
+    private static String signature(ExperimentData exp, boolean useTta) {
+        long h = 1469598103934665603L;   // FNV offset basis
+        h = mix(h, exp.name.hashCode());
+        h = mix(h, useTta ? 1 : 0);
+        h = mix(h, exp.tracks.size());
+        for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
+            h = mix(h, e.getKey());
+            List<double[]> spots = e.getValue();
+            h = mix(h, spots.size());
+            for (double[] s : spots) {
+                h = mix(h, Double.hashCode(s[0]));   // frame
+                h = mix(h, Double.hashCode(s[1]));   // x
+                h = mix(h, Double.hashCode(s[2]));   // y
+            }
+        }
+        return Long.toHexString(h);
+    }
+
+    private static long mix(long h, long v) { h ^= v; h *= 1099511628211L; return h; }
 
     @Override
     public void run(String arg) {
@@ -73,18 +116,40 @@ public class TrajectorySegmentationCommand implements PlugIn {
 
                 @Override
                 protected Void doInBackground() {
-                    try (UclStepPredictor predictor = UclStepPredictor.fromResources(useTta)) {
-                        UclStepPredictor.ProgressListener tick = () -> {
-                            int d = ++done[0];
-                            SwingUtilities.invokeLater(() -> {
-                                bar.setValue(d);
-                                bar.setString(d + " / " + nTracks);
-                            });
-                        };
-                        for (ExperimentData exp : exps)
-                            predictor.computeForExperiment(exp, tick);
+                    UclStepPredictor.ProgressListener tick = () -> {
+                        int d = ++done[0];
+                        SwingUtilities.invokeLater(() -> {
+                            bar.setValue(d);
+                            bar.setString(d + " / " + nTracks);
+                        });
+                    };
+
+                    // Only open the model if at least one experiment is uncached.
+                    boolean anyCompute = false;
+                    for (ExperimentData exp : exps)
+                        if (!CACHE.containsKey(signature(exp, useTta))) { anyCompute = true; break; }
+
+                    UclStepPredictor predictor = null;
+                    try {
+                        if (anyCompute) predictor = UclStepPredictor.fromResources(useTta);
+                        for (ExperimentData exp : exps) {
+                            String   sig    = signature(exp, useTta);
+                            Cached   cached = CACHE.get(sig);
+                            if (cached != null) {
+                                // Reuse earlier predictions for this exact dataset.
+                                exp.stepAlpha = cached.stepAlpha;
+                                exp.stepLogD  = cached.stepLogD;
+                                exp.segments  = cached.segments;
+                                for (int k = 0; k < exp.tracks.size(); k++) tick.trackDone();
+                            } else {
+                                predictor.computeForExperiment(exp, tick);
+                                CACHE.put(sig, new Cached(exp.stepAlpha, exp.stepLogD, exp.segments));
+                            }
+                        }
                     } catch (OrtException | java.io.IOException ex) {
                         error = ex;
+                    } finally {
+                        if (predictor != null) predictor.close();
                     }
                     return null;
                 }

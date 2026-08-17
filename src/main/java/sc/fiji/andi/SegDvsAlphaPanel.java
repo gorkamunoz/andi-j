@@ -1,12 +1,11 @@
 package sc.fiji.andi;
 
-import ij.IJ;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.geom.AffineTransform;
-import java.io.*;
 import java.util.*;
 import java.util.List;
 
@@ -53,12 +52,18 @@ public class SegDvsAlphaPanel extends JPanel {
         canvas      = new DensityCanvas();
 
         add(buildTopBar(), BorderLayout.NORTH);
-        add(canvas,        BorderLayout.CENTER);
 
         JScrollPane leftScroll = new JScrollPane(buildExperimentsPanel());
-        leftScroll.setPreferredSize(new Dimension(160, 0));
         leftScroll.setBorder(BorderFactory.createTitledBorder("Experiments"));
-        add(leftScroll, BorderLayout.WEST);
+        leftScroll.setMinimumSize(new Dimension(80, 0));
+
+        // Draggable divider between the Experiments column and the plot
+        // (same as the Trajectory-Analysis tabs).
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftScroll, canvas);
+        split.setDividerLocation(160);
+        split.setContinuousLayout(true);
+        split.setOneTouchExpandable(true);
+        add(split, BorderLayout.CENTER);
 
         binsField.addActionListener(e -> rebuild());
         logCountBox.addActionListener(e -> {
@@ -77,9 +82,19 @@ public class SegDvsAlphaPanel extends JPanel {
         refreshBtn.setToolTipText("Recompute the histogram");
         refreshBtn.addActionListener(e -> rebuild());
 
-        JButton saveBtn = new JButton("Save data…");
-        saveBtn.setToolTipText("Export per-frame α and D predictions to CSV");
-        saveBtn.addActionListener(e -> saveData());
+        // Zoom / pan / reset tools (same as the Trajectory-Analysis histograms)
+        JToggleButton zoomBtn = new JToggleButton("⊕ Zoom", true);
+        JToggleButton panBtn  = new JToggleButton("✥ Pan",  false);
+        ButtonGroup   viewBG  = new ButtonGroup();
+        viewBG.add(zoomBtn); viewBG.add(panBtn);
+        JButton resetViewBtn = new JButton("↺ Reset view");
+        for (AbstractButton b : new AbstractButton[]{zoomBtn, panBtn, resetViewBtn}) {
+            b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
+            b.setFocusPainted(false);
+        }
+        zoomBtn.addActionListener(e -> canvas.setPanMode(false));
+        panBtn .addActionListener(e -> canvas.setPanMode(true));
+        resetViewBtn.addActionListener(e -> { canvas.resetViewport(); canvas.repaint(); });
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
@@ -90,61 +105,10 @@ public class SegDvsAlphaPanel extends JPanel {
         bar.add(Box.createHorizontalStrut(6));
         bar.add(refreshBtn);
         bar.add(Box.createHorizontalStrut(12));
-        bar.add(saveBtn);
+        bar.add(zoomBtn);
+        bar.add(panBtn);
+        bar.add(resetViewBtn);
         return bar;
-    }
-
-    // ═════════════════════════════════════════════════════════════════════
-    // Save per-frame predictions
-    // ═════════════════════════════════════════════════════════════════════
-
-    private void saveData() {
-        if (experiments.stream().noneMatch(ExperimentData::hasStepPredictions)) {
-            JOptionPane.showMessageDialog(this,
-                "No STEP predictions available.",
-                "Save data", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
-        fc.setDialogTitle("Save per-frame α / D predictions");
-        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-
-        File f = fc.getSelectedFile();
-        if (!f.getName().toLowerCase().endsWith(".csv"))
-            f = new File(f.getParent(), f.getName() + ".csv");
-
-        boolean multiExp = experiments.stream()
-            .filter(ExperimentData::hasStepPredictions).count() > 1;
-
-        try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            if (multiExp) pw.println("experiment,track_id,frame,alpha,D");
-            else          pw.println("track_id,frame,alpha,D");
-
-            for (ExperimentData exp : experiments) {
-                if (!exp.hasStepPredictions()) continue;
-                for (Map.Entry<Integer, double[]> e : exp.stepAlpha.entrySet()) {
-                    int      id = e.getKey();
-                    double[] al = e.getValue();
-                    double[] ld = exp.stepLogD != null ? exp.stepLogD.get(id) : null;
-                    if (al == null) continue;
-                    int len = (ld != null) ? Math.min(al.length, ld.length) : al.length;
-                    for (int t = 0; t < len; t++) {
-                        double alpha = al[t];
-                        double d     = (ld != null) ? Math.pow(10, ld[t]) : Double.NaN;
-                        int    frame = t + 1;   // 1 … length of the trajectory's prediction
-                        if (multiExp) pw.printf("%s,%d,%d,%.6f,%.6e%n", exp.name, id, frame, alpha, d);
-                        else          pw.printf("%d,%d,%.6f,%.6e%n", id, frame, alpha, d);
-                    }
-                }
-            }
-            IJ.log("AnDi-J: per-frame predictions saved → " + f.getAbsolutePath());
-        } catch (IOException ex) {
-            JOptionPane.showMessageDialog(this,
-                "Could not save file:\n" + ex.getMessage(),
-                "Save data – error", JOptionPane.ERROR_MESSAGE);
-        }
     }
 
     private JPanel buildExperimentsPanel() {
@@ -254,7 +218,9 @@ public class SegDvsAlphaPanel extends JPanel {
                 gaussianKde1D(d, evalD, silvermanBw(d))));
         }
 
-        Color baseColor = sel.size() == 1 ? sel.get(0).color : new Color(0, 50, 180);
+        // One experiment → its colour; the combined (additive) density over
+        // several experiments is drawn in black ("sum of all colours").
+        Color baseColor = sel.size() == 1 ? sel.get(0).color : Color.BLACK;
         canvas.setData(hist, nBins, aMin, aMax, ldMin, ldMax, total, baseColor, margs);
         canvas.logScale = logCountBox.isSelected();
         canvas.repaint();
@@ -343,10 +309,92 @@ public class SegDvsAlphaPanel extends JPanel {
         private boolean        hasData   = false;
         boolean                logScale  = true;
 
+        // ── Viewport / interaction state ──────────────────────────────────
+        private double[] viewport = null;   // null = auto; {xMin,xMax,yMin,yMax}
+        private double renderXMin, renderXMax, renderYMin, renderYMax;
+        private int    renderPx, renderPy, renderPw, renderPh;
+        private boolean panMode = false;
+        private boolean dragging = false;
+        private int dragX0, dragY0, dragX1, dragY1;
+        private boolean panning = false;
+        private int     panX0, panY0;
+        private double  panXMin, panXMax, panYMin, panYMax;
+
         DensityCanvas() {
             setBackground(new Color(240, 240, 240));
             setPreferredSize(new Dimension(680, 500));
+            setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+            addMouseInteraction();
         }
+
+        void setPanMode(boolean pan) {
+            this.panMode = pan;
+            setCursor(Cursor.getPredefinedCursor(
+                pan ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR));
+        }
+        void resetViewport() { this.viewport = null; }
+
+        private void addMouseInteraction() {
+            MouseAdapter ma = new MouseAdapter() {
+                @Override public void mousePressed(MouseEvent e) {
+                    if (!hasData) return;
+                    if (!panMode) {
+                        dragging = true;
+                        dragX0 = dragX1 = clampPx(e.getX(), renderPx, renderPx + renderPw);
+                        dragY0 = dragY1 = clampPx(e.getY(), renderPy, renderPy + renderPh);
+                    } else {
+                        panning = true;
+                        panX0 = e.getX(); panY0 = e.getY();
+                        panXMin = renderXMin; panXMax = renderXMax;
+                        panYMin = renderYMin; panYMax = renderYMax;
+                    }
+                }
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (dragging) {
+                        dragX1 = clampPx(e.getX(), renderPx, renderPx + renderPw);
+                        dragY1 = clampPx(e.getY(), renderPy, renderPy + renderPh);
+                        repaint();
+                    } else if (panning && renderPw > 0 && renderPh > 0) {
+                        double dx = (double) (e.getX() - panX0) / renderPw * (panXMax - panXMin);
+                        double dy = (double) (e.getY() - panY0) / renderPh * (panYMax - panYMin);
+                        viewport = new double[]{panXMin - dx, panXMax - dx,
+                                                panYMin + dy, panYMax + dy};
+                        repaint();
+                    }
+                }
+                @Override public void mouseReleased(MouseEvent e) {
+                    if (dragging) {
+                        dragging = false;
+                        int x0 = Math.min(dragX0, dragX1), x1 = Math.max(dragX0, dragX1);
+                        int y0 = Math.min(dragY0, dragY1), y1 = Math.max(dragY0, dragY1);
+                        if (x1 - x0 > 5 && y1 - y0 > 5) {
+                            double xMin = pxToDataX(x0), xMax = pxToDataX(x1);
+                            double yMax = pxToDataY(y0), yMin = pxToDataY(y1);
+                            if (xMin < xMax && yMin < yMax)
+                                viewport = new double[]{xMin, xMax, yMin, yMax};
+                        }
+                        repaint();
+                    } else if (panning) {
+                        panning = false;
+                    }
+                }
+                @Override public void mouseClicked(MouseEvent e) {
+                    if (e.getClickCount() == 2) { viewport = null; repaint(); }
+                }
+            };
+            addMouseListener(ma);
+            addMouseMotionListener(ma);
+        }
+
+        private double pxToDataX(int px) {
+            if (renderPw <= 0) return renderXMin;
+            return renderXMin + (double) (px - renderPx) / renderPw * (renderXMax - renderXMin);
+        }
+        private double pxToDataY(int py) {
+            if (renderPh <= 0) return renderYMin;
+            return renderYMin + (double) (renderPy + renderPh - py) / renderPh * (renderYMax - renderYMin);
+        }
+        private static int clampPx(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
 
         void setData(int[][] hist, int nBins, double aMin, double aMax,
                      double ldMin, double ldMax, int totalPts, Color baseColor,
@@ -398,9 +446,17 @@ public class SegDvsAlphaPanel extends JPanel {
                 return;
             }
 
-            // ── Heatmap cells ─────────────────────────────────────────────
-            double cellW = (double) pw / nBins;
-            double cellH = (double) ph / nBins;
+            // ── Display range (viewport or full), saved for mouse maths ───
+            double dxMin = (viewport != null) ? viewport[0] : aMin;
+            double dxMax = (viewport != null) ? viewport[1] : aMax;
+            double dyMin = (viewport != null) ? viewport[2] : ldMin;
+            double dyMax = (viewport != null) ? viewport[3] : ldMax;
+            renderXMin = dxMin; renderXMax = dxMax; renderYMin = dyMin; renderYMax = dyMax;
+            renderPx = px; renderPy = py; renderPw = pw; renderPh = ph;
+
+            // ── Heatmap cells (mapped by data coords so zoom/pan work) ─────
+            double binWa = (aMax - aMin) / nBins;
+            double binWd = (ldMax - ldMin) / nBins;
             double logMax = Math.log1p(maxCount);
 
             Shape oldClip = g2.getClip();
@@ -411,35 +467,47 @@ public class SegDvsAlphaPanel extends JPanel {
                     if (cnt == 0) continue;
                     double intensity = logScale ? Math.log1p(cnt) / logMax
                                                 : (double) cnt / maxCount;
-                    int cx = px + (int) (ai * cellW);
-                    int cy = py + ph - (int) ((li + 1) * cellH);   // logD up
-                    int cw = (int) Math.ceil(cellW) + 1;
-                    int ch = (int) Math.ceil(cellH) + 1;
+                    int cx  = mapXPx(aMin + ai * binWa,       dxMin, dxMax, px, pw);
+                    int cx2 = mapXPx(aMin + (ai + 1) * binWa, dxMin, dxMax, px, pw);
+                    int cy  = mapYPx(ldMin + (li + 1) * binWd, dyMin, dyMax, py, ph);
+                    int cy2 = mapYPx(ldMin + li * binWd,       dyMin, dyMax, py, ph);
                     g2.setColor(mapColor(intensity, baseColor));
-                    g2.fillRect(cx, cy, cw, ch);
+                    g2.fillRect(cx, cy, Math.max(1, cx2 - cx) + 1, Math.max(1, cy2 - cy) + 1);
                 }
             }
             g2.setClip(oldClip);
 
-            drawGrid(g2, aMin, aMax, ldMin, ldMax, px, py, pw, ph);
+            drawGrid(g2, dxMin, dxMax, dyMin, dyMax, px, py, pw, ph);
             drawFrame(g2, px, py, pw, ph);
-            drawXTicks(g2, aMin, aMax,   px, py, pw, ph);
-            drawYTicks(g2, ldMin, ldMax, px, py, pw, ph);
+            drawXTicks(g2, dxMin, dxMax, px, py, pw, ph);
+            drawYTicks(g2, dyMin, dyMax, px, py, pw, ph);
             drawAxisTitles(g2, px, py, pw, ph);
             drawColorBar(g2, maxCount, logMax, px, py, pw, ph);
 
-            // ── Marginal KDE strips ───────────────────────────────────────
-            drawAlphaMarginal(g2, px, py, pw, ph);
-            drawDMarginal(g2, px, py, pw, ph);
+            // ── Marginal KDE strips (use the display range) ───────────────
+            drawAlphaMarginal(g2, px, py, pw, ph, dxMin, dxMax);
+            drawDMarginal(g2, px, py, pw, ph, dyMin, dyMax);
 
             drawLegend(g2, px, py, pw);
+
+            // ── Rubber-band zoom rectangle ────────────────────────────────
+            if (dragging) {
+                int rx = Math.min(dragX0, dragX1), ry = Math.min(dragY0, dragY1);
+                int rw = Math.abs(dragX1 - dragX0), rh = Math.abs(dragY1 - dragY0);
+                g2.setColor(new Color(0, 90, 200, 40));
+                g2.fillRect(rx, ry, rw, rh);
+                g2.setColor(new Color(0, 90, 200));
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawRect(rx, ry, rw, rh);
+            }
 
             g2.dispose();
         }
 
         // ── Marginal strips ─────────────────────────────────────────────────
 
-        private void drawAlphaMarginal(Graphics2D g2, int px, int py, int pw, int ph) {
+        private void drawAlphaMarginal(Graphics2D g2, int px, int py, int pw, int ph,
+                                       double dxMin, double dxMax) {
             int stripY = MT - MARG_H, stripH = MARG_H - 6;
             if (stripH < 8) return;
             g2.setColor(new Color(250, 250, 250));
@@ -456,7 +524,7 @@ public class SegDvsAlphaPanel extends JPanel {
                 if (kmax < 1e-300) continue;
                 int[] xs = new int[NEVAL + 2], ys = new int[NEVAL + 2];
                 for (int i = 0; i < NEVAL; i++) {
-                    xs[i] = mapXPx(evalA[i], aMin, aMax, px, pw);
+                    xs[i] = mapXPx(evalA[i], dxMin, dxMax, px, pw);
                     ys[i] = stripY + stripH - (int) (m.alphaKde[i] / kmax * (stripH - 2));
                 }
                 xs[NEVAL] = xs[NEVAL - 1]; ys[NEVAL] = stripY + stripH;
@@ -467,7 +535,8 @@ public class SegDvsAlphaPanel extends JPanel {
             g2.setStroke(new BasicStroke(1f));
         }
 
-        private void drawDMarginal(Graphics2D g2, int px, int py, int pw, int ph) {
+        private void drawDMarginal(Graphics2D g2, int px, int py, int pw, int ph,
+                                   double dyMin, double dyMax) {
             int stripX = px + pw + 6, stripW = MARG_W - 8;
             if (stripW < 8) return;
             g2.setColor(new Color(250, 250, 250));
@@ -484,7 +553,7 @@ public class SegDvsAlphaPanel extends JPanel {
                 if (kmax < 1e-300) continue;
                 int[] xs = new int[NEVAL + 2], ys = new int[NEVAL + 2];
                 for (int i = 0; i < NEVAL; i++) {
-                    ys[i] = mapYPx(evalD[i], ldMin, ldMax, py, ph);
+                    ys[i] = mapYPx(evalD[i], dyMin, dyMax, py, ph);
                     xs[i] = stripX + (int) (m.logdKde[i] / kmax * (stripW - 2));
                 }
                 xs[NEVAL] = stripX; ys[NEVAL] = ys[NEVAL - 1];

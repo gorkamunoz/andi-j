@@ -70,7 +70,7 @@ public class SegVisualizationPanel extends JPanel {
         String[] names = new String[experiments.size()];
         for (int i = 0; i < experiments.size(); i++) names[i] = experiments.get(i).name;
         expCombo  = new JComboBox<>(names);
-        // Tint each entry (and the selected box) with its experiment colour.
+        // Colour each entry's TEXT with its experiment colour (keep default bg).
         expCombo.setRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value,
@@ -78,12 +78,9 @@ public class SegVisualizationPanel extends JPanel {
                 Component c = super.getListCellRendererComponent(
                         list, value, index, isSelected, cellHasFocus);
                 int idx = (index >= 0) ? index : expCombo.getSelectedIndex();
-                if (idx >= 0 && idx < experiments.size()) {
-                    Color base = experiments.get(idx).color;
-                    Color bg   = isSelected ? base.darker() : base;
-                    c.setBackground(bg);
-                    c.setForeground(contrastColor(bg));
-                    ((JComponent) c).setOpaque(true);
+                if (idx >= 0 && idx < experiments.size() && !isSelected) {
+                    c.setForeground(experiments.get(idx).color);
+                    c.setFont(c.getFont().deriveFont(Font.BOLD));
                 }
                 return c;
             }
@@ -437,11 +434,6 @@ public class SegVisualizationPanel extends JPanel {
         }
     }
 
-    /** Returns black or white, whichever contrasts better with {@code bg}. */
-    private static Color contrastColor(Color bg) {
-        double lum = 0.299 * bg.getRed() + 0.587 * bg.getGreen() + 0.114 * bg.getBlue();
-        return lum > 140 ? Color.BLACK : Color.WHITE;
-    }
 
     // ═════════════════════════════════════════════════════════════════════
     // Sampling and display logic

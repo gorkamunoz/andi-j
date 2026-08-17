@@ -34,7 +34,8 @@ public class SegDvsAlphaPanel extends JPanel {
     private final List<ExperimentData>         experiments;
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
 
-    private final JTextField    binsField;
+    private final JSpinner       alphaBinsSpin, dBinsSpin;   // separate α / D bin counts
+    private final JSpinner       alphaHSpin, dWSpin;         // marginal-strip sizes
     private final JCheckBox      logCountBox;
     private final DensityCanvas  canvas;
 
@@ -47,9 +48,12 @@ public class SegDvsAlphaPanel extends JPanel {
         this.experiments = experiments;
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
-        binsField   = new JTextField("40", 5);
-        logCountBox = new JCheckBox("Log count scale", true);
-        canvas      = new DensityCanvas();
+        alphaBinsSpin = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
+        dBinsSpin     = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
+        alphaHSpin    = new JSpinner(new SpinnerNumberModel(60, 30, 320, 10));
+        dWSpin        = new JSpinner(new SpinnerNumberModel(62, 30, 320, 10));
+        logCountBox   = new JCheckBox("Log count scale", true);
+        canvas        = new DensityCanvas();
 
         add(buildTopBar(), BorderLayout.NORTH);
 
@@ -65,7 +69,10 @@ public class SegDvsAlphaPanel extends JPanel {
         split.setOneTouchExpandable(true);
         add(split, BorderLayout.CENTER);
 
-        binsField.addActionListener(e -> rebuild());
+        alphaBinsSpin.addChangeListener(e -> rebuild());
+        dBinsSpin.addChangeListener(e -> rebuild());
+        alphaHSpin.addChangeListener(e -> canvas.setAlphaStripH((Integer) alphaHSpin.getValue()));
+        dWSpin.addChangeListener(e -> canvas.setDStripW((Integer) dWSpin.getValue()));
         logCountBox.addActionListener(e -> {
             canvas.logScale = logCountBox.isSelected();
             canvas.repaint();
@@ -96,18 +103,30 @@ public class SegDvsAlphaPanel extends JPanel {
         panBtn .addActionListener(e -> canvas.setPanMode(true));
         resetViewBtn.addActionListener(e -> { canvas.resetViewport(); canvas.repaint(); });
 
+        alphaBinsSpin.setToolTipText("Number of α bins (histogram + heatmap x-axis)");
+        dBinsSpin.setToolTipText("Number of log₁₀(D) bins (histogram + heatmap y-axis)");
+        alphaHSpin.setToolTipText("Height of the top α histogram (px)");
+        dWSpin.setToolTipText("Width of the right log₁₀(D) histogram (px)");
+
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
-        bar.add(new JLabel("Bins:"));
-        bar.add(binsField);
+        bar.add(new JLabel("α bins:"));
+        bar.add(alphaBinsSpin);
+        bar.add(new JLabel("D bins:"));
+        bar.add(dBinsSpin);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(logCountBox);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(refreshBtn);
-        bar.add(Box.createHorizontalStrut(12));
+        bar.add(Box.createHorizontalStrut(10));
         bar.add(zoomBtn);
         bar.add(panBtn);
         bar.add(resetViewBtn);
+        bar.add(Box.createHorizontalStrut(10));
+        bar.add(new JLabel("α h:"));
+        bar.add(alphaHSpin);
+        bar.add(new JLabel("D w:"));
+        bar.add(dWSpin);
         return bar;
     }
 
@@ -153,7 +172,8 @@ public class SegDvsAlphaPanel extends JPanel {
     private static final int NEVAL = 100;  // KDE evaluation grid resolution
 
     private void rebuild() {
-        int nBins = parseBins(binsField.getText());
+        int alphaBins = (Integer) alphaBinsSpin.getValue();
+        int dBins     = (Integer) dBinsSpin.getValue();
 
         List<ExperimentData> sel = new ArrayList<>();
         for (ExperimentData exp : experiments)
@@ -196,14 +216,19 @@ public class SegDvsAlphaPanel extends JPanel {
         ldMax += 0.03 * lRng;
         final double aMin = 0.0, aMax = 2.0;
 
-        // Combined 2-D histogram over all selected experiments
-        int[][] hist = new int[nBins][nBins];
+        // Combined 2-D histogram (α × D) and 1-D marginal histograms over all
+        // selected experiments, each with its own bin count.
+        int[][] hist   = new int[alphaBins][dBins];
+        int[]   aBars  = new int[alphaBins];
+        int[]   dBarsA = new int[dBins];
         for (ExperimentData exp : sel) {
             double[] a = alphaByExp.get(exp), d = logdByExp.get(exp);
             for (int i = 0; i < a.length; i++) {
-                int ai = bin(a[i], aMin, aMax, nBins);
-                int li = bin(d[i], ldMin, ldMax, nBins);
+                int ai = bin(a[i], aMin, aMax, alphaBins);
+                int li = bin(d[i], ldMin, ldMax, dBins);
                 hist[ai][li]++;
+                aBars[ai]++;
+                dBarsA[li]++;
             }
         }
 
@@ -221,7 +246,8 @@ public class SegDvsAlphaPanel extends JPanel {
         // One experiment → its colour; the combined (additive) density over
         // several experiments is drawn in black ("sum of all colours").
         Color baseColor = sel.size() == 1 ? sel.get(0).color : Color.BLACK;
-        canvas.setData(hist, nBins, aMin, aMax, ldMin, ldMax, total, baseColor, margs);
+        canvas.setData(hist, alphaBins, dBins, aMin, aMax, ldMin, ldMax, total,
+                       baseColor, margs, aBars, dBarsA);
         canvas.logScale = logCountBox.isSelected();
         canvas.repaint();
     }
@@ -230,11 +256,6 @@ public class SegDvsAlphaPanel extends JPanel {
     private static int bin(double v, double vMin, double vMax, int n) {
         int b = (int) ((v - vMin) / (vMax - vMin) * n);
         return Math.max(0, Math.min(n - 1, b));
-    }
-
-    private static int parseBins(String s) {
-        try { return Math.max(5, Math.min(200, Integer.parseInt(s.trim()))); }
-        catch (NumberFormatException e) { return 40; }
     }
 
     // ── KDE helpers ─────────────────────────────────────────────────────────
@@ -289,23 +310,28 @@ public class SegDvsAlphaPanel extends JPanel {
 
     static class DensityCanvas extends JPanel {
 
-        // Margins (pixels)
+        // Margins (pixels). ML/MB fixed; the top (alpha strip) and right
+        // (D strip) margins grow with the user-adjustable strip sizes.
         private static final int ML = 72;   // left   (Y labels)
         private static final int MB = 50;   // bottom (X labels + title)
-        private static final int MT = 72;   // top    (alpha marginal strip)
-        private static final int MR = 150;  // right  (D marginal strip + colour bar)
-
-        private static final int MARG_H = 60; // alpha marginal strip height
-        private static final int MARG_W = 62; // D marginal strip width
         private static final int CBAR_W = 14;
+
+        // Marginal-strip sizes (user-adjustable via the toolbar)
+        private int margH = 60;   // alpha (top) strip height
+        private int margW = 62;   // D (right) strip width
+
+        private int mt() { return margH + 12; }          // top margin
+        private int mr() { return margW + 8 + CBAR_W + 66; } // right margin (strip + colour bar + labels)
 
         // ── Current dataset ───────────────────────────────────────────────
         private int[][]        hist;
-        private int            nBins;
+        private int            nbX, nbY;   // α bins × log₁₀(D) bins
         private double         aMin, aMax, ldMin, ldMax;
         private int            totalPts;
         private Color          baseColor = new Color(0, 50, 180);
         private List<Marginal> marginals = java.util.Collections.emptyList();
+        private int[]          alphaBars = new int[0];   // combined α histogram
+        private int[]          dBars     = new int[0];   // combined log₁₀(D) histogram
         private boolean        hasData   = false;
         boolean                logScale  = true;
 
@@ -396,18 +422,24 @@ public class SegDvsAlphaPanel extends JPanel {
         }
         private static int clampPx(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
 
-        void setData(int[][] hist, int nBins, double aMin, double aMax,
+        void setData(int[][] hist, int nbX, int nbY, double aMin, double aMax,
                      double ldMin, double ldMax, int totalPts, Color baseColor,
-                     List<Marginal> marginals) {
-            this.hist = hist; this.nBins = nBins;
+                     List<Marginal> marginals, int[] alphaBars, int[] dBars) {
+            this.hist = hist; this.nbX = nbX; this.nbY = nbY;
             this.aMin = aMin; this.aMax = aMax;
             this.ldMin = ldMin; this.ldMax = ldMax;
             this.totalPts = totalPts; this.baseColor = baseColor;
             this.marginals = marginals;
+            this.alphaBars = alphaBars; this.dBars = dBars;
             this.hasData = true;
         }
 
         void setEmpty() { hasData = false; repaint(); }
+
+        /** Alpha (top) strip height in pixels; the central plot resizes to fit. */
+        void setAlphaStripH(int h) { margH = Math.max(24, h); revalidate(); repaint(); }
+        /** D (right) strip width in pixels; the central plot resizes to fit. */
+        void setDStripW(int w)     { margW = Math.max(24, w); revalidate(); repaint(); }
 
         // ── Paint ─────────────────────────────────────────────────────────
 
@@ -421,6 +453,7 @@ public class SegDvsAlphaPanel extends JPanel {
                                 RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
             int W = getWidth(), H = getHeight();
+            int MT = mt(), MR = mr();
             int px = ML, py = MT, pw = W - ML - MR, ph = H - MT - MB;
             if (pw < 20 || ph < 20) { g2.dispose(); return; }
 
@@ -455,14 +488,14 @@ public class SegDvsAlphaPanel extends JPanel {
             renderPx = px; renderPy = py; renderPw = pw; renderPh = ph;
 
             // ── Heatmap cells (mapped by data coords so zoom/pan work) ─────
-            double binWa = (aMax - aMin) / nBins;
-            double binWd = (ldMax - ldMin) / nBins;
+            double binWa = (aMax - aMin) / nbX;
+            double binWd = (ldMax - ldMin) / nbY;
             double logMax = Math.log1p(maxCount);
 
             Shape oldClip = g2.getClip();
             g2.setClip(px, py, pw, ph);
-            for (int ai = 0; ai < nBins; ai++) {
-                for (int li = 0; li < nBins; li++) {
+            for (int ai = 0; ai < nbX; ai++) {
+                for (int li = 0; li < nbY; li++) {
                     int cnt = hist[ai][li];
                     if (cnt == 0) continue;
                     double intensity = logScale ? Math.log1p(cnt) / logMax
@@ -506,9 +539,13 @@ public class SegDvsAlphaPanel extends JPanel {
 
         // ── Marginal strips ─────────────────────────────────────────────────
 
+        /** Light-grey fill for the marginal histogram bars. */
+        private static final Color BAR_FILL   = new Color(150, 150, 150, 90);
+        private static final Color BAR_BORDER = new Color(150, 150, 150, 160);
+
         private void drawAlphaMarginal(Graphics2D g2, int px, int py, int pw, int ph,
                                        double dxMin, double dxMax) {
-            int stripY = MT - MARG_H, stripH = MARG_H - 6;
+            int stripY = mt() - margH, stripH = margH - 6;
             if (stripH < 8) return;
             g2.setColor(new Color(250, 250, 250));
             g2.fillRect(px, stripY, pw, stripH);
@@ -516,9 +553,26 @@ public class SegDvsAlphaPanel extends JPanel {
             g2.setStroke(new BasicStroke(0.7f));
             g2.drawRect(px, stripY, pw, stripH);
 
-            double[] evalA = linspace(aMin, aMax, NEVAL);
             Shape oldClip = g2.getClip();
             g2.setClip(px, stripY, pw, stripH);
+
+            // Histogram bars (combined over experiments) under the KDEs.
+            int barMax = arrayMax(alphaBars);
+            if (barMax > 0) {
+                double bw = (aMax - aMin) / alphaBars.length;
+                for (int i = 0; i < alphaBars.length; i++) {
+                    if (alphaBars[i] == 0) continue;
+                    int x0 = mapXPx(aMin + i * bw,       dxMin, dxMax, px, pw);
+                    int x1 = mapXPx(aMin + (i + 1) * bw, dxMin, dxMax, px, pw);
+                    int h  = (int) ((double) alphaBars[i] / barMax * (stripH - 2));
+                    g2.setColor(BAR_FILL);
+                    g2.fillRect(x0, stripY + stripH - h, Math.max(1, x1 - x0), h);
+                    g2.setColor(BAR_BORDER);
+                    g2.drawRect(x0, stripY + stripH - h, Math.max(1, x1 - x0), h);
+                }
+            }
+
+            double[] evalA = linspace(aMin, aMax, NEVAL);
             for (Marginal m : marginals) {
                 double kmax = arrayMax(m.alphaKde);
                 if (kmax < 1e-300) continue;
@@ -537,7 +591,7 @@ public class SegDvsAlphaPanel extends JPanel {
 
         private void drawDMarginal(Graphics2D g2, int px, int py, int pw, int ph,
                                    double dyMin, double dyMax) {
-            int stripX = px + pw + 6, stripW = MARG_W - 8;
+            int stripX = px + pw + 6, stripW = margW - 8;
             if (stripW < 8) return;
             g2.setColor(new Color(250, 250, 250));
             g2.fillRect(stripX, py, stripW, ph);
@@ -545,9 +599,26 @@ public class SegDvsAlphaPanel extends JPanel {
             g2.setStroke(new BasicStroke(0.7f));
             g2.drawRect(stripX, py, stripW, ph);
 
-            double[] evalD = linspace(ldMin, ldMax, NEVAL);
             Shape oldClip = g2.getClip();
             g2.setClip(stripX, py, stripW, ph);
+
+            // Histogram bars (combined) growing rightward from the plot edge.
+            int barMax = arrayMax(dBars);
+            if (barMax > 0) {
+                double bw = (ldMax - ldMin) / dBars.length;
+                for (int i = 0; i < dBars.length; i++) {
+                    if (dBars[i] == 0) continue;
+                    int y0 = mapYPx(ldMin + (i + 1) * bw, dyMin, dyMax, py, ph);
+                    int y1 = mapYPx(ldMin + i * bw,       dyMin, dyMax, py, ph);
+                    int w  = (int) ((double) dBars[i] / barMax * (stripW - 2));
+                    g2.setColor(BAR_FILL);
+                    g2.fillRect(stripX, y0, w, Math.max(1, y1 - y0));
+                    g2.setColor(BAR_BORDER);
+                    g2.drawRect(stripX, y0, w, Math.max(1, y1 - y0));
+                }
+            }
+
+            double[] evalD = linspace(ldMin, ldMax, NEVAL);
             for (Marginal m : marginals) {
                 double kmax = arrayMax(m.logdKde);
                 if (kmax < 1e-300) continue;
@@ -620,7 +691,7 @@ public class SegDvsAlphaPanel extends JPanel {
 
         private void drawColorBar(Graphics2D g2, int maxCount, double logMax,
                                   int px, int py, int pw, int ph) {
-            int bx = px + pw + 6 + (MARG_W - 8) + 12;
+            int bx = px + pw + 6 + (margW - 8) + 12;
             int by = py, bh = ph;
 
             for (int y = 0; y < bh; y++) {
@@ -742,6 +813,9 @@ public class SegDvsAlphaPanel extends JPanel {
         private static int mapYPx(double v, double vMin, double vMax, int oy, int h) {
             if (vMax == vMin) return oy + h;
             return oy + h - (int) ((v - vMin) / (vMax - vMin) * h);
+        }
+        private static int arrayMax(int[] a) {
+            int m = 0; for (int v : a) if (v > m) m = v; return m;
         }
         private static double arrayMax(double[] a) {
             double m = 0; for (double v : a) if (v > m) m = v; return m;

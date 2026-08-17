@@ -35,7 +35,6 @@ public class SegDvsAlphaPanel extends JPanel {
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
 
     private final JSpinner       alphaBinsSpin, dBinsSpin;   // separate α / D bin counts
-    private final JSpinner       alphaHSpin, dWSpin;         // marginal-strip sizes
     private final JCheckBox      logCountBox;
     private final DensityCanvas  canvas;
 
@@ -50,8 +49,6 @@ public class SegDvsAlphaPanel extends JPanel {
 
         alphaBinsSpin = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
         dBinsSpin     = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
-        alphaHSpin    = new JSpinner(new SpinnerNumberModel(60, 30, 320, 10));
-        dWSpin        = new JSpinner(new SpinnerNumberModel(62, 30, 320, 10));
         logCountBox   = new JCheckBox("Log count scale", true);
         canvas        = new DensityCanvas();
 
@@ -71,8 +68,6 @@ public class SegDvsAlphaPanel extends JPanel {
 
         alphaBinsSpin.addChangeListener(e -> rebuild());
         dBinsSpin.addChangeListener(e -> rebuild());
-        alphaHSpin.addChangeListener(e -> canvas.setAlphaStripH((Integer) alphaHSpin.getValue()));
-        dWSpin.addChangeListener(e -> canvas.setDStripW((Integer) dWSpin.getValue()));
         logCountBox.addActionListener(e -> {
             canvas.logScale = logCountBox.isSelected();
             canvas.repaint();
@@ -105,8 +100,6 @@ public class SegDvsAlphaPanel extends JPanel {
 
         alphaBinsSpin.setToolTipText("Number of α bins (histogram + heatmap x-axis)");
         dBinsSpin.setToolTipText("Number of log₁₀(D) bins (histogram + heatmap y-axis)");
-        alphaHSpin.setToolTipText("Height of the top α histogram (px)");
-        dWSpin.setToolTipText("Width of the right log₁₀(D) histogram (px)");
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
@@ -122,11 +115,6 @@ public class SegDvsAlphaPanel extends JPanel {
         bar.add(zoomBtn);
         bar.add(panBtn);
         bar.add(resetViewBtn);
-        bar.add(Box.createHorizontalStrut(10));
-        bar.add(new JLabel("α h:"));
-        bar.add(alphaHSpin);
-        bar.add(new JLabel("D w:"));
-        bar.add(dWSpin);
         return bar;
     }
 
@@ -343,6 +331,9 @@ public class SegDvsAlphaPanel extends JPanel {
         private boolean panning = false;
         private int     panX0, panY0;
         private double  panXMin, panXMax, panYMin, panYMax;
+        private boolean dragDivH = false;   // dragging the α-strip / plot divider
+        private boolean dragDivV = false;   // dragging the plot / D-strip divider
+        private static final int DIV_HIT = 4;
 
         DensityCanvas() {
             setBackground(new Color(240, 240, 240));
@@ -358,9 +349,21 @@ public class SegDvsAlphaPanel extends JPanel {
         }
         void resetViewport() { this.viewport = null; }
 
+        // Divider positions: α strip ends at the plot top; D strip starts at the
+        // plot right edge. Dragging them resizes the marginal strips.
+        private boolean overHDiv(int x, int y) {
+            return Math.abs(y - mt()) <= DIV_HIT && x >= ML && x <= getWidth() - mr();
+        }
+        private boolean overVDiv(int x, int y) {
+            return Math.abs(x - (getWidth() - mr())) <= DIV_HIT
+                   && y >= mt() && y <= getHeight() - MB;
+        }
+
         private void addMouseInteraction() {
             MouseAdapter ma = new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent e) {
+                    if (overHDiv(e.getX(), e.getY())) { dragDivH = true; return; }
+                    if (overVDiv(e.getX(), e.getY())) { dragDivV = true; return; }
                     if (!hasData) return;
                     if (!panMode) {
                         dragging = true;
@@ -374,7 +377,14 @@ public class SegDvsAlphaPanel extends JPanel {
                     }
                 }
                 @Override public void mouseDragged(MouseEvent e) {
-                    if (dragging) {
+                    if (dragDivH) {
+                        margH = Math.max(24, Math.min(e.getY() - 12, getHeight() - MB - 60));
+                        revalidate(); repaint();
+                    } else if (dragDivV) {
+                        int w = (getWidth() - e.getX()) - 8 - CBAR_W - 66;
+                        margW = Math.max(24, Math.min(w, getWidth() - ML - 100));
+                        revalidate(); repaint();
+                    } else if (dragging) {
                         dragX1 = clampPx(e.getX(), renderPx, renderPx + renderPw);
                         dragY1 = clampPx(e.getY(), renderPy, renderPy + renderPh);
                         repaint();
@@ -387,6 +397,7 @@ public class SegDvsAlphaPanel extends JPanel {
                     }
                 }
                 @Override public void mouseReleased(MouseEvent e) {
+                    if (dragDivH || dragDivV) { dragDivH = dragDivV = false; return; }
                     if (dragging) {
                         dragging = false;
                         int x0 = Math.min(dragX0, dragX1), x1 = Math.max(dragX0, dragX1);
@@ -404,6 +415,13 @@ public class SegDvsAlphaPanel extends JPanel {
                 }
                 @Override public void mouseClicked(MouseEvent e) {
                     if (e.getClickCount() == 2) { viewport = null; repaint(); }
+                }
+                @Override public void mouseMoved(MouseEvent e) {
+                    int cur;
+                    if (overHDiv(e.getX(), e.getY()))      cur = Cursor.N_RESIZE_CURSOR;
+                    else if (overVDiv(e.getX(), e.getY())) cur = Cursor.E_RESIZE_CURSOR;
+                    else cur = panMode ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR;
+                    setCursor(Cursor.getPredefinedCursor(cur));
                 }
             };
             addMouseListener(ma);
@@ -432,11 +450,6 @@ public class SegDvsAlphaPanel extends JPanel {
         }
 
         void setEmpty() { hasData = false; repaint(); }
-
-        /** Alpha (top) strip height in pixels; the central plot resizes to fit. */
-        void setAlphaStripH(int h) { margH = Math.max(24, h); revalidate(); repaint(); }
-        /** D (right) strip width in pixels; the central plot resizes to fit. */
-        void setDStripW(int w)     { margW = Math.max(24, w); revalidate(); repaint(); }
 
         // ── Paint ─────────────────────────────────────────────────────────
 
@@ -554,34 +567,42 @@ public class SegDvsAlphaPanel extends JPanel {
             Shape oldClip = g2.getClip();
             g2.setClip(px, stripY, pw, stripH);
 
-            // Shared bar scale across experiments so heights are comparable.
-            int barMax = 0;
-            for (Marginal m : marginals) barMax = Math.max(barMax, arrayMax(m.alphaHist));
+            // Normalise histograms to a probability density (count / (N·binW)),
+            // the same units as the KDE, and use one shared density→pixel scale
+            // so each experiment's bars line up with its own KDE curve.
+            double dmax = 0;
+            for (Marginal m : marginals) {
+                dmax = Math.max(dmax, arrayMax(m.alphaKde));
+                double bw = (aMax - aMin) / m.alphaHist.length;
+                if (m.count > 0 && bw > 0)
+                    dmax = Math.max(dmax, arrayMax(m.alphaHist) / (m.count * bw));
+            }
+            if (dmax <= 0) { g2.setClip(oldClip); return; }
+            double scale = (stripH - 2) / dmax;
 
             // Per-experiment histogram bars: face-colour only (no edge).
-            if (barMax > 0)
-                for (Marginal m : marginals) {
-                    double bw = (aMax - aMin) / m.alphaHist.length;
-                    g2.setColor(barFill(m.color));
-                    for (int i = 0; i < m.alphaHist.length; i++) {
-                        if (m.alphaHist[i] == 0) continue;
-                        int x0 = mapXPx(aMin + i * bw,       dxMin, dxMax, px, pw);
-                        int x1 = mapXPx(aMin + (i + 1) * bw, dxMin, dxMax, px, pw);
-                        int h  = (int) ((double) m.alphaHist[i] / barMax * (stripH - 2));
-                        g2.fillRect(x0, stripY + stripH - h, Math.max(1, x1 - x0), h);
-                    }
+            for (Marginal m : marginals) {
+                double bw = (aMax - aMin) / m.alphaHist.length;
+                if (m.count <= 0 || bw <= 0) continue;
+                g2.setColor(barFill(m.color));
+                for (int i = 0; i < m.alphaHist.length; i++) {
+                    if (m.alphaHist[i] == 0) continue;
+                    int x0 = mapXPx(aMin + i * bw,       dxMin, dxMax, px, pw);
+                    int x1 = mapXPx(aMin + (i + 1) * bw, dxMin, dxMax, px, pw);
+                    int h  = (int) (m.alphaHist[i] / (m.count * bw) * scale);
+                    g2.fillRect(x0, stripY + stripH - h, Math.max(1, x1 - x0), h);
                 }
+            }
 
-            // KDE curves: line only (no fill).
+            // KDE curves: line only (no fill), same density scale.
             double[] evalA = linspace(aMin, aMax, NEVAL);
             g2.setStroke(new BasicStroke(1.4f));
             for (Marginal m : marginals) {
-                double kmax = arrayMax(m.alphaKde);
-                if (kmax < 1e-300) continue;
+                if (arrayMax(m.alphaKde) < 1e-300) continue;
                 int[] xs = new int[NEVAL], ys = new int[NEVAL];
                 for (int i = 0; i < NEVAL; i++) {
                     xs[i] = mapXPx(evalA[i], dxMin, dxMax, px, pw);
-                    ys[i] = stripY + stripH - (int) (m.alphaKde[i] / kmax * (stripH - 2));
+                    ys[i] = stripY + stripH - (int) (m.alphaKde[i] * scale);
                 }
                 g2.setColor(m.color);
                 g2.drawPolyline(xs, ys, NEVAL);
@@ -603,31 +624,38 @@ public class SegDvsAlphaPanel extends JPanel {
             Shape oldClip = g2.getClip();
             g2.setClip(stripX, py, stripW, ph);
 
-            int barMax = 0;
-            for (Marginal m : marginals) barMax = Math.max(barMax, arrayMax(m.dHist));
+            // Density normalisation shared with the KDE (see drawAlphaMarginal).
+            double dmax = 0;
+            for (Marginal m : marginals) {
+                dmax = Math.max(dmax, arrayMax(m.logdKde));
+                double bw = (ldMax - ldMin) / m.dHist.length;
+                if (m.count > 0 && bw > 0)
+                    dmax = Math.max(dmax, arrayMax(m.dHist) / (m.count * bw));
+            }
+            if (dmax <= 0) { g2.setClip(oldClip); return; }
+            double scale = (stripW - 2) / dmax;
 
-            if (barMax > 0)
-                for (Marginal m : marginals) {
-                    double bw = (ldMax - ldMin) / m.dHist.length;
-                    g2.setColor(barFill(m.color));
-                    for (int i = 0; i < m.dHist.length; i++) {
-                        if (m.dHist[i] == 0) continue;
-                        int y0 = mapYPx(ldMin + (i + 1) * bw, dyMin, dyMax, py, ph);
-                        int y1 = mapYPx(ldMin + i * bw,       dyMin, dyMax, py, ph);
-                        int w  = (int) ((double) m.dHist[i] / barMax * (stripW - 2));
-                        g2.fillRect(stripX, y0, w, Math.max(1, y1 - y0));
-                    }
+            for (Marginal m : marginals) {
+                double bw = (ldMax - ldMin) / m.dHist.length;
+                if (m.count <= 0 || bw <= 0) continue;
+                g2.setColor(barFill(m.color));
+                for (int i = 0; i < m.dHist.length; i++) {
+                    if (m.dHist[i] == 0) continue;
+                    int y0 = mapYPx(ldMin + (i + 1) * bw, dyMin, dyMax, py, ph);
+                    int y1 = mapYPx(ldMin + i * bw,       dyMin, dyMax, py, ph);
+                    int w  = (int) (m.dHist[i] / (m.count * bw) * scale);
+                    g2.fillRect(stripX, y0, w, Math.max(1, y1 - y0));
                 }
+            }
 
             double[] evalD = linspace(ldMin, ldMax, NEVAL);
             g2.setStroke(new BasicStroke(1.4f));
             for (Marginal m : marginals) {
-                double kmax = arrayMax(m.logdKde);
-                if (kmax < 1e-300) continue;
+                if (arrayMax(m.logdKde) < 1e-300) continue;
                 int[] xs = new int[NEVAL], ys = new int[NEVAL];
                 for (int i = 0; i < NEVAL; i++) {
                     ys[i] = mapYPx(evalD[i], dyMin, dyMax, py, ph);
-                    xs[i] = stripX + (int) (m.logdKde[i] / kmax * (stripW - 2));
+                    xs[i] = stripX + (int) (m.logdKde[i] * scale);
                 }
                 g2.setColor(m.color);
                 g2.drawPolyline(xs, ys, NEVAL);

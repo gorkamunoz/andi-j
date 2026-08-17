@@ -93,6 +93,28 @@ if __name__ == '__main__':
         )
     kb = OUT_PATH.stat().st_size // 1024
     print(f'  -> {OUT_PATH.name}  ({kb} kB)')
+
+    # ── Verify the ONNX matches PyTorch across several lengths ─────────────
+    try:
+        import numpy as np
+        import onnxruntime as ort
+        sess = ort.InferenceSession(str(OUT_PATH), providers=['CPUExecutionProvider'])
+        print('\nVerifying ONNX vs PyTorch (max abs diff should be ~1e-6):')
+        worst = 0.0
+        for T in (32, 64, 224):
+            x = torch.randn(1, 2, T)
+            with torch.no_grad():
+                cp_t, kac_t, mod_t = wrapper(x)
+            cp_o, kac_o, mod_o = sess.run(None, {'input': x.numpy()})
+            d = max(np.abs(cp_t.numpy() - cp_o).max(),
+                    np.abs(kac_t.numpy() - kac_o).max(),
+                    np.abs(mod_t.numpy() - mod_o).max())
+            worst = max(worst, d)
+            print(f'   T={T:3d}  max|Δ| = {d:.2e}')
+        print('   OK' if worst < 1e-3 else f'   WARNING: large diff {worst:.2e} — export may be unfaithful!')
+    except Exception as ex:  # onnxruntime not installed, etc.
+        print(f'\n(Skipped ONNX verification: {ex})')
+
     print()
     print('Reminder: the plugin pads each trajectory length up to a multiple of 32')
     print('before inference (the model has 5 pooling levels).')

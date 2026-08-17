@@ -47,7 +47,12 @@ public class UclStepPredictor implements Closeable {
     private static final double CP_MIN_HEIGHT = 0.25;
     private static final int    CP_DISTANCE   = 2;
 
-    /** Output clamps, matching predict_trajectory(). */
+    /**
+     * Output bounds. α is clipped to [0, {@value #ALPHA_MAX}] exactly like
+     * predict_trajectory(). For D we keep the reference's [D_MIN, D_MAX] window
+     * but treat the D_MIN floor as "undefined" (NaN) rather than log₁₀(1e-12) =
+     * −12 — see {@link #computeForExperiment}.
+     */
     private static final double ALPHA_MAX = 1.999;
     private static final double D_MIN     = 1e-12;
     private static final double D_MAX     = 1e6;
@@ -150,10 +155,18 @@ public class UclStepPredictor implements Closeable {
             double[] logD  = new double[T];
             double[] cpProb = new double[T];
             for (int t = 0; t < T; t++) {
-                double a = clamp(kac[0][t][0], 0.0, ALPHA_MAX);
-                double D = clamp(kac[0][t][1], D_MIN, D_MAX);
-                alpha[t]  = a;
-                logD[t]   = Math.log10(D);
+                alpha[t]  = clamp(kac[0][t][0], 0.0, ALPHA_MAX);
+                // The model's D head is a raw, unbounded linear output that
+                // legitimately dips to ≤ 0 at (near-)immobile / uncertain points.
+                // The Python reference clips D to [1e-12, 1e6] and shows it on a
+                // *linear* axis, where ≈0 is invisible; taking log₁₀ of that
+                // floor would instead paint spurious −12 spikes. We keep every
+                // physically meaningful D (log₁₀ of a positive value) but mark
+                // non-positive D as undefined (NaN), so it is neither plotted nor
+                // averaged into a segment's mean log₁₀(D).
+                double rawD = kac[0][t][1];
+                logD[t]   = (Double.isFinite(rawD) && rawD > D_MIN)
+                          ? Math.log10(Math.min(rawD, D_MAX)) : Double.NaN;
                 cpProb[t] = cp[0][t][0];
             }
 

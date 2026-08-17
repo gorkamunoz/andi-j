@@ -27,7 +27,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
     public void run(String arg) {
         SwingUtilities.invokeLater(() -> {
             if (segDataManager == null || !segDataManager.isDisplayable())
-                segDataManager = new DataManagerWindow(createLauncher());
+                segDataManager = new DataManagerWindow(createLauncher(), true);
             segDataManager.showWindow();
         });
     }
@@ -36,6 +36,8 @@ public class TrajectorySegmentationCommand implements PlugIn {
 
     private static DataManagerWindow.AnalysisLauncher createLauncher() {
         return (exps, maxLag, interval, dm) -> {
+
+            final boolean useTta = dm.isTtaEnabled();
 
             // ── Progress dialog (modal, dismissed when the worker finishes) ─
             JDialog prog = new JDialog(dm, "AnDi-J – Running STEP Predictions", true);
@@ -71,7 +73,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
 
                 @Override
                 protected Void doInBackground() {
-                    try (UclStepPredictor predictor = UclStepPredictor.fromResources()) {
+                    try (UclStepPredictor predictor = UclStepPredictor.fromResources(useTta)) {
                         UclStepPredictor.ProgressListener tick = () -> {
                             int d = ++done[0];
                             SwingUtilities.invokeLater(() -> {

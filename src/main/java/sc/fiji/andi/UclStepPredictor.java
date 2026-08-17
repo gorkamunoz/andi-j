@@ -20,11 +20,15 @@ import java.util.*;
  *   <li>The length is zero-padded up to the next multiple of {@value #LEN_MULTIPLE}
  *       (the network has 5 pooling levels, so it only accepts lengths divisible
  *       by 32); the extra steps are cropped off the outputs.</li>
- *   <li>The tensor is laid out channel-first: {@code (1, 2, Tpad)} with
+ *   <li>The tensor is laid out channel-first: {@code (B, 2, Tpad)} with
  *       channel 0 = Δx, channel 1 = Δy.</li>
  * </ol>
- * The 8-view test-time augmentation is baked into the ONNX graph, so a single
- * forward pass per trajectory reproduces {@code predict_trajectory(use_tta=True)}.
+ * The exported model is the plain backbone (dynamic batch and length), so many
+ * trajectories run in one call: they are grouped by padded length and batched.
+ * Test-time augmentation is optional ({@code useTta}); when on, each trajectory's
+ * 8 rotated/flipped views are added as extra batch rows and their outputs
+ * averaged, reproducing {@code predict_trajectory(use_tta=True)}; when off, a
+ * single view runs (≈8× faster).
  *
  * <h3>Output</h3>
  * The model returns per-step {@code cp} (change-point probability), {@code kac}
@@ -57,25 +61,46 @@ public class UclStepPredictor implements Closeable {
     private static final double D_MIN     = 1e-12;
     private static final double D_MAX     = 1e6;
 
+    /**
+     * The 8 test-time-augmentation views as (cos, sin, x-flip) of the 90° symmetry
+     * group — 4 rotations × 2 flips. Each view maps a displacement (Δx, Δy) to
+     * {@code (Δx·c − Δy·s)·sx , Δx·s + Δy·c}, matching predict_trajectory().
+     */
+    private static final double[][] TTA_VIEWS = {
+        { 1,  0,  1}, { 1,  0, -1},
+        { 0,  1,  1}, { 0,  1, -1},
+        {-1,  0,  1}, {-1,  0, -1},
+        { 0, -1,  1}, { 0, -1, -1},
+    };
+
+    /** Batching caps so one inference call stays a reasonable size. */
+    private static final int MAX_BATCH          = 64;       // trajectories per call
+    private static final int MAX_BATCH_ELEMENTS = 400_000;  // rows × Tpad per call
+
     private final OrtEnvironment env;
     private final OrtSession     session;
     private final String         inputName;
     private final String         cpName;
     private final String         kacName;
+    /** Whether to average the 8 TTA views (higher accuracy, ~8× slower). */
+    private final boolean        useTta;
 
     // -----------------------------------------------------------------------
     // Construction
     // -----------------------------------------------------------------------
 
-    public static UclStepPredictor fromResources() throws OrtException, IOException {
-        return new UclStepPredictor(loadResource(DEFAULT_RESOURCE));
+    public static UclStepPredictor fromResources(boolean useTta)
+            throws OrtException, IOException {
+        return new UclStepPredictor(loadResource(DEFAULT_RESOURCE), useTta);
     }
 
-    public UclStepPredictor(File modelFile) throws OrtException, IOException {
-        this(readFile(modelFile));
+    public UclStepPredictor(File modelFile, boolean useTta)
+            throws OrtException, IOException {
+        this(readFile(modelFile), useTta);
     }
 
-    public UclStepPredictor(byte[] modelBytes) throws OrtException {
+    public UclStepPredictor(byte[] modelBytes, boolean useTta) throws OrtException {
+        this.useTta = useTta;
         env       = OrtEnvironment.getEnvironment();
         session   = env.createSession(modelBytes, makeSessionOptions());
         inputName = session.getInputNames().iterator().next();
@@ -114,11 +139,23 @@ public class UclStepPredictor implements Closeable {
     /** Notified once after each track is processed (for progress reporting). */
     public interface ProgressListener { void trackDone(); }
 
+    /** One eligible track: its id, real length T, and (T−1) displacement pairs. */
+    private static final class Track {
+        final int id, T;
+        final double[] dx, dy;   // length T−1
+        Track(int id, int T, double[] dx, double[] dy) { this.id = id; this.T = T; this.dx = dx; this.dy = dy; }
+    }
+
     /**
      * Runs the model on every track of {@code exp} and fills
      * {@link ExperimentData#stepAlpha}, {@link ExperimentData#stepLogD} and
      * {@link ExperimentData#segments}. Tracks with fewer than 2 frames get
      * empty arrays and no segments.
+     *
+     * <p>Trajectories are zero-padded to a multiple of 32 and grouped by padded
+     * length so many run in a single batched inference call. When TTA is enabled
+     * each trajectory contributes 8 rotated views (extra batch rows) whose
+     * outputs are averaged, reproducing predict_trajectory(use_tta=True).</p>
      */
     public void computeForExperiment(ExperimentData exp, ProgressListener listener)
             throws OrtException {
@@ -126,11 +163,13 @@ public class UclStepPredictor implements Closeable {
         Map<Integer, double[]>        outLogD  = new LinkedHashMap<>();
         Map<Integer, List<Segment>>   outSegs  = new LinkedHashMap<>();
 
+        // Preprocess: short tracks get empty output; the rest become displacement
+        // pairs bucketed by padded length so each batch tensor is rectangular.
+        Map<Integer, List<Track>> byPad = new LinkedHashMap<>();
         for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
             int            id    = e.getKey();
             List<double[]> spots = e.getValue();
             int T = spots.size();
-
             if (T < 2) {
                 outAlpha.put(id, new double[0]);
                 outLogD.put(id,  new double[0]);
@@ -138,42 +177,85 @@ public class UclStepPredictor implements Closeable {
                 if (listener != null) listener.trackDone();
                 continue;
             }
-
-            // Displacements (channel-first, zero-padded last step, length T).
-            int Tpad = padLength(T);
-            float[][][] in = new float[1][2][Tpad];   // (1, 2, Tpad)
+            double[] dx = new double[T - 1], dy = new double[T - 1];
             for (int i = 0; i < T - 1; i++) {
-                in[0][0][i] = (float) (spots.get(i + 1)[1] - spots.get(i)[1]); // Δx
-                in[0][1][i] = (float) (spots.get(i + 1)[2] - spots.get(i)[2]); // Δy
+                dx[i] = spots.get(i + 1)[1] - spots.get(i)[1];
+                dy[i] = spots.get(i + 1)[2] - spots.get(i)[2];
             }
-            // in[0][*][T-1..] already zero (pad).
+            byPad.computeIfAbsent(padLength(T), k -> new ArrayList<>())
+                 .add(new Track(id, T, dx, dy));
+        }
 
-            float[][][] cp  = run3d(in, cpName);   // (1, Tpad, 1)
-            float[][][] kac = run3d(in, kacName);  // (1, Tpad, 3)
+        int views = useTta ? TTA_VIEWS.length : 1;
 
-            double[] alpha = new double[T];
-            double[] logD  = new double[T];
-            double[] cpProb = new double[T];
-            for (int t = 0; t < T; t++) {
-                alpha[t]  = clamp(kac[0][t][0], 0.0, ALPHA_MAX);
-                // The model's D head is a raw, unbounded linear output that
-                // legitimately dips to ≤ 0 at (near-)immobile / uncertain points.
-                // The Python reference clips D to [1e-12, 1e6] and shows it on a
-                // *linear* axis, where ≈0 is invisible; taking log₁₀ of that
-                // floor would instead paint spurious −12 spikes. We keep every
-                // physically meaningful D (log₁₀ of a positive value) but mark
-                // non-positive D as undefined (NaN), so it is neither plotted nor
-                // averaged into a segment's mean log₁₀(D).
-                double rawD = kac[0][t][1];
-                logD[t]   = (Double.isFinite(rawD) && rawD > D_MIN)
-                          ? Math.log10(Math.min(rawD, D_MAX)) : Double.NaN;
-                cpProb[t] = cp[0][t][0];
+        for (Map.Entry<Integer, List<Track>> bucket : byPad.entrySet()) {
+            int         Tpad   = bucket.getKey();
+            List<Track> tracks = bucket.getValue();
+
+            // Trajectories per call: cap by both the count and rows×Tpad elements.
+            int maxTraj = Math.max(1, Math.min(MAX_BATCH,
+                    MAX_BATCH_ELEMENTS / Math.max(1, views * Tpad)));
+
+            for (int off = 0; off < tracks.size(); off += maxTraj) {
+                int nb   = Math.min(maxTraj, tracks.size() - off);
+                int rows = nb * views;
+
+                // Build (rows, 2, Tpad): row r = trajectory j × view v.
+                float[][][] in = new float[rows][2][Tpad];
+                for (int j = 0; j < nb; j++) {
+                    Track tr = tracks.get(off + j);
+                    for (int v = 0; v < views; v++) {
+                        double[] w = useTta ? TTA_VIEWS[v] : null;
+                        float[] cx = in[j * views + v][0];
+                        float[] cy = in[j * views + v][1];
+                        for (int i = 0; i < tr.T - 1; i++) {
+                            double ddx = tr.dx[i], ddy = tr.dy[i];
+                            if (w == null) { cx[i] = (float) ddx; cy[i] = (float) ddy; }
+                            else {
+                                cx[i] = (float) ((ddx * w[0] - ddy * w[1]) * w[2]);
+                                cy[i] = (float) ( ddx * w[1] + ddy * w[0]);
+                            }
+                        }
+                    }
+                }
+
+                float[][][] cp  = new float[rows][][];
+                float[][][] kac = new float[rows][][];
+                runBatch(in, cp, kac);
+
+                for (int j = 0; j < nb; j++) {
+                    Track tr = tracks.get(off + j);
+                    int   T  = tr.T;
+                    double[] alpha = new double[T], logD = new double[T], cpProb = new double[T];
+                    for (int t = 0; t < T; t++) {
+                        double cpv = 0, av = 0, dv = 0;
+                        for (int v = 0; v < views; v++) {
+                            int r = j * views + v;
+                            cpv += cp[r][t][0];
+                            av  += kac[r][t][0];
+                            dv  += kac[r][t][1];
+                        }
+                        cpv /= views; av /= views; dv /= views;
+
+                        alpha[t]  = clamp(av, 0.0, ALPHA_MAX);
+                        // The model's D head is a raw, unbounded linear output that
+                        // legitimately dips to ≤ 0 at (near-)immobile / uncertain
+                        // points. The Python reference clips D to [1e-12, 1e6] and
+                        // shows it on a *linear* axis, where ≈0 is invisible; taking
+                        // log₁₀ of that floor would paint spurious −12 spikes. We keep
+                        // every physically meaningful D (log₁₀ of a positive value)
+                        // but mark non-positive D as undefined (NaN), so it is neither
+                        // plotted nor averaged into a segment's mean log₁₀(D).
+                        logD[t]   = (Double.isFinite(dv) && dv > D_MIN)
+                                  ? Math.log10(Math.min(dv, D_MAX)) : Double.NaN;
+                        cpProb[t] = cpv;
+                    }
+                    outAlpha.put(tr.id, alpha);
+                    outLogD.put(tr.id,  logD);
+                    outSegs.put(tr.id,  buildSegments(cpProb, alpha, logD));
+                    if (listener != null) listener.trackDone();
+                }
             }
-
-            outAlpha.put(id, alpha);
-            outLogD.put(id,  logD);
-            outSegs.put(id,  buildSegments(cpProb, alpha, logD));
-            if (listener != null) listener.trackDone();
         }
 
         exp.stepAlpha = outAlpha;
@@ -251,20 +333,32 @@ public class UclStepPredictor implements Closeable {
     // ONNX Runtime inference
     // -----------------------------------------------------------------------
 
-    /** Runs the model and returns the named 3-D output as {@code float[1][T][C]}. */
-    private float[][][] run3d(float[][][] input, String outputName) throws OrtException {
+    /**
+     * Runs one batched forward pass and copies the {@code cp} and {@code kac}
+     * outputs (both {@code (rows, Tpad, C)}) into the caller's arrays. A single
+     * run yields both outputs — the model computes them together.
+     */
+    private void runBatch(float[][][] input, float[][][] cpOut, float[][][] kacOut)
+            throws OrtException {
         try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
              OrtSession.Result res = session.run(
                      Collections.singletonMap(inputName, tensor))) {
 
-            OnnxValue outVal = res.get(outputName)
-                    .orElseThrow(() -> new OrtException(
-                            "Output '" + outputName + "' not found in UCL-Net model"));
-            Object val = outVal.getValue();
-            if (val instanceof float[][][]) return (float[][][]) val;
-            throw new OrtException("Unexpected output type for '" + outputName
-                    + "': " + (val == null ? "null" : val.getClass().getName()));
+            float[][][] cp  = as3d(res, cpName);
+            float[][][] kac = as3d(res, kacName);
+            System.arraycopy(cp,  0, cpOut,  0, cp.length);
+            System.arraycopy(kac, 0, kacOut, 0, kac.length);
         }
+    }
+
+    private static float[][][] as3d(OrtSession.Result res, String name) throws OrtException {
+        OnnxValue outVal = res.get(name)
+                .orElseThrow(() -> new OrtException(
+                        "Output '" + name + "' not found in UCL-Net model"));
+        Object val = outVal.getValue();
+        if (val instanceof float[][][]) return (float[][][]) val;
+        throw new OrtException("Unexpected output type for '" + name
+                + "': " + (val == null ? "null" : val.getClass().getName()));
     }
 
     // -----------------------------------------------------------------------

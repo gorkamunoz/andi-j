@@ -111,7 +111,7 @@ public class FullAnalysisPanel extends JPanel {
         logYBox  .addActionListener(e -> { scatterPanel.setLogY(logYBox.isSelected()); scatterPanel.repaint(); });
 
         JPanel centerArea = new JPanel(new BorderLayout(0, 2));
-        centerArea.add(toolbar,      BorderLayout.NORTH);
+        centerArea.add(Toolbars.makeScrollable(toolbar), BorderLayout.NORTH);
         centerArea.add(scatterPanel, BorderLayout.CENTER);
 
         // ── left experiment selector ──────────────────────────────────────

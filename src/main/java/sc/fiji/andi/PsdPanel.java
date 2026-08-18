@@ -70,7 +70,7 @@ public class PsdPanel extends JPanel {
         paramBar.add(logLogBox);
         paramBar.add(computeBtn);
         paramBar.add(saveBtn);
-        add(paramBar, BorderLayout.NORTH);
+        add(Toolbars.makeScrollable(paramBar), BorderLayout.NORTH);
 
         // ── plot toolbar (draw line) ─────────────────────────────────────
         JToggleButton drawLineBtn   = new JToggleButton("✏ Draw line", false);

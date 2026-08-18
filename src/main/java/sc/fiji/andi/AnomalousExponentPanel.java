@@ -166,7 +166,7 @@ public class AnomalousExponentPanel extends JPanel {
         northPanel.setLayout(new BoxLayout(northPanel, BoxLayout.Y_AXIS));
         northPanel.add(methodRow);
         northPanel.add(methodParamsPanel);
-        add(northPanel, BorderLayout.NORTH);
+        add(Toolbars.makeScrollable(northPanel), BorderLayout.NORTH);
 
         // Wire method-selector and ML loader actions
         selectMethodBtn.addActionListener(e ->
@@ -226,7 +226,7 @@ public class AnomalousExponentPanel extends JPanel {
         resetViewBtn.addActionListener(e -> { histPanel.resetViewport(); histPanel.repaint(); });
 
         JPanel histArea = new JPanel(new BorderLayout(0, 2));
-        histArea.add(histToolbar, BorderLayout.NORTH);
+        histArea.add(Toolbars.makeScrollable(histToolbar), BorderLayout.NORTH);
         histArea.add(histPanel,   BorderLayout.CENTER);
 
         // ── averages table ───────────────────────────────────────────────

@@ -90,7 +90,7 @@ public class SegVisualizationPanel extends JPanel {
             "Comma-separated TRACK_IDs to display, e.g.  1, 5, 20, 37\n"
             + "Up to 16 values.  Press Enter or click Apply.");
 
-        add(makeScrollableToolbar(buildTopBar()), BorderLayout.NORTH);
+        add(Toolbars.makeScrollable(buildTopBar()), BorderLayout.NORTH);
 
         // ── plot grid ────────────────────────────────────────────────────
         JPanel grid = new JPanel(new GridLayout(GRID_ROWS, GRID_COLS, 2, 2));
@@ -246,66 +246,6 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(saveSegBtn);
 
         return bar;
-    }
-
-    /**
-     * Wraps a toolbar so it never wraps to a hidden second row: the content
-     * scrolls horizontally inside a viewport, flanked by ‹ / › buttons that
-     * appear only when the toolbar is wider than the window.
-     */
-    static JComponent makeScrollableToolbar(JComponent content) {
-        final JViewport vp = new JViewport();
-        vp.setView(content);
-        vp.setOpaque(false);
-
-        JButton left  = arrowButton("‹");
-        JButton right = arrowButton("›");
-
-        Runnable clampAndArrows = new Runnable() {
-            @Override public void run() {
-                int maxX = Math.max(0, content.getPreferredSize().width - vp.getWidth());
-                Point p = vp.getViewPosition();
-                if (p.x > maxX) { p.x = maxX; vp.setViewPosition(p); }
-                boolean overflow = maxX > 0;
-                left.setVisible(overflow);
-                right.setVisible(overflow);
-            }
-        };
-
-        left.addActionListener(e -> {
-            Point p = vp.getViewPosition();
-            p.x = Math.max(0, p.x - 80);
-            vp.setViewPosition(p);
-            clampAndArrows.run();
-        });
-        right.addActionListener(e -> {
-            int maxX = Math.max(0, content.getPreferredSize().width - vp.getWidth());
-            Point p = vp.getViewPosition();
-            p.x = Math.min(maxX, p.x + 80);
-            vp.setViewPosition(p);
-            clampAndArrows.run();
-        });
-
-        JPanel wrap = new JPanel(new BorderLayout());
-        wrap.add(left,  BorderLayout.WEST);
-        wrap.add(vp,    BorderLayout.CENTER);
-        wrap.add(right, BorderLayout.EAST);
-
-        vp.addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override public void componentResized(java.awt.event.ComponentEvent e) {
-                clampAndArrows.run();
-            }
-        });
-        SwingUtilities.invokeLater(clampAndArrows);
-        return wrap;
-    }
-
-    private static JButton arrowButton(String glyph) {
-        JButton b = new JButton(glyph);
-        b.setMargin(new Insets(0, 4, 0, 4));
-        b.setFocusPainted(false);
-        b.setToolTipText("Scroll the toolbar");
-        return b;
     }
 
     // ═════════════════════════════════════════════════════════════════════

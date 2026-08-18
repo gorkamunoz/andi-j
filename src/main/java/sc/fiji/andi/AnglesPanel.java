@@ -57,7 +57,7 @@ public class AnglesPanel extends JPanel {
         paramBar.add(new JLabel("Bins:"));
         paramBar.add(binsField);
         paramBar.add(applyBtn);
-        add(paramBar, BorderLayout.NORTH);
+        add(Toolbars.makeScrollable(paramBar), BorderLayout.NORTH);
 
         // ── center: polar plot ───────────────────────────────────────────
         polarPanel = new PolarPanel();

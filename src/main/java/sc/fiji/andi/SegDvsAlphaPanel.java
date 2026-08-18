@@ -52,7 +52,7 @@ public class SegDvsAlphaPanel extends JPanel {
         logCountBox   = new JCheckBox("Log count scale", true);
         canvas        = new DensityCanvas();
 
-        add(buildTopBar(), BorderLayout.NORTH);
+        add(Toolbars.makeScrollable(buildTopBar()), BorderLayout.NORTH);
 
         JScrollPane leftScroll = new JScrollPane(buildExperimentsPanel());
         leftScroll.setBorder(BorderFactory.createTitledBorder("Experiments"));

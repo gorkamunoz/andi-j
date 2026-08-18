@@ -75,7 +75,7 @@ public class DiffusionCoeffPanel extends JPanel {
         paramBar.add(new JLabel("Unit:"));          paramBar.add(unitField);
         paramBar.add(computeBtn);
         paramBar.add(saveDBtn);
-        add(paramBar, BorderLayout.NORTH);
+        add(Toolbars.makeScrollable(paramBar), BorderLayout.NORTH);
 
         // ── histogram panel ──────────────────────────────────────────────
         histPanel = new HistogramPanel(experiments, componentSelection);
@@ -110,7 +110,7 @@ public class DiffusionCoeffPanel extends JPanel {
         resetViewBtn.addActionListener(e -> { histPanel.resetViewport(); histPanel.repaint(); });
 
         JPanel histArea = new JPanel(new BorderLayout(0, 2));
-        histArea.add(histToolbar, BorderLayout.NORTH);
+        histArea.add(Toolbars.makeScrollable(histToolbar), BorderLayout.NORTH);
         histArea.add(histPanel,   BorderLayout.CENTER);
 
         // ── averages table ───────────────────────────────────────────────

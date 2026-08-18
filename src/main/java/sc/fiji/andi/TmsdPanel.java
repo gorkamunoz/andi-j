@@ -80,7 +80,7 @@ public class TmsdPanel extends JPanel {
         paramBar.add(new JLabel("Frame interval:")); paramBar.add(intervalField);
         paramBar.add(new JLabel("Unit:"));            paramBar.add(unitField);
         paramBar.add(computeBtn);
-        add(paramBar, BorderLayout.NORTH);
+        add(Toolbars.makeScrollable(paramBar), BorderLayout.NORTH);
 
         // ── plot toolbar ─────────────────────────────────────────────────
         JToggleButton drawLineBtn  = new JToggleButton("✏ Draw line", false);

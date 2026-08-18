@@ -49,7 +49,7 @@ public class SegStatsPanel extends JPanel {
         this.experiments = experiments;
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
-        add(buildTopBar(), BorderLayout.NORTH);
+        add(Toolbars.makeScrollable(buildTopBar()), BorderLayout.NORTH);
 
         JScrollPane leftScroll = new JScrollPane(buildExperimentsPanel());
         leftScroll.setBorder(BorderFactory.createTitledBorder("Experiments"));

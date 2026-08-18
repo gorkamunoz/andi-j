@@ -31,8 +31,10 @@ public class SegStatsPanel extends JPanel {
     private final List<ExperimentData>         experiments;
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
 
-    private final JTextField binsField   = new JTextField("40", 5);
-    private final JCheckBox  logCountBox  = new JCheckBox("Log count scale", true);
+    private final JSpinner   lenBinsSpin   = new JSpinner(new SpinnerNumberModel(40, 2, 400, 1));
+    private final JSpinner   alphaBinsSpin = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
+    private final JSpinner   dBinsSpin     = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
+    private final JCheckBox  logCountBox   = new JCheckBox("Log count scale", true);
 
     private static final int NEVAL = 100;   // marginal-KDE grid resolution
 
@@ -71,7 +73,9 @@ public class SegStatsPanel extends JPanel {
         mainSplit.setOneTouchExpandable(true);
         add(mainSplit, BorderLayout.CENTER);
 
-        binsField.addActionListener(e -> rebuild());
+        lenBinsSpin.addChangeListener(e -> rebuild());
+        alphaBinsSpin.addChangeListener(e -> rebuild());
+        dBinsSpin.addChangeListener(e -> rebuild());
         logCountBox.addActionListener(e -> {
             timeAlpha.logScale = logCountBox.isSelected();
             timeD.logScale     = logCountBox.isSelected();
@@ -100,10 +104,18 @@ public class SegStatsPanel extends JPanel {
         panBtn .addActionListener(e -> setAllPanMode(true));
         resetViewBtn.addActionListener(e -> resetAllViews());
 
+        lenBinsSpin.setToolTipText("Number of segment-length bins (length histogram + heatmap x-axis)");
+        alphaBinsSpin.setToolTipText("Number of α bins (α heatmap y-axis)");
+        dBinsSpin.setToolTipText("Number of log₁₀(D) bins (D heatmap y-axis)");
+
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
-        bar.add(new JLabel("Bins:"));
-        bar.add(binsField);
+        bar.add(new JLabel("Length bins:"));
+        bar.add(lenBinsSpin);
+        bar.add(new JLabel("α bins:"));
+        bar.add(alphaBinsSpin);
+        bar.add(new JLabel("D bins:"));
+        bar.add(dBinsSpin);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(logCountBox);
         bar.add(Box.createHorizontalStrut(6));
@@ -163,7 +175,9 @@ public class SegStatsPanel extends JPanel {
     // ═════════════════════════════════════════════════════════════════════
 
     private void rebuild() {
-        int nBins = parseBins(binsField.getText());
+        int alphaBins = (Integer) alphaBinsSpin.getValue();
+        int dBins     = (Integer) dBinsSpin.getValue();
+        int lenBinsChosen = (Integer) lenBinsSpin.getValue();
 
         // Make sure segments exist (compute with defaults if the viz tab hasn't yet)
         for (ExperimentData exp : experiments)
@@ -198,7 +212,7 @@ public class SegStatsPanel extends JPanel {
         final double aMin = 0.0, aMax = 2.0;
 
         // ── segment-length histogram (per experiment) ─────────────────────
-        int lenBins = Math.max(1, Math.min(nBins, maxLen));
+        int lenBins = Math.max(1, Math.min(lenBinsChosen, maxLen));
         double lenMin = 0.5, lenMax = maxLen + 0.5;     // integer-centred bins
         List<int[]> lenCounts = new ArrayList<>();
         List<Color> lenColors = new ArrayList<>();
@@ -217,8 +231,8 @@ public class SegStatsPanel extends JPanel {
         // ── length-vs-α and length-vs-D 2-D histograms (combined) ─────────
         // One point per segment: x = segment length, y = segment mean.
         // Shares the x-axis (segment length) with the histogram above.
-        int[][] histA = new int[nBins][nBins];
-        int[][] histD = new int[nBins][nBins];
+        int[][] histA = new int[lenBins][alphaBins];
+        int[][] histD = new int[lenBins][dBins];
         int totA = 0, totD = 0;
         // Per-experiment y-marginal KDEs (α for the left plot, D for the right)
         List<double[]> kdeA = new ArrayList<>(), kdeD = new ArrayList<>();
@@ -229,11 +243,11 @@ public class SegStatsPanel extends JPanel {
             List<Double> aVals = new ArrayList<>(), dVals = new ArrayList<>();
             for (List<Segment> segs : exp.segments.values()) {
                 for (Segment s : segs) {
-                    int xi = bin(s.length, lenMin, lenMax, nBins);
-                    histA[xi][bin(s.alpha, aMin, aMax, nBins)]++;
+                    int xi = bin(s.length, lenMin, lenMax, lenBins);
+                    histA[xi][bin(s.alpha, aMin, aMax, alphaBins)]++;
                     totA++; aVals.add(s.alpha);
                     if (Double.isFinite(s.logD)) {
-                        histD[xi][bin(s.logD, ldMin, ldMax, nBins)]++;
+                        histD[xi][bin(s.logD, ldMin, ldMax, dBins)]++;
                         totD++; dVals.add(s.logD);
                     }
                 }
@@ -246,9 +260,9 @@ public class SegStatsPanel extends JPanel {
 
         Color base = sel.size() == 1 ? sel.get(0).color : new Color(0, 50, 180);
         boolean log = logCountBox.isSelected();
-        if (totA > 0) timeAlpha.setHist(histA, nBins, lenMin, lenMax, aMin, aMax, totA, base, kdeA, kdeColors);
+        if (totA > 0) timeAlpha.setHist(histA, lenBins, alphaBins, lenMin, lenMax, aMin, aMax, totA, base, kdeA, kdeColors);
         else          timeAlpha.setEmpty();
-        if (totD > 0) timeD.setHist(histD, nBins, lenMin, lenMax, ldMin, ldMax, totD, base, kdeD, kdeColors);
+        if (totD > 0) timeD.setHist(histD, lenBins, dBins, lenMin, lenMax, ldMin, ldMax, totD, base, kdeD, kdeColors);
         else          timeD.setEmpty();
         timeAlpha.logScale = log; timeD.logScale = log;
 
@@ -258,11 +272,6 @@ public class SegStatsPanel extends JPanel {
     private static int bin(double v, double vMin, double vMax, int n) {
         int b = (int) ((v - vMin) / (vMax - vMin) * n);
         return Math.max(0, Math.min(n - 1, b));
-    }
-
-    private static int parseBins(String s) {
-        try { return Math.max(5, Math.min(200, Integer.parseInt(s.trim()))); }
-        catch (NumberFormatException e) { return 40; }
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -569,7 +578,7 @@ public class SegStatsPanel extends JPanel {
         private final boolean leftMarginal;     // KDE strip on the left (else right)
 
         private int[][] hist;
-        private int     nb;
+        private int     nbX, nbY;   // x bins (length) × y bins (α or D)
         private double  xMin, xMax, yMin, yMax;
         private int     total;
         private Color   base = new Color(0, 50, 180);
@@ -593,10 +602,10 @@ public class SegStatsPanel extends JPanel {
             addMouseInteraction();
         }
 
-        void setHist(int[][] hist, int nb, double xMin, double xMax,
+        void setHist(int[][] hist, int nbX, int nbY, double xMin, double xMax,
                      double yMin, double yMax, int total, Color base,
                      List<double[]> kde, List<Color> kdeCol) {
-            this.hist = hist; this.nb = nb;
+            this.hist = hist; this.nbX = nbX; this.nbY = nbY;
             this.xMin = xMin; this.xMax = xMax; this.yMin = yMin; this.yMax = yMax;
             this.total = total; this.base = base;
             this.kde = kde; this.kdeCol = kdeCol;
@@ -722,11 +731,11 @@ public class SegStatsPanel extends JPanel {
             double logMax = Math.log1p(Math.max(1, maxCount));
 
             if (maxCount > 0) {
-                double bwx = (xMax - xMin) / nb, bwy = (yMax - yMin) / nb;
+                double bwx = (xMax - xMin) / nbX, bwy = (yMax - yMin) / nbY;
                 Shape oldClip = g2.getClip();
                 g2.setClip(px, py, pw, ph);
-                for (int xi = 0; xi < nb; xi++)
-                    for (int yi = 0; yi < nb; yi++) {
+                for (int xi = 0; xi < nbX; xi++)
+                    for (int yi = 0; yi < nbY; yi++) {
                         int cnt = hist[xi][yi];
                         if (cnt == 0) continue;
                         double intensity = logScale ? Math.log1p(cnt) / logMax : (double) cnt / maxCount;

@@ -820,13 +820,7 @@ public class SegStatsPanel extends JPanel {
             if (!dragging && !panning && hoverPx >= px && hoverPx <= px + pw
                     && hoverPy >= py && hoverPy <= py + ph) {
                 double dx = pxToDataX(hoverPx), dy = pxToDataY(hoverPy);
-                int xi = (int) ((dx - xMin) / (xMax - xMin) * nbX);
-                int yi = (int) ((dy - yMin) / (yMax - yMin) * nbY);
-                int n = 0;
-                if (xi >= 0 && xi < nbX && yi >= 0 && yi < nbY)
-                    for (ExpHist2D dns : densities) n += dns.hist[xi][yi];
-                String tip = String.format("len = %d   %s = %.3f   n = %d",
-                                           Math.round(dx), yLabel, dy, n);
+                String tip = String.format("len = %d   %s = %.3f", Math.round(dx), yLabel, dy);
                 drawHoverTip(g2, tip, hoverPx, hoverPy, W, H);
             }
 

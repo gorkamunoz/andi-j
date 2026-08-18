@@ -576,12 +576,7 @@ public class SegDvsAlphaPanel extends JPanel {
             if (!dragging && !panning && hoverPx >= px && hoverPx <= px + pw
                     && hoverPy >= py && hoverPy <= py + ph) {
                 double ax = pxToDataX(hoverPx), lyv = pxToDataY(hoverPy);
-                int ai = (int) ((ax - aMin) / (aMax - aMin) * nbX);
-                int li = (int) ((lyv - ldMin) / (ldMax - ldMin) * nbY);
-                int n = 0;
-                if (ai >= 0 && ai < nbX && li >= 0 && li < nbY)
-                    for (ExpHist2D dns : densities) n += dns.hist[ai][li];
-                drawHoverTip(g2, String.format("α = %.3f   log₁₀(D) = %.3f   n = %d", ax, lyv, n),
+                drawHoverTip(g2, String.format("α = %.3f   log₁₀(D) = %.3f", ax, lyv),
                              hoverPx, hoverPy, W, H);
             }
 

@@ -4,6 +4,7 @@ import ij.IJ;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.awt.geom.AffineTransform;
 import java.awt.geom.Line2D;
 import java.io.*;
 import java.util.*;
@@ -45,8 +46,7 @@ public class SegVisualizationPanel extends JPanel {
     private final JComboBox<String> expCombo;
     private final JTextField        trajField;
     private final TrajectoryPlot[]  plots;
-    private boolean showAlpha    = true;
-    private boolean showD        = true;
+    private int     rawOpacity   = 255;    // opacity (0–255) of the raw α / D lines
     private boolean showSegAlpha = true;
     private boolean showSegD     = true;
     private boolean showCP       = true;   // vertical change-point markers
@@ -98,6 +98,10 @@ public class SegVisualizationPanel extends JPanel {
         plots = new TrajectoryPlot[N_PLOTS];
         for (int i = 0; i < N_PLOTS; i++) {
             plots[i] = new TrajectoryPlot();
+            int row = i / GRID_COLS, col = i % GRID_COLS;
+            plots[i].leftCol   = (col == 0);                 // blue log₁₀(D) label
+            plots[i].rightCol  = (col == GRID_COLS - 1);     // red α label
+            plots[i].bottomRow = (row == GRID_ROWS - 1);     // "Frame" label
             grid.add(plots[i]);
         }
         add(grid, BorderLayout.CENTER);
@@ -159,24 +163,17 @@ public class SegVisualizationPanel extends JPanel {
             SwingUtilities.invokeLater(trajField::requestFocusInWindow);
         });
 
-        // α toggle
-        JToggleButton alphaToggle = new JToggleButton("α", true);
-        alphaToggle.setForeground(ALPHA_COLOR);
-        alphaToggle.setFont(alphaToggle.getFont().deriveFont(Font.BOLD, 12f));
-        alphaToggle.setToolTipText("Toggle α visibility in all plots");
-        alphaToggle.addActionListener(e -> {
-            showAlpha = alphaToggle.isSelected();
-            for (TrajectoryPlot p : plots) { p.showAlpha = showAlpha; p.repaint(); }
-        });
-
-        // D toggle
-        JToggleButton dToggle = new JToggleButton("D", true);
-        dToggle.setForeground(D_COLOR);
-        dToggle.setFont(dToggle.getFont().deriveFont(Font.BOLD, 12f));
-        dToggle.setToolTipText("Toggle log₁₀(D) visibility in all plots");
-        dToggle.addActionListener(e -> {
-            showD = dToggle.isSelected();
-            for (TrajectoryPlot p : plots) { p.showD = showD; p.repaint(); }
+        // Raw α / D opacity slider (replaces the old on/off toggles)
+        JLabel rawLabel = new JLabel(String.format(
+            "<html>Raw <font color='#%06X'>α</font>/<font color='#%06X'>D</font>:</html>",
+            ALPHA_COLOR.getRGB() & 0xFFFFFF, D_COLOR.getRGB() & 0xFFFFFF));
+        JSlider rawSlider = new JSlider(0, 100, 100);
+        rawSlider.setToolTipText("Opacity of the raw α / D lines (0 = hidden)");
+        rawSlider.setPreferredSize(new Dimension(90,
+            rawSlider.getPreferredSize().height));
+        rawSlider.addChangeListener(e -> {
+            rawOpacity = rawSlider.getValue() * 255 / 100;
+            for (TrajectoryPlot p : plots) { p.rawOpacity = rawOpacity; p.repaint(); }
         });
 
         // Segment-overlay toggles (independent of the raw α / D lines)
@@ -235,8 +232,9 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(Box.createHorizontalStrut(8));
         bar.add(showTrajBtn);
         bar.add(Box.createHorizontalStrut(10));
-        bar.add(alphaToggle);
-        bar.add(dToggle);
+        bar.add(rawLabel);
+        bar.add(rawSlider);
+        bar.add(Box.createHorizontalStrut(6));
         bar.add(segAlphaToggle);
         bar.add(segDToggle);
         bar.add(cpToggle);
@@ -501,8 +499,7 @@ public class SegVisualizationPanel extends JPanel {
                     plots[i].setData(id, alpha, logD, segs);
                 }
             }
-            plots[i].showAlpha    = showAlpha;
-            plots[i].showD        = showD;
+            plots[i].rawOpacity   = rawOpacity;
             plots[i].showSegAlpha = showSegAlpha;
             plots[i].showSegD     = showSegD;
             plots[i].showCP       = showCP;
@@ -539,11 +536,11 @@ public class SegVisualizationPanel extends JPanel {
         private List<Segment> segments;     // change-point segments (may be null)
         private boolean  notFound  = false; // track ID not in experiment
 
-        boolean showAlpha    = true;
-        boolean showD        = true;
+        int     rawOpacity   = 255;   // opacity of the raw α / D lines (0 = hidden)
         boolean showSegAlpha = true;
         boolean showSegD     = true;
         boolean showCP       = true;
+        boolean leftCol, rightCol, bottomRow;   // border-plot axis-title flags
 
         TrajectoryPlot() {
             setBackground(BG_COLOR);
@@ -636,8 +633,8 @@ public class SegVisualizationPanel extends JPanel {
             if (pw < 10 || ph < 10) return;
 
             // ── Auto-scale logD axis ───────────────────────────────────────
-            boolean dAxis = (showD || showSegD) && logD != null;
-            boolean aAxis = (showAlpha || showSegAlpha) && alpha != null;
+            boolean dAxis = (rawOpacity > 0 || showSegD) && logD != null;
+            boolean aAxis = (rawOpacity > 0 || showSegAlpha) && alpha != null;
             double dMin = Double.MAX_VALUE, dMax = -Double.MAX_VALUE;
             if (dAxis) {
                 for (double v : logD) {
@@ -714,21 +711,37 @@ public class SegVisualizationPanel extends JPanel {
                 }
             }
 
+            // ── Border axis titles (blue D left, red α right, Frame bottom) ─
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 8.5f));
+            if (bottomRow) {
+                g2.setColor(Color.DARK_GRAY);
+                FontMetrics tf = g2.getFontMetrics();
+                g2.drawString("Frame", px + (pw - tf.stringWidth("Frame")) / 2, py + ph + PAD_B - 1);
+            }
+            if (leftCol) {
+                g2.setColor(D_COLOR);
+                drawVTitle(g2, "log₁₀(D)", 9, py + ph / 2);
+            }
+            if (rightCol) {
+                g2.setColor(ALPHA_COLOR);
+                drawVTitle(g2, "α", getWidth() - 5, py + ph / 2);
+            }
+
             // ── Clip to plot area before drawing lines ────────────────────
             Shape oldClip = g2.getClip();
             g2.setClip(px, py, pw, ph);
 
             // ── logD line (blue) ──────────────────────────────────────────
-            if (showD && logD != null) {
-                g2.setColor(D_COLOR);
+            if (rawOpacity > 0 && logD != null) {
+                g2.setColor(withAlpha(D_COLOR, rawOpacity));
                 g2.setStroke(new BasicStroke(1.2f, BasicStroke.CAP_ROUND,
                                              BasicStroke.JOIN_ROUND));
                 drawLine(g2, logD, seqLen, dMin, dMax, px, py, pw, ph);
             }
 
             // ── α line (red) ──────────────────────────────────────────────
-            if (showAlpha && alpha != null) {
-                g2.setColor(ALPHA_COLOR);
+            if (rawOpacity > 0 && alpha != null) {
+                g2.setColor(withAlpha(ALPHA_COLOR, rawOpacity));
                 g2.setStroke(new BasicStroke(1.2f, BasicStroke.CAP_ROUND,
                                              BasicStroke.JOIN_ROUND));
                 drawLine(g2, alpha, seqLen, aMin, aMax, px, py, pw, ph);
@@ -810,6 +823,20 @@ public class SegVisualizationPanel extends JPanel {
         private static void drawCentred(Graphics2D g2, String s, int cx, int cy) {
             FontMetrics fm = g2.getFontMetrics();
             g2.drawString(s, cx - fm.stringWidth(s) / 2, cy);
+        }
+
+        /** Draws a vertical (rotated −90°) title centred at pixel column x, row cy. */
+        private static void drawVTitle(Graphics2D g2, String s, int x, int cy) {
+            FontMetrics fm = g2.getFontMetrics();
+            AffineTransform orig = g2.getTransform();
+            g2.translate(x, cy);
+            g2.rotate(-Math.PI / 2);
+            g2.drawString(s, -fm.stringWidth(s) / 2, 0);
+            g2.setTransform(orig);
+        }
+
+        private static Color withAlpha(Color c, int a) {
+            return new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.max(0, Math.min(255, a)));
         }
     }
 }

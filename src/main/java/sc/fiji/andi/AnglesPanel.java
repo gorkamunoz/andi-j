@@ -254,8 +254,23 @@ public class AnglesPanel extends JPanel {
 
     private class PolarPanel extends JPanel {
 
+        private final MovableLegend legend = new MovableLegend();
+
         PolarPanel() {
             setBackground(Color.WHITE);
+            MouseAdapter ma = new MouseAdapter() {
+                @Override public void mousePressed(MouseEvent e) { legend.press(e.getX(), e.getY()); }
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (legend.dragTo(e.getX(), e.getY())) repaint();
+                }
+                @Override public void mouseReleased(MouseEvent e) { legend.release(); }
+                @Override public void mouseMoved(MouseEvent e) {
+                    setCursor(Cursor.getPredefinedCursor(
+                        legend.over(e.getX(), e.getY()) ? Cursor.MOVE_CURSOR : Cursor.DEFAULT_CURSOR));
+                }
+            };
+            addMouseListener(ma);
+            addMouseMotionListener(ma);
         }
 
         @Override
@@ -398,20 +413,32 @@ public class AnglesPanel extends JPanel {
                     ly + fm.getAscent() / 2);
             }
 
-            // ── legend (top-left) ─────────────────────────────────────────
-            int lx = 8, ly = 8;
-            g2.setFont(g2.getFont().deriveFont(11f));
-            fm = g2.getFontMetrics();
-            for (ExperimentData exp : visible) {
-                double[] angles = anglesMap.get(exp);
-                int n = angles != null ? angles.length : 0;
-                g2.setColor(exp.color);
-                g2.fillRect(lx, ly, 12, 12);
-                g2.setColor(new Color(80, 80, 80));
-                g2.drawRect(lx, ly, 12, 12);
-                g2.drawString(exp.name + "  (n=" + n + " angles)",
-                    lx + 16, ly + fm.getAscent());
-                ly += 16;
+            // ── legend (movable, default top-left) ────────────────────────
+            if (visible.isEmpty()) {
+                legend.clear();
+            } else {
+                g2.setFont(g2.getFont().deriveFont(11f));
+                fm = g2.getFontMetrics();
+                int maxW = 0;
+                for (ExperimentData exp : visible) {
+                    double[] angles = anglesMap.get(exp);
+                    int n = angles != null ? angles.length : 0;
+                    maxW = Math.max(maxW, fm.stringWidth(exp.name + "  (n=" + n + " angles)"));
+                }
+                int boxW = maxW + 16 + 4, boxH = visible.size() * 16 + 4;
+                Point lp = legend.layout(8, 8, boxW, boxH, 0, 0, getWidth(), getHeight());
+                int bx = lp.x, ly = lp.y;
+                for (ExperimentData exp : visible) {
+                    double[] angles = anglesMap.get(exp);
+                    int n = angles != null ? angles.length : 0;
+                    g2.setColor(exp.color);
+                    g2.fillRect(bx, ly, 12, 12);
+                    g2.setColor(new Color(80, 80, 80));
+                    g2.drawRect(bx, ly, 12, 12);
+                    g2.drawString(exp.name + "  (n=" + n + " angles)",
+                        bx + 16, ly + fm.getAscent());
+                    ly += 16;
+                }
             }
 
             g2.dispose();

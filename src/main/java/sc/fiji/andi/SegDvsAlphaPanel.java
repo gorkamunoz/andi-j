@@ -341,6 +341,7 @@ public class SegDvsAlphaPanel extends JPanel {
         private boolean dragDivH = false;   // dragging the α-strip / plot divider
         private boolean dragDivV = false;   // dragging the plot / D-strip divider
         private static final int DIV_HIT = 4;
+        private final MovableLegend legend = new MovableLegend();
 
         DensityCanvas() {
             setBackground(new Color(240, 240, 240));
@@ -369,6 +370,7 @@ public class SegDvsAlphaPanel extends JPanel {
         private void addMouseInteraction() {
             MouseAdapter ma = new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent e) {
+                    if (legend.press(e.getX(), e.getY())) return;
                     if (overHDiv(e.getX(), e.getY())) { dragDivH = true; return; }
                     if (overVDiv(e.getX(), e.getY())) { dragDivV = true; return; }
                     if (!hasData) return;
@@ -384,6 +386,7 @@ public class SegDvsAlphaPanel extends JPanel {
                     }
                 }
                 @Override public void mouseDragged(MouseEvent e) {
+                    if (legend.dragTo(e.getX(), e.getY())) { repaint(); return; }
                     if (dragDivH) {
                         margH = Math.max(24, Math.min(e.getY() - 12, getHeight() - MB - 60));
                         revalidate(); repaint();
@@ -404,6 +407,7 @@ public class SegDvsAlphaPanel extends JPanel {
                     }
                 }
                 @Override public void mouseReleased(MouseEvent e) {
+                    if (legend.isDragging()) { legend.release(); return; }
                     if (dragDivH || dragDivV) { dragDivH = dragDivV = false; return; }
                     if (dragging) {
                         dragging = false;
@@ -425,7 +429,8 @@ public class SegDvsAlphaPanel extends JPanel {
                 }
                 @Override public void mouseMoved(MouseEvent e) {
                     int cur;
-                    if (overHDiv(e.getX(), e.getY()))      cur = Cursor.N_RESIZE_CURSOR;
+                    if (legend.over(e.getX(), e.getY()))   cur = Cursor.MOVE_CURSOR;
+                    else if (overHDiv(e.getX(), e.getY()))      cur = Cursor.N_RESIZE_CURSOR;
                     else if (overVDiv(e.getX(), e.getY())) cur = Cursor.E_RESIZE_CURSOR;
                     else cur = panMode ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR;
                     setCursor(Cursor.getPredefinedCursor(cur));
@@ -550,7 +555,7 @@ public class SegDvsAlphaPanel extends JPanel {
             drawAlphaMarginal(g2, px, py, pw, ph, dxMin, dxMax);
             drawDMarginal(g2, px, py, pw, ph, dyMin, dyMax);
 
-            drawLegend(g2, px, py, pw);
+            drawLegend(g2, px, py, pw, ph);
 
             // ── Rubber-band zoom rectangle ────────────────────────────────
             if (dragging) {
@@ -691,8 +696,8 @@ public class SegDvsAlphaPanel extends JPanel {
 
         // ── Legend (top-left inside plot) ───────────────────────────────────
 
-        private void drawLegend(Graphics2D g2, int px, int py, int pw) {
-            if (marginals.isEmpty()) return;
+        private void drawLegend(Graphics2D g2, int px, int py, int pw, int ph) {
+            if (marginals.isEmpty()) { legend.clear(); return; }
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
             String total = "N = " + String.format("%,d", totalPts) + " frames";
@@ -700,7 +705,8 @@ public class SegDvsAlphaPanel extends JPanel {
             int maxW = fm.stringWidth(total);
             int rows = marginals.size() + 1;
             int boxW = maxW + 22 + pad * 2, boxH = rows * lineH + pad * 2;
-            int lx = px + 6, ly = py + 6;
+            Point lp = legend.layout(px + 6, py + 6, boxW, boxH, px, py, pw, ph);
+            int lx = lp.x, ly = lp.y;
 
             g2.setColor(new Color(255, 255, 255, 215));
             g2.fillRoundRect(lx, ly, boxW, boxH, 6, 6);

@@ -6,6 +6,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.awt.event.*;
 import java.io.*;
 import java.util.*;
 import java.util.List;
@@ -385,9 +386,23 @@ public class DiffusionModelPanel extends JPanel {
     private class BarPanel extends JPanel {
 
         private static final int ML = 56, MR = 22, MT = 46, MB = 42;
+        private final MovableLegend legend = new MovableLegend();
 
         BarPanel() {
             setBackground(Color.WHITE);
+            MouseAdapter ma = new MouseAdapter() {
+                @Override public void mousePressed(MouseEvent e) { legend.press(e.getX(), e.getY()); }
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (legend.dragTo(e.getX(), e.getY())) repaint();
+                }
+                @Override public void mouseReleased(MouseEvent e) { legend.release(); }
+                @Override public void mouseMoved(MouseEvent e) {
+                    setCursor(Cursor.getPredefinedCursor(
+                        legend.over(e.getX(), e.getY()) ? Cursor.MOVE_CURSOR : Cursor.DEFAULT_CURSOR));
+                }
+            };
+            addMouseListener(ma);
+            addMouseMotionListener(ma);
         }
 
         @Override
@@ -523,9 +538,13 @@ public class DiffusionModelPanel extends JPanel {
 
         private void drawLegend(Graphics2D g2, List<ExperimentData> visible,
                                 int px, int pw) {
+            if (visible.isEmpty()) { legend.clear(); return; }
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
-            int x = px, y = 14;
+            int totalW = 0;
+            for (ExperimentData exp : visible) totalW += 16 + fm.stringWidth(exp.name) + 18;
+            Point lp = legend.layout(px, 5, totalW, 16, 0, 0, getWidth(), getHeight());
+            int x = lp.x, y = lp.y + 9;
             for (ExperimentData exp : visible) {
                 g2.setColor(exp.color);
                 g2.fillRect(x, y - 9, 12, 12);

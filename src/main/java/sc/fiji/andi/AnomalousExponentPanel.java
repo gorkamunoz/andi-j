@@ -690,6 +690,7 @@ public class AnomalousExponentPanel extends JPanel {
 
         // ── Interaction ──────────────────────────────────────────────────
         private boolean panMode = false;
+        private final MovableLegend legend = new MovableLegend();
 
         // Zoom drag (rubber-band)
         private boolean dragging = false;
@@ -749,6 +750,7 @@ public class AnomalousExponentPanel extends JPanel {
             MouseAdapter ma = new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
+                    if (legend.press(e.getX(), e.getY())) return;
                     if (!panMode) {
                         dragging = true;
                         dragX0 = dragX1 = clamp(e.getX(), renderPx, renderPx + renderPw);
@@ -765,6 +767,7 @@ public class AnomalousExponentPanel extends JPanel {
 
                 @Override
                 public void mouseDragged(MouseEvent e) {
+                    if (legend.dragTo(e.getX(), e.getY())) { repaint(); return; }
                     if (dragging) {
                         dragX1 = clamp(e.getX(), renderPx, renderPx + renderPw);
                         dragY1 = clamp(e.getY(), renderPy, renderPy + renderPh);
@@ -784,6 +787,7 @@ public class AnomalousExponentPanel extends JPanel {
 
                 @Override
                 public void mouseReleased(MouseEvent e) {
+                    if (legend.isDragging()) { legend.release(); return; }
                     if (dragging) {
                         dragging = false;
                         int x0 = Math.min(dragX0, dragX1), x1 = Math.max(dragX0, dragX1);
@@ -808,7 +812,11 @@ public class AnomalousExponentPanel extends JPanel {
 
                 @Override
                 public void mouseMoved(MouseEvent e) {
-                    hoverPx = e.getX(); hoverPy = e.getY(); repaint();
+                    hoverPx = e.getX(); hoverPy = e.getY();
+                    setCursor(Cursor.getPredefinedCursor(
+                        legend.over(e.getX(), e.getY()) ? Cursor.MOVE_CURSOR
+                            : (panMode ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR)));
+                    repaint();
                 }
 
                 @Override
@@ -1097,9 +1105,9 @@ public class AnomalousExponentPanel extends JPanel {
 
         private static final String[] COMP_LABELS = {"2D", "X", "Y"};
 
-        private static void drawLegend(Graphics2D g2, List<HistEntry> entries,
-                                       int px, int py, int pw, int ph) {
-            if (entries.isEmpty()) return;
+        private void drawLegend(Graphics2D g2, List<HistEntry> entries,
+                                int px, int py, int pw, int ph) {
+            if (entries.isEmpty()) { legend.clear(); return; }
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
             int lineH = 18, pad = 6;
@@ -1110,7 +1118,8 @@ public class AnomalousExponentPanel extends JPanel {
             }
             int boxW = maxW + 28 + pad * 2;
             int boxH = entries.size() * lineH + pad * 2;
-            int lx = px + pw - boxW - 6, ly = py + 6;
+            Point lp = legend.layout(px + pw - boxW - 6, py + 6, boxW, boxH, px, py, pw, ph);
+            int lx = lp.x, ly = lp.y;
 
             g2.setColor(new Color(255, 255, 255, 210));
             g2.fillRoundRect(lx, ly, boxW, boxH, 6, 6);

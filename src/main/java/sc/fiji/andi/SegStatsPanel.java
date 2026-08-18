@@ -356,6 +356,7 @@ public class SegStatsPanel extends JPanel {
         private boolean panMode, dragging, panning;
         private int dragX0, dragY0, dragX1, dragY1, panX0, panY0;
         private double panXMin, panXMax, panYMin, panYMax;
+        private final MovableLegend legend = new MovableLegend();
 
         Hist1D() {
             setBackground(Color.WHITE);
@@ -379,6 +380,7 @@ public class SegStatsPanel extends JPanel {
         private void addMouseInteraction() {
             MouseAdapter ma = new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent e) {
+                    if (legend.press(e.getX(), e.getY())) return;
                     if (counts.isEmpty()) return;
                     if (!panMode) {
                         dragging = true;
@@ -390,6 +392,7 @@ public class SegStatsPanel extends JPanel {
                     }
                 }
                 @Override public void mouseDragged(MouseEvent e) {
+                    if (legend.dragTo(e.getX(), e.getY())) { repaint(); return; }
                     if (dragging) {
                         dragX1 = clampPx(e.getX(), renderPx, renderPx + renderPw);
                         dragY1 = clampPx(e.getY(), renderPy, renderPy + renderPh);
@@ -403,6 +406,7 @@ public class SegStatsPanel extends JPanel {
                     }
                 }
                 @Override public void mouseReleased(MouseEvent e) {
+                    if (legend.isDragging()) { legend.release(); return; }
                     if (dragging) {
                         dragging = false;
                         int x0 = Math.min(dragX0, dragX1), x1 = Math.max(dragX0, dragX1);
@@ -418,6 +422,11 @@ public class SegStatsPanel extends JPanel {
                 }
                 @Override public void mouseClicked(MouseEvent e) {
                     if (e.getClickCount() == 2) { viewport = null; repaint(); }
+                }
+                @Override public void mouseMoved(MouseEvent e) {
+                    setCursor(Cursor.getPredefinedCursor(
+                        legend.over(e.getX(), e.getY()) ? Cursor.MOVE_CURSOR
+                            : (panMode ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR)));
                 }
             };
             addMouseListener(ma);
@@ -544,18 +553,24 @@ public class SegStatsPanel extends JPanel {
             g2.drawString("Count", -g2.getFontMetrics().stringWidth("Count") / 2, g2.getFontMetrics().getAscent() / 2);
             g2.setTransform(orig);
 
-            // legend
-            int lx = px + pw - 6, ly = py + 4;
-            g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
-            fm = g2.getFontMetrics();
-            for (int s = 0; s < names.size(); s++) {
-                String n = names.get(s);
-                int w = fm.stringWidth(n) + 18;
-                g2.setColor(colors.get(s));
-                g2.fillRect(lx - w, ly, 12, 10);
-                g2.setColor(Color.BLACK);
-                g2.drawString(n, lx - w + 16, ly + 9);
-                ly += 14;
+            // legend (movable block)
+            if (names.isEmpty()) {
+                legend.clear();
+            } else {
+                g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+                fm = g2.getFontMetrics();
+                int maxW = 0;
+                for (String n : names) maxW = Math.max(maxW, fm.stringWidth(n) + 18);
+                int boxW = maxW + 4, boxH = names.size() * 14 + 2;
+                Point lp = legend.layout(px + pw - boxW - 6, py + 4, boxW, boxH, px, py, pw, ph);
+                int bx = lp.x, by = lp.y;
+                for (int s = 0; s < names.size(); s++) {
+                    int rowY = by + s * 14;
+                    g2.setColor(colors.get(s));
+                    g2.fillRect(bx, rowY, 12, 10);
+                    g2.setColor(Color.BLACK);
+                    g2.drawString(names.get(s), bx + 16, rowY + 9);
+                }
             }
             g2.dispose();
         }

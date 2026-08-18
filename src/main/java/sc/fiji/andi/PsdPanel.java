@@ -327,6 +327,7 @@ public class PsdPanel extends JPanel {
         // Draw-line state
         private final List<double[]> drawnLines = new ArrayList<>();  // {x1,y1,x2,y2} data coords
         private boolean drawMode = false, isDrawing = false;
+        private final MovableLegend legend = new MovableLegend();
         private int linePx0, linePy0, linePx1, linePy1;
 
         // Saved render state for pixel↔data transforms
@@ -351,15 +352,18 @@ public class PsdPanel extends JPanel {
         private void addMouseInteraction() {
             MouseAdapter ma = new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent e) {
+                    if (legend.press(e.getX(), e.getY())) return;
                     if (!drawMode || !savedValid) return;
                     isDrawing = true;
                     linePx0 = linePx1 = e.getX(); linePy0 = linePy1 = e.getY();
                 }
                 @Override public void mouseDragged(MouseEvent e) {
+                    if (legend.dragTo(e.getX(), e.getY())) { repaint(); return; }
                     if (!isDrawing) return;
                     linePx1 = e.getX(); linePy1 = e.getY(); repaint();
                 }
                 @Override public void mouseReleased(MouseEvent e) {
+                    if (legend.isDragging()) { legend.release(); return; }
                     if (!isDrawing) return;
                     isDrawing = false;
                     if (Math.abs(linePx1 - linePx0) > 4 || Math.abs(linePy1 - linePy0) > 4)
@@ -367,6 +371,13 @@ public class PsdPanel extends JPanel {
                             pixToDataX(linePx0), pixToDataY(linePy0),
                             pixToDataX(linePx1), pixToDataY(linePy1)});
                     repaint();
+                }
+                @Override public void mouseMoved(MouseEvent e) {
+                    if (legend.over(e.getX(), e.getY()))
+                        setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    else
+                        setCursor(drawMode ? Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR)
+                                           : Cursor.getDefaultCursor());
                 }
             };
             addMouseListener(ma); addMouseMotionListener(ma);
@@ -646,14 +657,15 @@ public class PsdPanel extends JPanel {
                 if (!psdByComp.containsKey(exp)) continue;
                 for (int c : compSel.getOrDefault(exp, Collections.emptySet())) entries.add(new int[]{ei, c});
             }
-            if (entries.isEmpty()) return;
+            if (entries.isEmpty()) { legend.clear(); return; }
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
             int lineH = 18, pad = 6, maxW = 0;
             for (int[] e : entries)
                 maxW = Math.max(maxW, fm.stringWidth(experiments.get(e[0]).name + " (" + COMP_LABELS[e[1]] + ")"));
             int boxW = maxW + 30 + pad*2, boxH = entries.size()*lineH + pad*2;
-            int lx = px + pw - boxW - 6, ly = py + 6;
+            Point lp = legend.layout(px + pw - boxW - 6, py + 6, boxW, boxH, px, py, pw, ph);
+            int lx = lp.x, ly = lp.y;
             g2.setColor(new Color(255,255,255,210)); g2.fillRoundRect(lx, ly, boxW, boxH, 6, 6);
             g2.setColor(new Color(180,180,180)); g2.setStroke(new BasicStroke(0.7f)); g2.drawRoundRect(lx, ly, boxW, boxH, 6, 6);
             for (int i = 0; i < entries.size(); i++) {

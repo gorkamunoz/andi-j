@@ -271,6 +271,7 @@ public class TmsdPanel extends JPanel {
 
         private boolean drawMode  = false;
         private boolean isDrawing = false;
+        private final MovableLegend legend = new MovableLegend();
 
         // Pixel coordinates tracked during a drag
         private int linePx0, linePy0, linePx1, linePy1;
@@ -310,6 +311,7 @@ public class TmsdPanel extends JPanel {
             MouseAdapter ma = new MouseAdapter() {
 
                 @Override public void mousePressed(MouseEvent e) {
+                    if (legend.press(e.getX(), e.getY())) return;
                     if (!drawMode || !savedBoundsValid) return;
                     isDrawing = true;
                     linePx0 = linePx1 = e.getX();
@@ -317,6 +319,7 @@ public class TmsdPanel extends JPanel {
                 }
 
                 @Override public void mouseDragged(MouseEvent e) {
+                    if (legend.dragTo(e.getX(), e.getY())) { repaint(); return; }
                     if (!isDrawing) return;
                     linePx1 = e.getX();
                     linePy1 = e.getY();
@@ -324,6 +327,7 @@ public class TmsdPanel extends JPanel {
                 }
 
                 @Override public void mouseReleased(MouseEvent e) {
+                    if (legend.isDragging()) { legend.release(); return; }
                     if (!isDrawing) return;
                     isDrawing = false;
                     int dx = Math.abs(linePx1 - linePx0);
@@ -334,6 +338,14 @@ public class TmsdPanel extends JPanel {
                         drawnLines.add(new double[]{x1, y1, x2, y2});
                     }
                     repaint();
+                }
+
+                @Override public void mouseMoved(MouseEvent e) {
+                    if (legend.over(e.getX(), e.getY()))
+                        setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                    else
+                        setCursor(drawMode ? Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR)
+                                           : Cursor.getDefaultCursor());
                 }
             };
             addMouseListener(ma);
@@ -783,7 +795,7 @@ public class TmsdPanel extends JPanel {
                 if (exp.hasEmsd() && emsdEnabled.getOrDefault(exp, false))
                     for (int c : av) entries.add(new int[]{ei, c, 2});  // same components as Avg
             }
-            if (entries.isEmpty()) return;
+            if (entries.isEmpty()) { legend.clear(); return; }
 
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
@@ -795,7 +807,8 @@ public class TmsdPanel extends JPanel {
             }
             int boxW = maxW + 30 + pad * 2;
             int boxH = entries.size() * lineH + pad * 2;
-            int lx = px + 6, ly = py + 6;
+            Point lp = legend.layout(px + 6, py + 6, boxW, boxH, px, py, pw, ph);
+            int lx = lp.x, ly = lp.y;
 
             g2.setColor(new Color(255, 255, 255, 210));
             g2.fillRoundRect(lx, ly, boxW, boxH, 6, 6);

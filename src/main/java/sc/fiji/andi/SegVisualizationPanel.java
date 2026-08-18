@@ -46,7 +46,7 @@ public class SegVisualizationPanel extends JPanel {
     private final JComboBox<String> expCombo;
     private final JTextField        trajField;
     private final TrajectoryPlot[]  plots;
-    private int     rawOpacity   = 255;    // opacity (0–255) of the raw α / D lines
+    private int     rawOpacity   = 76;     // opacity (0–255) of the raw α / D lines (default 30%)
     private boolean showSegAlpha = true;
     private boolean showSegD     = true;
     private boolean showCP       = true;   // vertical change-point markers
@@ -167,7 +167,7 @@ public class SegVisualizationPanel extends JPanel {
         JLabel rawLabel = new JLabel(String.format(
             "<html>Raw <font color='#%06X'>α</font>/<font color='#%06X'>D</font>:</html>",
             ALPHA_COLOR.getRGB() & 0xFFFFFF, D_COLOR.getRGB() & 0xFFFFFF));
-        JSlider rawSlider = new JSlider(0, 100, 100);
+        JSlider rawSlider = new JSlider(0, 100, 30);
         rawSlider.setToolTipText("Opacity of the raw α / D lines (0 = hidden)");
         rawSlider.setPreferredSize(new Dimension(90,
             rawSlider.getPreferredSize().height));
@@ -536,7 +536,7 @@ public class SegVisualizationPanel extends JPanel {
         private List<Segment> segments;     // change-point segments (may be null)
         private boolean  notFound  = false; // track ID not in experiment
 
-        int     rawOpacity   = 255;   // opacity of the raw α / D lines (0 = hidden)
+        int     rawOpacity   = 76;    // opacity of the raw α / D lines (0 = hidden; default 30%)
         boolean showSegAlpha = true;
         boolean showSegD     = true;
         boolean showCP       = true;

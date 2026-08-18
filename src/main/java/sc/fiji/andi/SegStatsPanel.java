@@ -623,6 +623,7 @@ public class SegStatsPanel extends JPanel {
         private boolean panMode, dragging, panning;
         private int dragX0, dragY0, dragX1, dragY1, panX0, panY0;
         private double panXMin, panXMax, panYMin, panYMax;
+        private int hoverPx = -1, hoverPy = -1;
 
         Heat2D(String xLabel, String yLabel, boolean leftMarginal) {
             this.xLabel = xLabel; this.yLabel = yLabel; this.leftMarginal = leftMarginal;
@@ -692,6 +693,10 @@ public class SegStatsPanel extends JPanel {
                 @Override public void mouseClicked(MouseEvent e) {
                     if (e.getClickCount() == 2) { viewport = null; repaint(); }
                 }
+                @Override public void mouseMoved(MouseEvent e) {
+                    hoverPx = e.getX(); hoverPy = e.getY(); repaint();
+                }
+                @Override public void mouseExited(MouseEvent e) { hoverPx = -1; repaint(); }
             };
             addMouseListener(ma);
             addMouseMotionListener(ma);
@@ -811,7 +816,36 @@ public class SegStatsPanel extends JPanel {
                 g2.drawRect(rx, ry, Math.abs(dragX1 - dragX0), Math.abs(dragY1 - dragY0));
             }
 
+            // ── Hover readout ─────────────────────────────────────────────
+            if (!dragging && !panning && hoverPx >= px && hoverPx <= px + pw
+                    && hoverPy >= py && hoverPy <= py + ph) {
+                double dx = pxToDataX(hoverPx), dy = pxToDataY(hoverPy);
+                int xi = (int) ((dx - xMin) / (xMax - xMin) * nbX);
+                int yi = (int) ((dy - yMin) / (yMax - yMin) * nbY);
+                int n = 0;
+                if (xi >= 0 && xi < nbX && yi >= 0 && yi < nbY)
+                    for (ExpHist2D dns : densities) n += dns.hist[xi][yi];
+                String tip = String.format("len = %d   %s = %.3f   n = %d",
+                                           Math.round(dx), yLabel, dy, n);
+                drawHoverTip(g2, tip, hoverPx, hoverPy, W, H);
+            }
+
             g2.dispose();
+        }
+
+        private static void drawHoverTip(Graphics2D g2, String text, int mx, int my, int W, int H) {
+            g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            FontMetrics fm = g2.getFontMetrics();
+            int tw = fm.stringWidth(text), th = fm.getAscent(), pad = 4;
+            int bw = tw + pad * 2, bh = th + pad * 2;
+            int bx = mx + 14, by = my - bh - 4;
+            if (bx + bw > W - 4) bx = mx - bw - 6;
+            if (by < 4)          by = my + 10;
+            g2.setColor(new Color(255, 255, 220, 230)); g2.fillRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(160, 160, 100)); g2.setStroke(new BasicStroke(0.5f));
+            g2.drawRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(30, 30, 30));
+            g2.drawString(text, bx + pad, by + pad + th - 1);
         }
 
         /** Y-axis marginal KDE strip (α or D), one curve per experiment. */

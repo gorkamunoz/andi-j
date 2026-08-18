@@ -342,6 +342,7 @@ public class SegDvsAlphaPanel extends JPanel {
         private boolean dragDivV = false;   // dragging the plot / D-strip divider
         private static final int DIV_HIT = 4;
         private final MovableLegend legend = new MovableLegend();
+        private int hoverPx = -1, hoverPy = -1;
 
         DensityCanvas() {
             setBackground(new Color(240, 240, 240));
@@ -428,13 +429,16 @@ public class SegDvsAlphaPanel extends JPanel {
                     if (e.getClickCount() == 2) { viewport = null; repaint(); }
                 }
                 @Override public void mouseMoved(MouseEvent e) {
+                    hoverPx = e.getX(); hoverPy = e.getY();
                     int cur;
                     if (legend.over(e.getX(), e.getY()))   cur = Cursor.MOVE_CURSOR;
                     else if (overHDiv(e.getX(), e.getY()))      cur = Cursor.N_RESIZE_CURSOR;
                     else if (overVDiv(e.getX(), e.getY())) cur = Cursor.E_RESIZE_CURSOR;
                     else cur = panMode ? Cursor.HAND_CURSOR : Cursor.CROSSHAIR_CURSOR;
                     setCursor(Cursor.getPredefinedCursor(cur));
+                    repaint();
                 }
+                @Override public void mouseExited(MouseEvent e) { hoverPx = -1; repaint(); }
             };
             addMouseListener(ma);
             addMouseMotionListener(ma);
@@ -568,7 +572,35 @@ public class SegDvsAlphaPanel extends JPanel {
                 g2.drawRect(rx, ry, rw, rh);
             }
 
+            // ── Hover readout ─────────────────────────────────────────────
+            if (!dragging && !panning && hoverPx >= px && hoverPx <= px + pw
+                    && hoverPy >= py && hoverPy <= py + ph) {
+                double ax = pxToDataX(hoverPx), lyv = pxToDataY(hoverPy);
+                int ai = (int) ((ax - aMin) / (aMax - aMin) * nbX);
+                int li = (int) ((lyv - ldMin) / (ldMax - ldMin) * nbY);
+                int n = 0;
+                if (ai >= 0 && ai < nbX && li >= 0 && li < nbY)
+                    for (ExpHist2D dns : densities) n += dns.hist[ai][li];
+                drawHoverTip(g2, String.format("α = %.3f   log₁₀(D) = %.3f   n = %d", ax, lyv, n),
+                             hoverPx, hoverPy, W, H);
+            }
+
             g2.dispose();
+        }
+
+        private static void drawHoverTip(Graphics2D g2, String text, int mx, int my, int W, int H) {
+            g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+            FontMetrics fm = g2.getFontMetrics();
+            int tw = fm.stringWidth(text), th = fm.getAscent(), pad = 4;
+            int bw = tw + pad * 2, bh = th + pad * 2;
+            int bx = mx + 14, by = my - bh - 4;
+            if (bx + bw > W - 4) bx = mx - bw - 6;
+            if (by < 4)          by = my + 10;
+            g2.setColor(new Color(255, 255, 220, 230)); g2.fillRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(160, 160, 100)); g2.setStroke(new BasicStroke(0.5f));
+            g2.drawRoundRect(bx, by, bw, bh, 4, 4);
+            g2.setColor(new Color(30, 30, 30));
+            g2.drawString(text, bx + pad, by + pad + th - 1);
         }
 
         // ── Marginal strips ─────────────────────────────────────────────────

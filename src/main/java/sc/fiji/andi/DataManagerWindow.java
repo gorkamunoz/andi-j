@@ -84,7 +84,9 @@ public class DataManagerWindow extends JFrame {
      *                      (currently just the TTA toggle) above Perform Analysis.
      */
     public DataManagerWindow(AnalysisLauncher launcher, boolean showMlOptions) {
-        super("AnDi-J – Manage Data");
+        // The segmentation manager carries ML options; name the window after its
+        // feature so the user can tell the two apart.
+        super("AnDi-J – " + (showMlOptions ? "Segmentation" : "Analysis") + " – Manage Data");
         this.launcher = launcher;
 
         model = new FileRowModel();

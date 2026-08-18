@@ -64,8 +64,8 @@ public class DataManagerWindow extends JFrame {
     private final JTable        table;
     private final JLabel        chosenLabel;
 
-    /** ML-model options row (segmentation feature only): TTA on/off. */
-    private final JCheckBox     ttaBox;
+    /** ML-model options panel (segmentation feature only); null otherwise. */
+    private final SegModelOptionsPanel mlOptions;
 
     /** Files picked via "Choose Files…", pending until "Load Data" is clicked. */
     private File[] chosenFiles = null;
@@ -150,19 +150,11 @@ public class DataManagerWindow extends JFrame {
         bottom.add(removeBtn);
         bottom.add(analyseBtn);
 
-        // ── ML model options row (segmentation feature only) ──────────────
-        ttaBox = new JCheckBox("Test-time augmentation (TTA)", true);
-        ttaBox.setToolTipText(
-            "Averages 8 symmetry views (4 rotations × 2 flips) for higher accuracy. "
-            + "Turn off for ~8× faster segmentation.");
+        // ── ML model options (segmentation feature only) ──────────────────
+        mlOptions = showMlOptions ? new SegModelOptionsPanel() : null;
 
         JPanel south = new JPanel(new BorderLayout(0, 2));
-        if (showMlOptions) {
-            JPanel mlBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-            mlBar.setBorder(BorderFactory.createTitledBorder("ML model options"));
-            mlBar.add(ttaBox);
-            south.add(mlBar, BorderLayout.NORTH);
-        }
+        if (mlOptions != null) south.add(mlOptions, BorderLayout.NORTH);
         south.add(bottom, BorderLayout.SOUTH);
 
         // ── assemble ──────────────────────────────────────────────────────
@@ -189,8 +181,10 @@ public class DataManagerWindow extends JFrame {
         requestFocus();
     }
 
-    /** Whether the "Test-time augmentation (TTA)" ML option is checked. */
-    public boolean isTtaEnabled() { return ttaBox.isSelected(); }
+    /** The segmentation ML-model selection, or the default when no options panel. */
+    public SegModelConfig getSegModelConfig() {
+        return mlOptions != null ? mlOptions.getConfig() : SegModelConfig.defaultModel(true);
+    }
 
     // ═════════════════════════════════════════════════════════════════════════
     // Table configuration

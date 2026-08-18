@@ -5,6 +5,7 @@ import ij.plugin.PlugIn;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,14 +43,14 @@ public class TrajectorySegmentationCommand implements PlugIn {
     }
 
     /**
-     * Content signature identifying a dataset + TTA setting, so an identical
+     * Content signature identifying a dataset + model selection, so an identical
      * re-analysis is served from {@link #CACHE}. Uses 64-bit FNV-1a over the
-     * experiment name, the TTA flag and every track's id / frame / x / y.
+     * experiment name, the model config and every track's id / frame / x / y.
      */
-    private static String signature(ExperimentData exp, boolean useTta) {
+    private static String signature(ExperimentData exp, SegModelConfig cfg) {
         long h = 1469598103934665603L;   // FNV offset basis
         h = mix(h, exp.name.hashCode());
-        h = mix(h, useTta ? 1 : 0);
+        h = mix(h, cfg.key().hashCode());
         h = mix(h, exp.tracks.size());
         for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
             h = mix(h, e.getKey());
@@ -80,7 +81,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
     private static DataManagerWindow.AnalysisLauncher createLauncher() {
         return (exps, maxLag, interval, dm) -> {
 
-            final boolean useTta = dm.isTtaEnabled();
+            final SegModelConfig cfg = dm.getSegModelConfig();
 
             // ── Progress dialog (modal, dismissed when the worker finishes) ─
             JDialog prog = new JDialog(dm, "AnDi-J – Running STEP Predictions", true);
@@ -124,32 +125,28 @@ public class TrajectorySegmentationCommand implements PlugIn {
                         });
                     };
 
-                    // Only open the model if at least one experiment is uncached.
-                    boolean anyCompute = false;
-                    for (ExperimentData exp : exps)
-                        if (!CACHE.containsKey(signature(exp, useTta))) { anyCompute = true; break; }
-
-                    UclStepPredictor predictor = null;
+                    // Serve cached experiments; run the model only for the rest.
+                    List<ExperimentData> toCompute = new ArrayList<>();
+                    for (ExperimentData exp : exps) {
+                        Cached cached = CACHE.get(signature(exp, cfg));
+                        if (cached != null) {
+                            exp.stepAlpha = cached.stepAlpha;
+                            exp.stepLogD  = cached.stepLogD;
+                            exp.segments  = cached.segments;
+                            for (int k = 0; k < exp.tracks.size(); k++) tick.trackDone();
+                        } else {
+                            toCompute.add(exp);
+                        }
+                    }
                     try {
-                        if (anyCompute) predictor = UclStepPredictor.fromResources(useTta);
-                        for (ExperimentData exp : exps) {
-                            String   sig    = signature(exp, useTta);
-                            Cached   cached = CACHE.get(sig);
-                            if (cached != null) {
-                                // Reuse earlier predictions for this exact dataset.
-                                exp.stepAlpha = cached.stepAlpha;
-                                exp.stepLogD  = cached.stepLogD;
-                                exp.segments  = cached.segments;
-                                for (int k = 0; k < exp.tracks.size(); k++) tick.trackDone();
-                            } else {
-                                predictor.computeForExperiment(exp, tick);
-                                CACHE.put(sig, new Cached(exp.stepAlpha, exp.stepLogD, exp.segments));
-                            }
+                        if (!toCompute.isEmpty()) {
+                            SegmentationRunner.run(toCompute, cfg, tick);
+                            for (ExperimentData exp : toCompute)
+                                CACHE.put(signature(exp, cfg),
+                                          new Cached(exp.stepAlpha, exp.stepLogD, exp.segments));
                         }
                     } catch (OrtException | java.io.IOException ex) {
                         error = ex;
-                    } finally {
-                        if (predictor != null) predictor.close();
                     }
                     return null;
                 }

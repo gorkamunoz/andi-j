@@ -263,14 +263,78 @@ public class UclStepPredictor implements Closeable {
         exp.segments  = outSegs;
     }
 
+    /** Per-frame default-model outputs for a single track (cropped to its length T). */
+    public static final class TrackOut {
+        public double[] alpha, logD, cpProb;
+    }
+
+    /**
+     * Runs the default model on one track and returns its per-frame α, log₁₀(D)
+     * and change-point probability. Used by {@link SegmentationRunner} to fill
+     * outputs the user did not supply a custom model for.
+     */
+    public TrackOut computeTrack(List<double[]> spots) throws OrtException {
+        TrackOut o = new TrackOut();
+        int T = spots.size();
+        if (T < 2) { o.alpha = new double[0]; o.logD = new double[0]; o.cpProb = new double[0]; return o; }
+
+        double[] dx = new double[T - 1], dy = new double[T - 1];
+        for (int i = 0; i < T - 1; i++) {
+            dx[i] = spots.get(i + 1)[1] - spots.get(i)[1];
+            dy[i] = spots.get(i + 1)[2] - spots.get(i)[2];
+        }
+        int Tpad = padLength(T);
+        int views = useTta ? TTA_VIEWS.length : 1;
+        float[][][] in = new float[views][2][Tpad];
+        for (int v = 0; v < views; v++) {
+            double[] w = useTta ? TTA_VIEWS[v] : null;
+            float[] cx = in[v][0], cy = in[v][1];
+            for (int i = 0; i < T - 1; i++) {
+                double ddx = dx[i], ddy = dy[i];
+                if (w == null) { cx[i] = (float) ddx; cy[i] = (float) ddy; }
+                else {
+                    cx[i] = (float) ((ddx * w[0] - ddy * w[1]) * w[2]);
+                    cy[i] = (float) ( ddx * w[1] + ddy * w[0]);
+                }
+            }
+        }
+        float[][][] cp = new float[views][][], kac = new float[views][][];
+        runBatch(in, cp, kac);
+
+        double[] alpha = new double[T], logD = new double[T], cpProb = new double[T];
+        for (int t = 0; t < T; t++) {
+            double cpv = 0, av = 0, dv = 0;
+            for (int v = 0; v < views; v++) { cpv += cp[v][t][0]; av += kac[v][t][0]; dv += kac[v][t][1]; }
+            cpv /= views; av /= views; dv /= views;
+            alpha[t]  = clamp(av, 0.0, ALPHA_MAX);
+            logD[t]   = (Double.isFinite(dv) && dv > D_MIN) ? Math.log10(Math.min(dv, D_MAX)) : Double.NaN;
+            cpProb[t] = cpv;
+        }
+        o.alpha = alpha; o.logD = logD; o.cpProb = cpProb;
+        return o;
+    }
+
     // -----------------------------------------------------------------------
     // Change-point → segments
     // -----------------------------------------------------------------------
 
-    /** Builds segments from the per-frame cp probability + α / logD means. */
-    private static List<Segment> buildSegments(double[] cpProb, double[] alpha, double[] logD) {
+    /** Builds segments by peak-picking the default model's cp probability. */
+    static List<Segment> buildSegments(double[] cpProb, double[] alpha, double[] logD) {
+        return segmentsFrom(findChangePoints(cpProb), alpha, logD);
+    }
+
+    /** Change points from a custom 0/1 (thresholded) per-frame cp signal. */
+    static int[] thresholdChangePoints(double[] cp) {
+        List<Integer> out = new ArrayList<>();
+        for (int i = 1; i < cp.length - 1; i++) if (cp[i] >= 0.5) out.add(i);
+        int[] r = new int[out.size()];
+        for (int i = 0; i < r.length; i++) r[i] = out.get(i);
+        return r;
+    }
+
+    /** Builds segments (interval means of α / logD) from explicit change-point indices. */
+    static List<Segment> segmentsFrom(int[] cps, double[] alpha, double[] logD) {
         int T = alpha.length;
-        int[] cps = findChangePoints(cpProb);
 
         // Boundaries 0, cp1, cp2, …, T  → segments between consecutive pairs.
         int[] bounds = new int[cps.length + 2];

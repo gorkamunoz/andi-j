@@ -228,26 +228,30 @@ public class SegStatsPanel extends JPanel {
         }
         lengthHist.setData(lenMin, lenMax, lenBins, lenCounts, lenColors, lenNames);
 
-        // ── length-vs-α and length-vs-D 2-D histograms (combined) ─────────
+        // ── length-vs-α and length-vs-D 2-D histograms (overlaid per exp) ──
         // One point per segment: x = segment length, y = segment mean.
         // Shares the x-axis (segment length) with the histogram above.
-        int[][] histA = new int[lenBins][alphaBins];
-        int[][] histD = new int[lenBins][dBins];
         int totA = 0, totD = 0;
+        List<ExpHist2D> densA = new ArrayList<>(), densD = new ArrayList<>();
         // Per-experiment y-marginal KDEs (α for the left plot, D for the right)
         List<double[]> kdeA = new ArrayList<>(), kdeD = new ArrayList<>();
         List<Color>    kdeColors = new ArrayList<>();
         double[] evalA = linspace(aMin, aMax, NEVAL);
         double[] evalD = linspace(ldMin, ldMax, NEVAL);
         for (ExperimentData exp : sel) {
+            int[][] hA = new int[lenBins][alphaBins];
+            int[][] hD = new int[lenBins][dBins];
+            int maxA = 0, maxD = 0;
             List<Double> aVals = new ArrayList<>(), dVals = new ArrayList<>();
             for (List<Segment> segs : exp.segments.values()) {
                 for (Segment s : segs) {
                     int xi = bin(s.length, lenMin, lenMax, lenBins);
-                    histA[xi][bin(s.alpha, aMin, aMax, alphaBins)]++;
+                    int ai = bin(s.alpha, aMin, aMax, alphaBins);
+                    if (++hA[xi][ai] > maxA) maxA = hA[xi][ai];
                     totA++; aVals.add(s.alpha);
                     if (Double.isFinite(s.logD)) {
-                        histD[xi][bin(s.logD, ldMin, ldMax, dBins)]++;
+                        int li = bin(s.logD, ldMin, ldMax, dBins);
+                        if (++hD[xi][li] > maxD) maxD = hD[xi][li];
                         totD++; dVals.add(s.logD);
                     }
                 }
@@ -256,13 +260,14 @@ public class SegStatsPanel extends JPanel {
             kdeA.add(gaussianKde1D(a, evalA, silvermanBw(a)));
             kdeD.add(gaussianKde1D(d, evalD, silvermanBw(d)));
             kdeColors.add(exp.color);
+            densA.add(new ExpHist2D(exp.color, hA, maxA));
+            densD.add(new ExpHist2D(exp.color, hD, maxD));
         }
 
-        Color base = sel.size() == 1 ? sel.get(0).color : new Color(0, 50, 180);
         boolean log = logCountBox.isSelected();
-        if (totA > 0) timeAlpha.setHist(histA, lenBins, alphaBins, lenMin, lenMax, aMin, aMax, totA, base, kdeA, kdeColors);
+        if (totA > 0) timeAlpha.setHist(densA, lenBins, alphaBins, lenMin, lenMax, aMin, aMax, totA, kdeA, kdeColors);
         else          timeAlpha.setEmpty();
-        if (totD > 0) timeD.setHist(histD, lenBins, dBins, lenMin, lenMax, ldMin, ldMax, totD, base, kdeD, kdeColors);
+        if (totD > 0) timeD.setHist(densD, lenBins, dBins, lenMin, lenMax, ldMin, ldMax, totD, kdeD, kdeColors);
         else          timeD.setEmpty();
         timeAlpha.logScale = log; timeD.logScale = log;
 
@@ -568,6 +573,16 @@ public class SegStatsPanel extends JPanel {
     // 2-D density heatmap (time vs α  /  time vs D)
     // ═════════════════════════════════════════════════════════════════════
 
+    /** One experiment's 2-D histogram, for the overlaid heatmap. */
+    static class ExpHist2D {
+        final Color   color;
+        final int[][] hist;
+        final int     max;
+        ExpHist2D(Color color, int[][] hist, int max) {
+            this.color = color; this.hist = hist; this.max = max;
+        }
+    }
+
     static class Heat2D extends JPanel {
         private static final int MT = 26, MB = 42;
         private static final int YLBL = 50;     // y tick-label area
@@ -577,11 +592,10 @@ public class SegStatsPanel extends JPanel {
         private final String  xLabel, yLabel;
         private final boolean leftMarginal;     // KDE strip on the left (else right)
 
-        private int[][] hist;
+        private List<ExpHist2D> densities = java.util.Collections.emptyList();
         private int     nbX, nbY;   // x bins (length) × y bins (α or D)
         private double  xMin, xMax, yMin, yMax;
         private int     total;
-        private Color   base = new Color(0, 50, 180);
         private List<double[]> kde   = java.util.Collections.emptyList();
         private List<Color>    kdeCol = java.util.Collections.emptyList();
         private boolean hasData = false;
@@ -602,12 +616,12 @@ public class SegStatsPanel extends JPanel {
             addMouseInteraction();
         }
 
-        void setHist(int[][] hist, int nbX, int nbY, double xMin, double xMax,
-                     double yMin, double yMax, int total, Color base,
+        void setHist(List<ExpHist2D> densities, int nbX, int nbY, double xMin, double xMax,
+                     double yMin, double yMax, int total,
                      List<double[]> kde, List<Color> kdeCol) {
-            this.hist = hist; this.nbX = nbX; this.nbY = nbY;
+            this.densities = densities; this.nbX = nbX; this.nbY = nbY;
             this.xMin = xMin; this.xMax = xMax; this.yMin = yMin; this.yMax = yMax;
-            this.total = total; this.base = base;
+            this.total = total;
             this.kde = kde; this.kdeCol = kdeCol;
             this.hasData = true;
         }
@@ -727,25 +741,34 @@ public class SegStatsPanel extends JPanel {
             renderPx = px; renderPy = py; renderPw = pw; renderPh = ph;
 
             int maxCount = 0;
-            for (int[] col : hist) for (int v : col) maxCount = Math.max(maxCount, v);
-            double logMax = Math.log1p(Math.max(1, maxCount));
+            for (ExpHist2D d : densities) maxCount = Math.max(maxCount, d.max);
 
+            // Overlaid per-experiment heatmaps: each in its own colour, with
+            // per-cell opacity encoding its own-max-normalised density, so
+            // experiments blend instead of being summed.
             if (maxCount > 0) {
                 double bwx = (xMax - xMin) / nbX, bwy = (yMax - yMin) / nbY;
                 Shape oldClip = g2.getClip();
                 g2.setClip(px, py, pw, ph);
-                for (int xi = 0; xi < nbX; xi++)
-                    for (int yi = 0; yi < nbY; yi++) {
-                        int cnt = hist[xi][yi];
-                        if (cnt == 0) continue;
-                        double intensity = logScale ? Math.log1p(cnt) / logMax : (double) cnt / maxCount;
-                        int cx  = mapXpix(xMin + xi * bwx,       px, pw);
-                        int cx2 = mapXpix(xMin + (xi + 1) * bwx, px, pw);
-                        int cy  = mapYpix(yMin + (yi + 1) * bwy, py, ph);
-                        int cy2 = mapYpix(yMin + yi * bwy,       py, ph);
-                        g2.setColor(mapColor(intensity, base));
-                        g2.fillRect(cx, cy, Math.max(1, cx2 - cx) + 1, Math.max(1, cy2 - cy) + 1);
-                    }
+                for (ExpHist2D dns : densities) {
+                    if (dns.max <= 0) continue;
+                    double lmax = Math.log1p(dns.max);
+                    int cr = dns.color.getRed(), cg = dns.color.getGreen(), cb = dns.color.getBlue();
+                    for (int xi = 0; xi < nbX; xi++)
+                        for (int yi = 0; yi < nbY; yi++) {
+                            int cnt = dns.hist[xi][yi];
+                            if (cnt == 0) continue;
+                            double intensity = logScale ? Math.log1p(cnt) / lmax : (double) cnt / dns.max;
+                            int alpha = (int) (Math.max(0, Math.min(1, intensity)) * 210);
+                            if (alpha <= 0) continue;
+                            int cx  = mapXpix(xMin + xi * bwx,       px, pw);
+                            int cx2 = mapXpix(xMin + (xi + 1) * bwx, px, pw);
+                            int cy  = mapYpix(yMin + (yi + 1) * bwy, py, ph);
+                            int cy2 = mapYpix(yMin + yi * bwy,       py, ph);
+                            g2.setColor(new Color(cr, cg, cb, alpha));
+                            g2.fillRect(cx, cy, Math.max(1, cx2 - cx) + 1, Math.max(1, cy2 - cy) + 1);
+                        }
+                }
                 g2.setClip(oldClip);
             }
 
@@ -753,7 +776,10 @@ public class SegStatsPanel extends JPanel {
             drawFrame(g2, px, py, pw, ph);
             drawTicks(g2, px, py, pw, ph);
             drawTitles(g2, px, py, pw, ph);
-            drawColorBar(g2, cbarX, maxCount, logMax, py, ph);
+            // Colour-scale bar only makes sense for a single experiment.
+            if (densities.size() == 1)
+                drawColorBar(g2, cbarX, densities.get(0).color, densities.get(0).max,
+                             Math.log1p(densities.get(0).max), py, ph);
             drawYMarginal(g2, stripX, py, ph);
 
             g2.setColor(new Color(80, 80, 80));
@@ -819,7 +845,7 @@ public class SegStatsPanel extends JPanel {
         }
         private static int clamp(int v) { return Math.max(0, Math.min(255, v)); }
 
-        private void drawColorBar(Graphics2D g2, int bx, int maxCount, double logMax,
+        private void drawColorBar(Graphics2D g2, int bx, Color base, int maxCount, double logMax,
                                   int py, int ph) {
             int by = py, bh = ph;
             for (int y = 0; y < bh; y++) {

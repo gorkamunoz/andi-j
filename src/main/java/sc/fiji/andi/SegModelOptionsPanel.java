@@ -83,7 +83,7 @@ public class SegModelOptionsPanel extends JPanel {
         perOutputCard.add(outRow("α (exponent)",     chooseAlpha,  alphaLabel));
         perOutputCard.add(outRow("D (coefficient)",  chooseD,      dLabel));
         perOutputCard.add(outRow("Change points",    chooseCp,     cpLabel));
-        perOutputCard.add(outRow("Phenom. model",    choosePhenom, phenomLabel));
+        perOutputCard.add(outRow("Diffusive state",   choosePhenom, phenomLabel));
         JLabel hint = new JLabel("Outputs left as “default” use the bundled model.");
         hint.setFont(hint.getFont().deriveFont(Font.ITALIC, 10f));
         hint.setForeground(new Color(120, 120, 120));
@@ -120,7 +120,7 @@ public class SegModelOptionsPanel extends JPanel {
             if (f != null) { cpFile = f; setFile(cpLabel, f); }
         });
         choosePhenom.addActionListener(e -> {
-            File f = pick("Choose phenomenological-model model");
+            File f = pick("Choose diffusive-state model");
             if (f != null) { phenomFile = f; setFile(phenomLabel, f); }
         });
 

@@ -85,8 +85,9 @@ public class UclStepPredictor implements Closeable {
     /** Whether to average the 8 TTA views (higher accuracy, ~8× slower). */
     private final boolean        useTta;
 
-    /** Number of AnDi-2 phenomenological-model classes (kac channel 2 ∈ [0, 4]). */
-    private static final int PHENOM_CLASSES = 5;
+    /** Number of AnDi diffusive-state classes (kac channel 2 ∈ [0, 3]):
+     *  0=immobile, 1=confined, 2=Brownian, 3=directed. */
+    private static final int STATE_CLASSES = 4;
 
     // -----------------------------------------------------------------------
     // Construction
@@ -261,23 +262,29 @@ public class UclStepPredictor implements Closeable {
     }
 
     /**
-     * Aggregates the model channel {@code kac[:, 2]} into a phenomenological-model
-     * class: the mean over frames and TTA views, rounded and clamped to
-     * {@code [0, PHENOM_CLASSES − 1]}. (The bundled model encodes the class in the
-     * third {@code kac} channel, not in the {@code model_type} head.)
+     * Aggregates the model channel {@code kac[:, 2]} into one diffusive-state
+     * class for the trajectory: each frame's value (averaged over TTA views) is
+     * rounded to a state in {@code [0, STATE_CLASSES − 1]}, and the trajectory's
+     * class is the most frequent frame state (mode). (The bundled model encodes
+     * the state in the third {@code kac} channel, not in the {@code model_type} head.)
      *
-     * @param kac    kac output {@code [rows][Tpad][3]} = [α, D, model]
+     * @param kac    kac output {@code [rows][Tpad][3]} = [α, D, state]
      * @param row0   first row for this track (view 0)
      * @param views  number of TTA views for this track
      * @param T      real (unpadded) track length
      */
     static int phenomFromKac(float[][][] kac, int row0, int views, int T) {
         if (kac[row0] == null || kac[row0].length == 0 || kac[row0][0].length < 3) return -1;
-        double s = 0;
-        for (int t = 0; t < T; t++)
+        int[] counts = new int[STATE_CLASSES];
+        for (int t = 0; t < T; t++) {
+            double s = 0;
             for (int v = 0; v < views; v++) s += kac[row0 + v][t][2];
-        int c = (int) Math.round(s / ((double) T * views));
-        return Math.max(0, Math.min(PHENOM_CLASSES - 1, c));
+            int c = (int) Math.round(s / views);
+            counts[Math.max(0, Math.min(STATE_CLASSES - 1, c))]++;
+        }
+        int best = 0;
+        for (int k = 1; k < STATE_CLASSES; k++) if (counts[k] > counts[best]) best = k;
+        return best;
     }
 
     static int argmax(double[] a) {

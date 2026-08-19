@@ -11,19 +11,19 @@ import java.util.*;
 import java.util.List;
 
 /**
- * "Phenom. model" tab for Trajectory Segmentation.
+ * "Diffusive state" tab for Trajectory Segmentation.
  *
- * <p>Shows, per experiment, the percentage of trajectories the segmentation
- * model classified into each AnDi-2 <b>phenomenological model</b>. The
- * classification is produced during <em>Perform Analysis</em> (from the model's
- * {@code model_type} head), so — unlike the Analysis "Diffusion Model" tab —
- * there are no ML controls here; the model is chosen in the Data Manager.</p>
+ * <p>Shows, per experiment, the percentage of trajectories by their dominant
+ * AnDi diffusive state (the model's per-frame state head, {@code kac[:, 2]}).
+ * The classification is produced during <em>Perform Analysis</em>, so — unlike
+ * the Analysis "Diffusion Model" tab — there are no ML controls here; the model
+ * is chosen in the Data Manager.</p>
  */
 public class SegPhenomPanel extends JPanel {
 
-    /** AnDi-2 phenomenological models, in the model's output-class order. */
+    /** AnDi diffusive-state classes, in the model's output-class order (0…3). */
     public static final String[] PHENOM_NAMES = {
-        "Single-state", "Multi-state", "Dimerization", "Confinement", "Immobile traps"
+        "Immobile", "Confined / subdiffusion", "Brownian / free", "Directed"
     };
 
     private final List<ExperimentData>         experiments;
@@ -39,8 +39,8 @@ public class SegPhenomPanel extends JPanel {
         setBorder(new EmptyBorder(6, 6, 6, 6));
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
-        JLabel info = new JLabel("<html><i>Percentage of trajectories classified into each "
-            + "phenomenological model (from the segmentation model).</i></html>");
+        JLabel info = new JLabel("<html><i>Percentage of trajectories by their dominant "
+            + "diffusive state (from the segmentation model).</i></html>");
         info.setBorder(new EmptyBorder(2, 4, 4, 4));
         info.setForeground(new Color(80, 80, 80));
         add(info, BorderLayout.NORTH);
@@ -88,7 +88,7 @@ public class SegPhenomPanel extends JPanel {
         saveBtn.setFont(saveBtn.getFont().deriveFont(Font.PLAIN, 10f));
         saveBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
         saveBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
-        saveBtn.setToolTipText("Export the per-trajectory phenomenological-model class to CSV");
+        saveBtn.setToolTipText("Export the per-trajectory diffusive-state class to CSV");
         saveBtn.addActionListener(e -> save());
 
         col.add(Box.createVerticalStrut(6));
@@ -112,14 +112,14 @@ public class SegPhenomPanel extends JPanel {
         }
         JFileChooser fc = new JFileChooser();
         fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
-        fc.setDialogTitle("Save phenomenological-model predictions");
+        fc.setDialogTitle("Save diffusive-state predictions");
         if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
         File f = fc.getSelectedFile();
         if (!f.getName().toLowerCase().endsWith(".csv"))
             f = new File(f.getParent(), f.getName() + ".csv");
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            pw.println("experiment,traj_idx,phenom_model");
+            pw.println("experiment,traj_idx,diffusive_state");
             for (ExperimentData exp : experiments) {
                 if (!exp.hasPhenomModel()) continue;
                 for (Map.Entry<Integer, Integer> e : exp.phenomModel.entrySet()) {
@@ -195,7 +195,7 @@ public class SegPhenomPanel extends JPanel {
             if (visible.isEmpty()) {
                 boolean any = experiments.stream().anyMatch(ExperimentData::hasPhenomModel);
                 String msg = any ? "No experiments selected"
-                                 : "No phenomenological-model prediction available";
+                                 : "No diffusive-state prediction available";
                 g2.setColor(new Color(160, 160, 160));
                 g2.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 13));
                 FontMetrics fm = g2.getFontMetrics();

@@ -61,12 +61,12 @@ public class ExperimentData {
 
     public boolean hasDiffModel() { return diffModel != null && !diffModel.isEmpty(); }
 
-    // -- predicted phenomenological model class from the segmentation model --
+    // -- predicted diffusive-state class from the segmentation model --
     /**
-     * Predicted AnDi-2 phenomenological model per track: trackId → class index
-     * into {@link SegPhenomPanel#PHENOM_NAMES} (0=single-state … 4=immobile-traps).
-     * Filled by {@link SegmentationRunner} when the model provides a model-type
-     * output. -1 (or absent) means "not predicted".
+     * Predicted AnDi diffusive state per track: trackId → class index into
+     * {@link SegPhenomPanel#PHENOM_NAMES} (0=immobile, 1=confined, 2=Brownian,
+     * 3=directed). Filled by {@link SegmentationRunner}; -1 (or absent) means
+     * "not predicted".
      */
     public Map<Integer, Integer> phenomModel;
 

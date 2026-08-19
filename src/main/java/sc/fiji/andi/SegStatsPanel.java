@@ -346,11 +346,20 @@ public class SegStatsPanel extends JPanel {
         private double xMin, xMax;
         private int    nb;
         private String title = "Segment-length distribution";
+        private boolean normalize = false;   // show each series as % of its own total
         private List<int[]>  counts = java.util.Collections.emptyList();
         private List<Color>  colors = java.util.Collections.emptyList();
         private List<String> names  = java.util.Collections.emptyList();
 
         void setTitle(String t) { this.title = t; }
+        void setNormalize(boolean n) { if (normalize != n) { normalize = n; viewport = null; } }
+
+        /** Bar value for series {@code c}, bin {@code b}: raw count or % of the series total. */
+        private double barVal(int[] c, int b) {
+            if (!normalize) return c[b];
+            int total = 0; for (int v : c) total += v;
+            return total > 0 ? 100.0 * c[b] / total : 0;
+        }
 
         // ── Viewport / interaction state ──────────────────────────────────
         private double[] viewport = null;   // null = auto; {xMin,xMax,yMin,yMax}
@@ -468,9 +477,9 @@ public class SegStatsPanel extends JPanel {
             g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
             g2.drawString(title, px, py - 10);
 
-            int maxCount = 0;
-            for (int[] c : counts) for (int v : c) maxCount = Math.max(maxCount, v);
-            if (counts.isEmpty() || maxCount == 0) {
+            double maxVal = 0;
+            for (int[] c : counts) for (int b = 0; b < c.length; b++) maxVal = Math.max(maxVal, barVal(c, b));
+            if (counts.isEmpty() || maxVal <= 0) {
                 g2.setColor(new Color(150, 150, 150));
                 g2.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 12));
                 String m = "No segments";
@@ -478,7 +487,7 @@ public class SegStatsPanel extends JPanel {
                 drawFrame(g2, px, py, pw, ph);
                 g2.dispose(); return;
             }
-            double yMax = niceCeil(maxCount);
+            double yMax = niceCeil(maxVal);
 
             // Display range (viewport or full), saved for mouse maths.
             dvXMin = (viewport != null) ? viewport[0] : xMin;
@@ -522,7 +531,7 @@ public class SegStatsPanel extends JPanel {
                 for (int b = 0; b < nb; b++) {
                     int xL = mapXpix(xMin + b * binW,       px, pw);
                     int xR = mapXpix(xMin + (b + 1) * binW, px, pw);
-                    int yv = mapYpix(c[b], py, ph);
+                    int yv = mapYpix(barVal(c, b), py, ph);
                     xs[k] = xL; ys[k++] = yv;
                     xs[k] = xR; ys[k++] = yv;
                 }
@@ -553,7 +562,8 @@ public class SegStatsPanel extends JPanel {
             g2.drawString(xt, px + (pw - g2.getFontMetrics().stringWidth(xt)) / 2, py + ph + MB - 4);
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph / 2.0); g2.rotate(-Math.PI / 2);
-            g2.drawString("Count", -g2.getFontMetrics().stringWidth("Count") / 2, g2.getFontMetrics().getAscent() / 2);
+            String yt = normalize ? "% of segments" : "Count";
+            g2.drawString(yt, -g2.getFontMetrics().stringWidth(yt) / 2, g2.getFontMetrics().getAscent() / 2);
             g2.setTransform(orig);
 
             // legend (movable block)

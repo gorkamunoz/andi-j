@@ -31,11 +31,20 @@ public class SegPhenomPanel extends JPanel {
         "Immobile", "Confined", "Free diffusion", "Directed"
     };
 
+    /** Per-state line colours (Okabe–Ito, colour-blind friendly). */
+    static final Color[] STATE_COLORS = {
+        new Color(120, 120, 120),   // Immobile
+        new Color(230, 159,   0),   // Confined
+        new Color(  0, 114, 178),   // Free diffusion
+        new Color(213,  94,   0),   // Directed
+    };
+
     private final List<ExperimentData>         experiments;
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
 
-    private final BarPanel  barPanel;
-    private final JPanel    lengthRow;   // holds one Hist1D per active state
+    private final BarPanel            barPanel;
+    private final SegStatsPanel.Hist1D lengthHist;   // one line per state
+    private final JCheckBox           normalizeBox = new JCheckBox("Normalize (%)");
 
     public SegPhenomPanel(List<ExperimentData> experiments) {
         super(new BorderLayout(0, 4));
@@ -43,16 +52,25 @@ public class SegPhenomPanel extends JPanel {
         setBorder(new EmptyBorder(6, 6, 6, 6));
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
+        barPanel   = new BarPanel();
+        lengthHist = new SegStatsPanel.Hist1D();
+        lengthHist.setTitle("Segment-length distribution by state");
+
         JLabel info = new JLabel("<html><i>Top: % of segments per diffusive state. "
-            + "Bottom: segment-length distribution per state.</i></html>");
+            + "Bottom: segment-length distribution, one line per state.</i></html>");
         info.setBorder(new EmptyBorder(2, 4, 4, 4));
         info.setForeground(new Color(80, 80, 80));
-        add(info, BorderLayout.NORTH);
+        normalizeBox.setToolTipText("Show each state's length distribution as % of that state's segments");
+        normalizeBox.addActionListener(e -> {
+            lengthHist.setNormalize(normalizeBox.isSelected());
+            lengthHist.repaint();
+        });
+        JPanel north = new JPanel(new BorderLayout());
+        north.add(info, BorderLayout.CENTER);
+        north.add(normalizeBox, BorderLayout.EAST);
+        add(north, BorderLayout.NORTH);
 
-        barPanel  = new BarPanel();
-        lengthRow = new JPanel(new GridLayout(1, 1, 4, 0));
-
-        JSplitPane plots = new JSplitPane(JSplitPane.VERTICAL_SPLIT, barPanel, lengthRow);
+        JSplitPane plots = new JSplitPane(JSplitPane.VERTICAL_SPLIT, barPanel, lengthHist);
         plots.setResizeWeight(0.5);
         plots.setContinuousLayout(true);
         plots.setDividerLocation(260);
@@ -116,13 +134,13 @@ public class SegPhenomPanel extends JPanel {
         return sp;
     }
 
-    /** Rebuilds the per-state length histograms and repaints the bar chart. */
+    /** Rebuilds the per-state length distribution (one line per state) + bar chart. */
     private void rebuild() {
         List<ExperimentData> sel = new ArrayList<>();
         for (ExperimentData exp : experiments)
             if (expVisible.getOrDefault(exp, true) && exp.hasSegments()) sel.add(exp);
 
-        // Global max segment length (shared x-axis so the histograms are comparable).
+        // Pool the selected experiments; one histogram series per diffusive state.
         int maxLen = 1;
         int[] stateTotals = new int[PHENOM_NAMES.length];
         for (ExperimentData exp : sel)
@@ -132,36 +150,27 @@ public class SegPhenomPanel extends JPanel {
                     if (s.state >= 0 && s.state < stateTotals.length) stateTotals[s.state]++;
                 }
 
-        lengthRow.removeAll();
         int nb = Math.max(1, Math.min(40, maxLen));
         double lenMin = 0.5, lenMax = maxLen + 0.5;
-        int active = 0;
+
+        List<int[]>  counts = new ArrayList<>();
+        List<Color>  colors = new ArrayList<>();
+        List<String> names  = new ArrayList<>();
         for (int st = 0; st < PHENOM_NAMES.length; st++) {
-            if (stateTotals[st] == 0) continue;                 // skip empty states
-            active++;
-            List<int[]>  counts = new ArrayList<>();
-            List<Color>  colors = new ArrayList<>();
-            List<String> names  = new ArrayList<>();
-            for (ExperimentData exp : sel) {
-                int[] c = new int[nb];
+            if (stateTotals[st] == 0) continue;                 // omit states with no segments
+            int[] c = new int[nb];
+            for (ExperimentData exp : sel)
                 for (List<Segment> segs : exp.segments.values())
                     for (Segment s : segs)
                         if (s.state == st) c[bin(s.length, lenMin, lenMax, nb)]++;
-                counts.add(c); colors.add(exp.color); names.add(exp.name);
-            }
-            SegStatsPanel.Hist1D h = new SegStatsPanel.Hist1D();
-            h.setTitle(PHENOM_NAMES[st]);
-            h.setData(lenMin, lenMax, nb, counts, colors, names);
-            lengthRow.add(h);
+            counts.add(c);
+            colors.add(STATE_COLORS[st]);
+            names.add(PHENOM_NAMES[st]);
         }
-        if (active == 0) {
-            JLabel none = new JLabel("No segments", SwingConstants.CENTER);
-            none.setForeground(new Color(150, 150, 150));
-            lengthRow.add(none);
-        }
-        ((GridLayout) lengthRow.getLayout()).setColumns(Math.max(1, active));
-        lengthRow.revalidate();
-        lengthRow.repaint();
+
+        lengthHist.setData(lenMin, lenMax, nb, counts, colors, names);
+        lengthHist.setNormalize(normalizeBox.isSelected());
+        lengthHist.repaint();
         barPanel.repaint();
     }
 

@@ -41,6 +41,8 @@ public class SegPhenomPanel extends JPanel {
 
     private final List<ExperimentData>         experiments;
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
+    /** Which diffusive-state lines to draw (default: the states present in the data). */
+    private final boolean[] modeVisible = new boolean[PHENOM_NAMES.length];
 
     private final BarPanel            barPanel;
     private final SegStatsPanel.Hist1D lengthHist;   // one line per state
@@ -51,6 +53,13 @@ public class SegPhenomPanel extends JPanel {
         this.experiments = experiments;
         setBorder(new EmptyBorder(6, 6, 6, 6));
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
+
+        // Default: show only states that occur in the data.
+        for (ExperimentData exp : experiments)
+            if (exp.hasSegments())
+                for (List<Segment> segs : exp.segments.values())
+                    for (Segment s : segs)
+                        if (s.state >= 0 && s.state < modeVisible.length) modeVisible[s.state] = true;
 
         barPanel   = new BarPanel();
         lengthHist = new SegStatsPanel.Hist1D();
@@ -75,7 +84,17 @@ public class SegPhenomPanel extends JPanel {
         plots.setContinuousLayout(true);
         plots.setDividerLocation(260);
 
-        JSplitPane main = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, plots, buildSideColumn());
+        // Controls column mirrors the plots' vertical split: experiments align with
+        // the top (bar chart), mode toggles with the bottom (length plot).
+        JSplitPane controls = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
+                buildExperimentsPanel(), buildModesPanel());
+        controls.setResizeWeight(0.5);
+        controls.setContinuousLayout(true);
+        controls.setDividerLocation(260);
+        controls.setDividerSize(0);   // driven by the plots divider, not dragged directly
+        syncDividers(plots, controls);
+
+        JSplitPane main = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, plots, controls);
         main.setResizeWeight(1.0);
         main.setContinuousLayout(true);
         add(main, BorderLayout.CENTER);
@@ -83,9 +102,20 @@ public class SegPhenomPanel extends JPanel {
         rebuild();
     }
 
+    /** Keeps the controls column's divider aligned with the plots' divider. */
+    private static void syncDividers(JSplitPane plots, JSplitPane controls) {
+        final boolean[] guard = {false};
+        plots.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (guard[0]) return;
+            guard[0] = true;
+            controls.setDividerLocation(plots.getDividerLocation());
+            guard[0] = false;
+        });
+    }
+
     // -----------------------------------------------------------------------
 
-    private JComponent buildSideColumn() {
+    private JComponent buildExperimentsPanel() {
         JPanel col = new JPanel();
         col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
         col.setBorder(new EmptyBorder(4, 4, 4, 4));
@@ -134,21 +164,43 @@ public class SegPhenomPanel extends JPanel {
         return sp;
     }
 
+    /** Right-column bottom: one toggle per diffusive state for the length plot. */
+    private JComponent buildModesPanel() {
+        JPanel col = new JPanel();
+        col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
+        col.setBorder(new EmptyBorder(4, 4, 4, 4));
+        for (int st = 0; st < PHENOM_NAMES.length; st++) {
+            final int s = st;
+            JToggleButton b = new JToggleButton(PHENOM_NAMES[st], modeVisible[st]);
+            b.setForeground(STATE_COLORS[st]);
+            b.setFont(b.getFont().deriveFont(Font.BOLD));
+            b.setAlignmentX(Component.LEFT_ALIGNMENT);
+            b.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+            b.setFocusPainted(false);
+            b.addActionListener(e -> { modeVisible[s] = b.isSelected(); rebuild(); });
+            col.add(b);
+            col.add(Box.createVerticalStrut(3));
+        }
+        col.add(Box.createVerticalGlue());
+
+        JScrollPane sp = new JScrollPane(col);
+        sp.setBorder(BorderFactory.createTitledBorder("Diffusive states"));
+        sp.setMinimumSize(new Dimension(90, 0));
+        sp.setPreferredSize(new Dimension(170, 0));
+        return sp;
+    }
+
     /** Rebuilds the per-state length distribution (one line per state) + bar chart. */
     private void rebuild() {
         List<ExperimentData> sel = new ArrayList<>();
         for (ExperimentData exp : experiments)
             if (expVisible.getOrDefault(exp, true) && exp.hasSegments()) sel.add(exp);
 
-        // Pool the selected experiments; one histogram series per diffusive state.
+        // Pool the selected experiments; one histogram series per shown state.
         int maxLen = 1;
-        int[] stateTotals = new int[PHENOM_NAMES.length];
         for (ExperimentData exp : sel)
             for (List<Segment> segs : exp.segments.values())
-                for (Segment s : segs) {
-                    maxLen = Math.max(maxLen, s.length);
-                    if (s.state >= 0 && s.state < stateTotals.length) stateTotals[s.state]++;
-                }
+                for (Segment s : segs) maxLen = Math.max(maxLen, s.length);
 
         int nb = Math.max(1, Math.min(40, maxLen));
         double lenMin = 0.5, lenMax = maxLen + 0.5;
@@ -157,8 +209,8 @@ public class SegPhenomPanel extends JPanel {
         List<Color>  colors = new ArrayList<>();
         List<String> names  = new ArrayList<>();
         for (int st = 0; st < PHENOM_NAMES.length; st++) {
-            if (stateTotals[st] == 0) continue;                 // omit states with no segments
-            int[] c = new int[nb];
+            if (!modeVisible[st]) continue;                     // omit toggled-off states
+            int[] c = new int[nb];                              // all-zeros if the state is empty
             for (ExperimentData exp : sel)
                 for (List<Segment> segs : exp.segments.values())
                     for (Segment s : segs)

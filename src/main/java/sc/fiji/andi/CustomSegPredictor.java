@@ -38,7 +38,7 @@ public class CustomSegPredictor implements Closeable {
     public CustomSegPredictor(byte[] modelBytes, Kind kind) throws OrtException {
         this.kind = kind;
         env       = OrtEnvironment.getEnvironment();
-        session   = env.createSession(modelBytes, new OrtSession.SessionOptions());
+        session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
         inputName = session.getInputNames().iterator().next();
         outNames  = new ArrayList<>(session.getOutputNames());
     }

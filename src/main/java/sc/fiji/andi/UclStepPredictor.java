@@ -102,7 +102,7 @@ public class UclStepPredictor implements Closeable {
     public UclStepPredictor(byte[] modelBytes, boolean useTta) throws OrtException {
         this.useTta = useTta;
         env       = OrtEnvironment.getEnvironment();
-        session   = env.createSession(modelBytes, makeSessionOptions());
+        session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
         inputName = session.getInputNames().iterator().next();
 
         // Outputs are exported in the order: cp, kac, model_type.
@@ -117,16 +117,6 @@ public class UclStepPredictor implements Closeable {
         return outs.get(Math.min(fallbackIdx, outs.size() - 1));
     }
 
-    private static OrtSession.SessionOptions makeSessionOptions() throws OrtException {
-        OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
-        opts.setIntraOpNumThreads(Math.max(1, Runtime.getRuntime().availableProcessors()));
-        try {
-            opts.addCUDA(0);   // best-effort GPU; CPU remains the fallback
-        } catch (Throwable t) {
-            System.err.println("[UclStepPredictor] CUDA GPU unavailable, using CPU: " + t.getMessage());
-        }
-        return opts;
-    }
 
     // -----------------------------------------------------------------------
     // Public inference

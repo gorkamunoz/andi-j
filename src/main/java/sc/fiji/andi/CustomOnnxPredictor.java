@@ -43,7 +43,7 @@ public class CustomOnnxPredictor implements MlPredictor {
     public CustomOnnxPredictor(byte[] modelBytes, Mode mode) throws OrtException {
         this.mode  = mode;
         env        = OrtEnvironment.getEnvironment();
-        session    = env.createSession(modelBytes, new OrtSession.SessionOptions());
+        session    = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
         inputName  = session.getInputNames().iterator().next();
         outputName = session.getOutputNames().iterator().next();
     }

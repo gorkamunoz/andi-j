@@ -65,7 +65,7 @@ public class SingleTrajPredictor implements MlPredictor {
 
     public SingleTrajPredictor(byte[] modelBytes) throws OrtException {
         env        = OrtEnvironment.getEnvironment();
-        session    = env.createSession(modelBytes, new OrtSession.SessionOptions());
+        session    = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
         inputName  = session.getInputNames().iterator().next();
         outputName = session.getOutputNames().iterator().next();
     }

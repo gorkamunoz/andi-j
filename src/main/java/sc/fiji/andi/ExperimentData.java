@@ -61,17 +61,6 @@ public class ExperimentData {
 
     public boolean hasDiffModel() { return diffModel != null && !diffModel.isEmpty(); }
 
-    // -- predicted diffusive-state class from the segmentation model --
-    /**
-     * Predicted AnDi diffusive state per track: trackId → class index into
-     * {@link SegPhenomPanel#PHENOM_NAMES} (0=immobile, 1=confined, 2=Brownian,
-     * 3=directed). Filled by {@link SegmentationRunner}; -1 (or absent) means
-     * "not predicted".
-     */
-    public Map<Integer, Integer> phenomModel;
-
-    public boolean hasPhenomModel() { return phenomModel != null && !phenomModel.isEmpty(); }
-
     // -- change-point segments (null until ChangePointDetector runs) --
     /** Per-track list of segments from change-point detection on the STEP predictions. */
     public Map<Integer, List<Segment>> segments;

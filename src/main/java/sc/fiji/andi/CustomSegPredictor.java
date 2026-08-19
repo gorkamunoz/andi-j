@@ -23,7 +23,7 @@ public class CustomSegPredictor implements Closeable {
     /** Per-frame outputs; any field may be null if this model does not provide it. */
     public static final class Out {
         public double[] alpha, logD, cp;
-        public int      phenom = -1;   // aggregated phenomenological-model class (−1 = none)
+        public int[]    state;   // per-frame diffusive-state class (null if none)
     }
 
     private final Kind          kind;
@@ -61,12 +61,12 @@ public class CustomSegPredictor implements Closeable {
         try (OnnxTensor tensor = OnnxTensor.createTensor(env, in);
              OrtSession.Result res = session.run(Collections.singletonMap(inputName, tensor))) {
             if (kind == Kind.COMBINED) {
-                out.alpha  = read(res, "alpha", 0, T);
-                out.logD   = read(res, "logD",  1, T);
-                out.cp     = read(res, "cp",    2, T);
-                out.phenom = readPhenom(res, "model_type", 3);   // optional 4th output
+                out.alpha = read(res, "alpha", 0, T);
+                out.logD  = read(res, "logD",  1, T);
+                out.cp    = read(res, "cp",    2, T);
+                out.state = readStatePerFrame(res, "model_type", 3, T);   // optional 4th output
             } else if (kind == Kind.MODELTYPE) {
-                out.phenom = readPhenom(res, null, 0);
+                out.state = readStatePerFrame(res, null, 0, T);
             } else {
                 double[] v = read(res, null, 0, T);
                 if (kind == Kind.ALPHA)     out.alpha = v;
@@ -109,34 +109,37 @@ public class CustomSegPredictor implements Closeable {
     }
 
     /**
-     * Reads an optional per-frame class-probability output ({@code (1, T, K)} or
-     * a per-trajectory {@code (1, K)}) and returns the aggregated class index
-     * (argmax of the probabilities summed over frames), or −1 if absent.
+     * Reads an optional diffusive-state output into a per-frame class array:
+     * {@code (1, T, K)} → per-frame argmax; {@code (1, T)} → per-frame rounded
+     * value. Returns {@code null} if the output is absent.
      */
-    private int readPhenom(OrtSession.Result res, String name, int index) throws OrtException {
+    private int[] readStatePerFrame(OrtSession.Result res, String name, int index, int T)
+            throws OrtException {
         OnnxValue v = null;
         if (name != null)
             for (String o : outNames)
                 if (o.equalsIgnoreCase(name)) { v = res.get(o).orElse(null); break; }
         if (v == null && index < outNames.size())
             v = res.get(outNames.get(index)).orElse(null);
-        if (v == null) return -1;
+        if (v == null) return null;
 
         Object val = v.getValue();
-        double[] acc = null;
-        if (val instanceof float[][][]) {              // (1, T, K)
-            for (float[] frame : ((float[][][]) val)[0]) {
-                if (acc == null) acc = new double[frame.length];
-                for (int k = 0; k < frame.length; k++) acc[k] += frame[k];
+        int[] out = new int[T];
+        if (val instanceof float[][][]) {              // (1, T, K) → argmax per frame
+            float[][] frames = ((float[][][]) val)[0];
+            for (int t = 0; t < T && t < frames.length; t++) {
+                float[] f = frames[t];
+                int best = 0;
+                for (int k = 1; k < f.length; k++) if (f[k] > f[best]) best = k;
+                out[t] = best;
             }
-        } else if (val instanceof float[][]) {          // (1, K)
+        } else if (val instanceof float[][]) {          // (1, T) → rounded value
             float[] row = ((float[][]) val)[0];
-            acc = new double[row.length];
-            for (int k = 0; k < row.length; k++) acc[k] = row[k];
+            for (int t = 0; t < T && t < row.length; t++) out[t] = Math.max(0, Math.round(row[t]));
         } else {
-            return -1;
+            return null;
         }
-        return (acc == null) ? -1 : UclStepPredictor.argmax(acc);
+        return out;
     }
 
     private static byte[] readFile(File f) throws IOException {

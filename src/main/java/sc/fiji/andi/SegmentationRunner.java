@@ -71,7 +71,6 @@ public final class SegmentationRunner {
             Map<Integer, double[]>      outA = new LinkedHashMap<>();
             Map<Integer, double[]>      outD = new LinkedHashMap<>();
             Map<Integer, List<Segment>> outS = new LinkedHashMap<>();
-            Map<Integer, Integer>       outP = new LinkedHashMap<>();
 
             for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
                 int id = e.getKey();
@@ -81,7 +80,6 @@ public final class SegmentationRunner {
                     outA.put(id, new double[0]);
                     outD.put(id, new double[0]);
                     outS.put(id, Collections.<Segment>emptyList());
-                    outP.put(id, -1);
                     if (tick != null) tick.trackDone();
                     continue;
                 }
@@ -91,17 +89,17 @@ public final class SegmentationRunner {
 
                 double[] a, d, cp;
                 boolean cpIsProb;
-                int phenom;
+                int[] state;
                 if (combined != null) {
                     CustomSegPredictor.Out o = combined.run(xy);
-                    a = o.alpha; d = o.logD; cp = o.cp; cpIsProb = false; phenom = o.phenom;
+                    a = o.alpha; d = o.logD; cp = o.cp; cpIsProb = false; state = o.state;
                 } else {
                     UclStepPredictor.TrackOut base = (def != null) ? def.computeTrack(spots) : null;
                     a = (ca != null) ? ca.run(xy).alpha : (base != null ? base.alpha  : null);
                     d = (cd != null) ? cd.run(xy).logD  : (base != null ? base.logD   : null);
                     if (cc != null) { cp = cc.run(xy).cp;   cpIsProb = false; }
                     else            { cp = (base != null ? base.cpProb : null); cpIsProb = true; }
-                    phenom = (cph != null) ? cph.run(xy).phenom : (base != null ? base.phenom : -1);
+                    state = (cph != null) ? cph.run(xy).state : (base != null ? base.state : null);
                 }
 
                 // Defensive defaults for a mis-shaped custom output.
@@ -119,15 +117,13 @@ public final class SegmentationRunner {
 
                 outA.put(id, a);
                 outD.put(id, d);
-                outS.put(id, UclStepPredictor.segmentsFrom(cps, a, d));
-                outP.put(id, phenom);
+                outS.put(id, UclStepPredictor.segmentsFrom(cps, a, d, state));
                 if (tick != null) tick.trackDone();
             }
 
-            exp.stepAlpha   = outA;
-            exp.stepLogD    = outD;
-            exp.segments    = outS;
-            exp.phenomModel = outP;
+            exp.stepAlpha = outA;
+            exp.stepLogD  = outD;
+            exp.segments  = outS;
         }
     }
 

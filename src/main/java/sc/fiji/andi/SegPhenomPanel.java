@@ -13,25 +13,29 @@ import java.util.List;
 /**
  * "Diffusive state" tab for Trajectory Segmentation.
  *
- * <p>Shows, per experiment, the percentage of trajectories by their dominant
- * AnDi diffusive state (the model's per-frame state head, {@code kac[:, 2]}).
- * The classification is produced during <em>Perform Analysis</em>, so — unlike
- * the Analysis "Diffusion Model" tab — there are no ML controls here; the model
- * is chosen in the Data Manager.</p>
+ * <p>Two stacked plots (draggable divider):</p>
+ * <ol>
+ *   <li><b>Top</b> — per experiment, the % of <em>segments</em> in each AnDi
+ *       diffusive state (each segment's majority per-frame state).</li>
+ *   <li><b>Bottom</b> — one segment-length histogram per diffusive state that
+ *       has any segments (states with no segments are omitted).</li>
+ * </ol>
+ * The classification comes from the segmentation model (its per-frame state
+ * head, {@code kac[:, 2]}), computed during Perform Analysis — so there are no
+ * ML controls here; the model is chosen in the Data Manager.
  */
 public class SegPhenomPanel extends JPanel {
 
     /** AnDi diffusive-state classes, in the model's output-class order (0…3). */
     public static final String[] PHENOM_NAMES = {
-        "Immobile", "Confined / subdiffusion", "Brownian / free", "Directed"
+        "Immobile", "Confined", "Free diffusion", "Directed"
     };
 
     private final List<ExperimentData>         experiments;
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
 
     private final BarPanel  barPanel;
-    private JComponent      sideColumn;
-    private JSplitPane      split;
+    private final JPanel    lengthRow;   // holds one Hist1D per active state
 
     public SegPhenomPanel(List<ExperimentData> experiments) {
         super(new BorderLayout(0, 4));
@@ -39,18 +43,26 @@ public class SegPhenomPanel extends JPanel {
         setBorder(new EmptyBorder(6, 6, 6, 6));
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
-        JLabel info = new JLabel("<html><i>Percentage of trajectories by their dominant "
-            + "diffusive state (from the segmentation model).</i></html>");
+        JLabel info = new JLabel("<html><i>Top: % of segments per diffusive state. "
+            + "Bottom: segment-length distribution per state.</i></html>");
         info.setBorder(new EmptyBorder(2, 4, 4, 4));
         info.setForeground(new Color(80, 80, 80));
         add(info, BorderLayout.NORTH);
 
-        barPanel   = new BarPanel();
-        sideColumn = buildSideColumn();
-        split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, barPanel, sideColumn);
-        split.setResizeWeight(1.0);
-        split.setContinuousLayout(true);
-        add(split, BorderLayout.CENTER);
+        barPanel  = new BarPanel();
+        lengthRow = new JPanel(new GridLayout(1, 1, 4, 0));
+
+        JSplitPane plots = new JSplitPane(JSplitPane.VERTICAL_SPLIT, barPanel, lengthRow);
+        plots.setResizeWeight(0.5);
+        plots.setContinuousLayout(true);
+        plots.setDividerLocation(260);
+
+        JSplitPane main = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, plots, buildSideColumn());
+        main.setResizeWeight(1.0);
+        main.setContinuousLayout(true);
+        add(main, BorderLayout.CENTER);
+
+        rebuild();
     }
 
     // -----------------------------------------------------------------------
@@ -68,7 +80,7 @@ public class SegPhenomPanel extends JPanel {
             b.setAlignmentX(Component.LEFT_ALIGNMENT);
             b.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
             b.setFocusPainted(false);
-            b.addActionListener(e -> { expVisible.put(exp, b.isSelected()); barPanel.repaint(); });
+            b.addActionListener(e -> { expVisible.put(exp, b.isSelected()); rebuild(); });
             col.add(b);
             col.add(Box.createVerticalStrut(3));
             btns.add(b);
@@ -81,14 +93,14 @@ public class SegPhenomPanel extends JPanel {
         deselect.addActionListener(e -> {
             for (ExperimentData exp : experiments) expVisible.put(exp, false);
             btns.forEach(x -> x.setSelected(false));
-            barPanel.repaint();
+            rebuild();
         });
 
         JButton saveBtn = new JButton("Save…");
         saveBtn.setFont(saveBtn.getFont().deriveFont(Font.PLAIN, 10f));
         saveBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
         saveBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
-        saveBtn.setToolTipText("Export the per-trajectory diffusive-state class to CSV");
+        saveBtn.setToolTipText("Export the per-segment diffusive state to CSV");
         saveBtn.addActionListener(e -> save());
 
         col.add(Box.createVerticalStrut(6));
@@ -104,31 +116,90 @@ public class SegPhenomPanel extends JPanel {
         return sp;
     }
 
+    /** Rebuilds the per-state length histograms and repaints the bar chart. */
+    private void rebuild() {
+        List<ExperimentData> sel = new ArrayList<>();
+        for (ExperimentData exp : experiments)
+            if (expVisible.getOrDefault(exp, true) && exp.hasSegments()) sel.add(exp);
+
+        // Global max segment length (shared x-axis so the histograms are comparable).
+        int maxLen = 1;
+        int[] stateTotals = new int[PHENOM_NAMES.length];
+        for (ExperimentData exp : sel)
+            for (List<Segment> segs : exp.segments.values())
+                for (Segment s : segs) {
+                    maxLen = Math.max(maxLen, s.length);
+                    if (s.state >= 0 && s.state < stateTotals.length) stateTotals[s.state]++;
+                }
+
+        lengthRow.removeAll();
+        int nb = Math.max(1, Math.min(40, maxLen));
+        double lenMin = 0.5, lenMax = maxLen + 0.5;
+        int active = 0;
+        for (int st = 0; st < PHENOM_NAMES.length; st++) {
+            if (stateTotals[st] == 0) continue;                 // skip empty states
+            active++;
+            List<int[]>  counts = new ArrayList<>();
+            List<Color>  colors = new ArrayList<>();
+            List<String> names  = new ArrayList<>();
+            for (ExperimentData exp : sel) {
+                int[] c = new int[nb];
+                for (List<Segment> segs : exp.segments.values())
+                    for (Segment s : segs)
+                        if (s.state == st) c[bin(s.length, lenMin, lenMax, nb)]++;
+                counts.add(c); colors.add(exp.color); names.add(exp.name);
+            }
+            SegStatsPanel.Hist1D h = new SegStatsPanel.Hist1D();
+            h.setTitle(PHENOM_NAMES[st]);
+            h.setData(lenMin, lenMax, nb, counts, colors, names);
+            lengthRow.add(h);
+        }
+        if (active == 0) {
+            JLabel none = new JLabel("No segments", SwingConstants.CENTER);
+            none.setForeground(new Color(150, 150, 150));
+            lengthRow.add(none);
+        }
+        ((GridLayout) lengthRow.getLayout()).setColumns(Math.max(1, active));
+        lengthRow.revalidate();
+        lengthRow.repaint();
+        barPanel.repaint();
+    }
+
+    private static int bin(double v, double vMin, double vMax, int n) {
+        int b = (int) ((v - vMin) / (vMax - vMin) * n);
+        return Math.max(0, Math.min(n - 1, b));
+    }
+
     private void save() {
-        if (experiments.stream().noneMatch(ExperimentData::hasPhenomModel)) {
-            JOptionPane.showMessageDialog(this, "No phenomenological-model predictions available.",
+        if (experiments.stream().noneMatch(ExperimentData::hasSegments)) {
+            JOptionPane.showMessageDialog(this, "No segments available.",
                 "Save", JOptionPane.WARNING_MESSAGE);
             return;
         }
         JFileChooser fc = new JFileChooser();
         fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
-        fc.setDialogTitle("Save diffusive-state predictions");
+        fc.setDialogTitle("Save per-segment diffusive state");
         if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
         File f = fc.getSelectedFile();
         if (!f.getName().toLowerCase().endsWith(".csv"))
             f = new File(f.getParent(), f.getName() + ".csv");
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            pw.println("experiment,traj_idx,diffusive_state");
+            pw.println("experiment,traj_idx,segment,start_frame,length,state");
             for (ExperimentData exp : experiments) {
-                if (!exp.hasPhenomModel()) continue;
-                for (Map.Entry<Integer, Integer> e : exp.phenomModel.entrySet()) {
-                    int c = e.getValue();
-                    if (c < 0 || c >= PHENOM_NAMES.length) continue;
-                    pw.printf("%s,%d,%s%n", exp.name, e.getKey(), PHENOM_NAMES[c]);
+                if (!exp.hasSegments()) continue;
+                for (Map.Entry<Integer, List<Segment>> e : exp.segments.entrySet()) {
+                    List<Segment> segs = e.getValue();
+                    for (int k = 0; k < segs.size(); k++) {
+                        Segment s = segs.get(k);
+                        String state = (s.state >= 0 && s.state < PHENOM_NAMES.length)
+                                     ? PHENOM_NAMES[s.state] : "";
+                        pw.printf("%s,%d,%d,%d,%d,%s%n",
+                            exp.name, e.getKey(), k + 1, s.start + 1, s.length, state);
+                    }
                 }
             }
-            IJ.log("AnDi-J: phenomenological-model predictions saved → " + f.getAbsolutePath());
+            IJ.log("AnDi-J: per-segment diffusive state saved → " + f.getAbsolutePath());
         } catch (IOException ex) {
             JOptionPane.showMessageDialog(this, "Could not save file:\n" + ex.getMessage(),
                 "Save – error", JOptionPane.ERROR_MESSAGE);
@@ -136,7 +207,7 @@ public class SegPhenomPanel extends JPanel {
     }
 
     // ═════════════════════════════════════════════════════════════════════
-    // Bar chart
+    // Top: % of segments per state
     // ═════════════════════════════════════════════════════════════════════
 
     private class BarPanel extends JPanel {
@@ -145,7 +216,7 @@ public class SegPhenomPanel extends JPanel {
 
         BarPanel() {
             setBackground(Color.WHITE);
-            setPreferredSize(new Dimension(560, 380));
+            setPreferredSize(new Dimension(560, 250));
             MouseAdapter ma = new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent e) { legend.press(e.getX(), e.getY()); }
                 @Override public void mouseDragged(MouseEvent e) { if (legend.dragTo(e.getX(), e.getY())) repaint(); }
@@ -172,15 +243,16 @@ public class SegPhenomPanel extends JPanel {
 
             List<ExperimentData> visible = new ArrayList<>();
             for (ExperimentData exp : experiments)
-                if (expVisible.getOrDefault(exp, true) && exp.hasPhenomModel()) visible.add(exp);
+                if (expVisible.getOrDefault(exp, true) && exp.hasSegments()) visible.add(exp);
 
             int nModels = PHENOM_NAMES.length;
             double[][] pct = new double[visible.size()][nModels];
             for (int ei = 0; ei < visible.size(); ei++) {
                 int[] counts = new int[nModels];
                 int total = 0;
-                for (int m : visible.get(ei).phenomModel.values())
-                    if (m >= 0 && m < nModels) { counts[m]++; total++; }
+                for (List<Segment> segs : visible.get(ei).segments.values())
+                    for (Segment s : segs)
+                        if (s.state >= 0 && s.state < nModels) { counts[s.state]++; total++; }
                 if (total > 0)
                     for (int m = 0; m < nModels; m++) pct[ei][m] = 100.0 * counts[m] / total;
             }
@@ -192,10 +264,12 @@ public class SegPhenomPanel extends JPanel {
             g2.setColor(Color.WHITE);
             g2.fillRect(px, py, pw, ph);
 
-            if (visible.isEmpty()) {
-                boolean any = experiments.stream().anyMatch(ExperimentData::hasPhenomModel);
-                String msg = any ? "No experiments selected"
-                                 : "No diffusive-state prediction available";
+            boolean anyState = false;
+            for (double[] row : pct) for (double v : row) if (v > 0) anyState = true;
+            if (!anyState) {
+                boolean anySeg = experiments.stream().anyMatch(ExperimentData::hasSegments);
+                String msg = anySeg ? "No diffusive-state prediction / no experiments selected"
+                                    : "No segments available";
                 g2.setColor(new Color(160, 160, 160));
                 g2.setFont(new Font(Font.SANS_SERIF, Font.ITALIC, 13));
                 FontMetrics fm = g2.getFontMetrics();
@@ -242,7 +316,7 @@ public class SegPhenomPanel extends JPanel {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             java.awt.geom.AffineTransform orig = g2.getTransform();
-            String yTitle = "% of trajectories";
+            String yTitle = "% of segments";
             FontMetrics fm2 = g2.getFontMetrics();
             g2.translate(13, py + ph / 2.0); g2.rotate(-Math.PI / 2);
             g2.drawString(yTitle, -fm2.stringWidth(yTitle) / 2, fm2.getAscent() / 2 - 6);

@@ -156,7 +156,6 @@ public class UclStepPredictor implements Closeable {
         Map<Integer, double[]>        outAlpha  = new LinkedHashMap<>();
         Map<Integer, double[]>        outLogD   = new LinkedHashMap<>();
         Map<Integer, List<Segment>>   outSegs   = new LinkedHashMap<>();
-        Map<Integer, Integer>         outPhenom = new LinkedHashMap<>();
 
         // Preprocess: short tracks get empty output; the rest become displacement
         // pairs bucketed by padded length so each batch tensor is rectangular.
@@ -169,7 +168,6 @@ public class UclStepPredictor implements Closeable {
                 outAlpha.put(id, new double[0]);
                 outLogD.put(id,  new double[0]);
                 outSegs.put(id,  Collections.<Segment>emptyList());
-                outPhenom.put(id, -1);
                 if (listener != null) listener.trackDone();
                 continue;
             }
@@ -223,15 +221,17 @@ public class UclStepPredictor implements Closeable {
                     Track tr = tracks.get(off + j);
                     int   T  = tr.T;
                     double[] alpha = new double[T], logD = new double[T], cpProb = new double[T];
+                    int[] state = new int[T];
                     for (int t = 0; t < T; t++) {
-                        double cpv = 0, av = 0, dv = 0;
+                        double cpv = 0, av = 0, dv = 0, sv = 0;
                         for (int v = 0; v < views; v++) {
                             int r = j * views + v;
                             cpv += cp[r][t][0];
                             av  += kac[r][t][0];
                             dv  += kac[r][t][1];
+                            sv  += kac[r][t][2];
                         }
-                        cpv /= views; av /= views; dv /= views;
+                        cpv /= views; av /= views; dv /= views; sv /= views;
 
                         alpha[t]  = clamp(av, 0.0, ALPHA_MAX);
                         // The model's D head is a raw, unbounded linear output that
@@ -245,46 +245,24 @@ public class UclStepPredictor implements Closeable {
                         logD[t]   = (Double.isFinite(dv) && dv > D_MIN)
                                   ? Math.log10(Math.min(dv, D_MAX)) : Double.NaN;
                         cpProb[t] = cpv;
+                        state[t]  = stateClass(sv);
                     }
                     outAlpha.put(tr.id, alpha);
                     outLogD.put(tr.id,  logD);
-                    outSegs.put(tr.id,  buildSegments(cpProb, alpha, logD));
-                    outPhenom.put(tr.id, phenomFromKac(kac, j * views, views, T));
+                    outSegs.put(tr.id,  buildSegments(cpProb, alpha, logD, state));
                     if (listener != null) listener.trackDone();
                 }
             }
         }
 
-        exp.stepAlpha   = outAlpha;
-        exp.stepLogD    = outLogD;
-        exp.segments    = outSegs;
-        exp.phenomModel = outPhenom;
+        exp.stepAlpha = outAlpha;
+        exp.stepLogD  = outLogD;
+        exp.segments  = outSegs;
     }
 
-    /**
-     * Aggregates the model channel {@code kac[:, 2]} into one diffusive-state
-     * class for the trajectory: each frame's value (averaged over TTA views) is
-     * rounded to a state in {@code [0, STATE_CLASSES − 1]}, and the trajectory's
-     * class is the most frequent frame state (mode). (The bundled model encodes
-     * the state in the third {@code kac} channel, not in the {@code model_type} head.)
-     *
-     * @param kac    kac output {@code [rows][Tpad][3]} = [α, D, state]
-     * @param row0   first row for this track (view 0)
-     * @param views  number of TTA views for this track
-     * @param T      real (unpadded) track length
-     */
-    static int phenomFromKac(float[][][] kac, int row0, int views, int T) {
-        if (kac[row0] == null || kac[row0].length == 0 || kac[row0][0].length < 3) return -1;
-        int[] counts = new int[STATE_CLASSES];
-        for (int t = 0; t < T; t++) {
-            double s = 0;
-            for (int v = 0; v < views; v++) s += kac[row0 + v][t][2];
-            int c = (int) Math.round(s / views);
-            counts[Math.max(0, Math.min(STATE_CLASSES - 1, c))]++;
-        }
-        int best = 0;
-        for (int k = 1; k < STATE_CLASSES; k++) if (counts[k] > counts[best]) best = k;
-        return best;
+    /** Rounds a raw model state value (kac channel 2) to a class in [0, STATE_CLASSES−1]. */
+    static int stateClass(double v) {
+        return Math.max(0, Math.min(STATE_CLASSES - 1, (int) Math.round(v)));
     }
 
     static int argmax(double[] a) {
@@ -296,7 +274,7 @@ public class UclStepPredictor implements Closeable {
     /** Per-frame default-model outputs for a single track (cropped to its length T). */
     public static final class TrackOut {
         public double[] alpha, logD, cpProb;
-        public int      phenom = -1;   // aggregated phenomenological-model class (−1 = none)
+        public int[]    state;   // per-frame diffusive-state class (may be null)
     }
 
     /**
@@ -333,16 +311,19 @@ public class UclStepPredictor implements Closeable {
         runBatch(in, cp, kac);
 
         double[] alpha = new double[T], logD = new double[T], cpProb = new double[T];
+        int[] state = new int[T];
         for (int t = 0; t < T; t++) {
-            double cpv = 0, av = 0, dv = 0;
-            for (int v = 0; v < views; v++) { cpv += cp[v][t][0]; av += kac[v][t][0]; dv += kac[v][t][1]; }
-            cpv /= views; av /= views; dv /= views;
+            double cpv = 0, av = 0, dv = 0, sv = 0;
+            for (int v = 0; v < views; v++) {
+                cpv += cp[v][t][0]; av += kac[v][t][0]; dv += kac[v][t][1]; sv += kac[v][t][2];
+            }
+            cpv /= views; av /= views; dv /= views; sv /= views;
             alpha[t]  = clamp(av, 0.0, ALPHA_MAX);
             logD[t]   = (Double.isFinite(dv) && dv > D_MIN) ? Math.log10(Math.min(dv, D_MAX)) : Double.NaN;
             cpProb[t] = cpv;
+            state[t]  = stateClass(sv);
         }
-        o.alpha = alpha; o.logD = logD; o.cpProb = cpProb;
-        o.phenom = phenomFromKac(kac, 0, views, T);
+        o.alpha = alpha; o.logD = logD; o.cpProb = cpProb; o.state = state;
         return o;
     }
 
@@ -351,8 +332,8 @@ public class UclStepPredictor implements Closeable {
     // -----------------------------------------------------------------------
 
     /** Builds segments by peak-picking the default model's cp probability. */
-    static List<Segment> buildSegments(double[] cpProb, double[] alpha, double[] logD) {
-        return segmentsFrom(findChangePoints(cpProb), alpha, logD);
+    static List<Segment> buildSegments(double[] cpProb, double[] alpha, double[] logD, int[] state) {
+        return segmentsFrom(findChangePoints(cpProb), alpha, logD, state);
     }
 
     /** Change points from a custom 0/1 (thresholded) per-frame cp signal. */
@@ -364,8 +345,12 @@ public class UclStepPredictor implements Closeable {
         return r;
     }
 
-    /** Builds segments (interval means of α / logD) from explicit change-point indices. */
-    static List<Segment> segmentsFrom(int[] cps, double[] alpha, double[] logD) {
+    /**
+     * Builds segments from explicit change-point indices: interval means of
+     * α / logD, plus the majority per-frame diffusive state (−1 if {@code state}
+     * is null or has no valid class in the interval).
+     */
+    static List<Segment> segmentsFrom(int[] cps, double[] alpha, double[] logD, int[] state) {
         int T = alpha.length;
 
         // Boundaries 0, cp1, cp2, …, T  → segments between consecutive pairs.
@@ -384,9 +369,24 @@ public class UclStepPredictor implements Closeable {
             double s = 0; int cnt = 0;
             for (int t = i; t < j; t++) if (Double.isFinite(logD[t])) { s += logD[t]; cnt++; }
             double dMean = cnt > 0 ? s / cnt : Double.NaN;
-            segs.add(new Segment(i, j - i, aMean, dMean));
+            segs.add(new Segment(i, j - i, aMean, dMean, majorityState(state, i, j)));
         }
         return segs;
+    }
+
+    /** Most frequent valid diffusive state in [i, j); −1 if none. */
+    private static int majorityState(int[] state, int i, int j) {
+        if (state == null) return -1;
+        int[] counts = new int[STATE_CLASSES];
+        int any = 0;
+        for (int t = i; t < j && t < state.length; t++) {
+            int c = state[t];
+            if (c >= 0 && c < STATE_CLASSES) { counts[c]++; any++; }
+        }
+        if (any == 0) return -1;
+        int best = 0;
+        for (int k = 1; k < STATE_CLASSES; k++) if (counts[k] > counts[best]) best = k;
+        return best;
     }
 
     /**

@@ -345,9 +345,12 @@ public class SegStatsPanel extends JPanel {
 
         private double xMin, xMax;
         private int    nb;
+        private String title = "Segment-length distribution";
         private List<int[]>  counts = java.util.Collections.emptyList();
         private List<Color>  colors = java.util.Collections.emptyList();
         private List<String> names  = java.util.Collections.emptyList();
+
+        void setTitle(String t) { this.title = t; }
 
         // ── Viewport / interaction state ──────────────────────────────────
         private double[] viewport = null;   // null = auto; {xMin,xMax,yMin,yMax}
@@ -463,7 +466,7 @@ public class SegStatsPanel extends JPanel {
 
             g2.setColor(Color.DARK_GRAY);
             g2.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
-            g2.drawString("Segment-length distribution", px, py - 10);
+            g2.drawString(title, px, py - 10);
 
             int maxCount = 0;
             for (int[] c : counts) for (int v : c) maxCount = Math.max(maxCount, v);

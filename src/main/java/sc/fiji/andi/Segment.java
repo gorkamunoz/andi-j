@@ -17,12 +17,20 @@ public class Segment {
     public final double alpha;
     /** Mean predicted log₁₀(D) over the segment (NaN if D unavailable). */
     public final double logD;
+    /** Diffusive-state class over the segment (majority of per-frame states),
+     *  index into {@link SegPhenomPanel#PHENOM_NAMES}; −1 if unavailable. */
+    public final int state;
 
     public Segment(int start, int length, double alpha, double logD) {
+        this(start, length, alpha, logD, -1);
+    }
+
+    public Segment(int start, int length, double alpha, double logD, int state) {
         this.start  = start;
         this.length = length;
         this.alpha  = alpha;
         this.logD   = logD;
+        this.state  = state;
     }
 
     /** Linear diffusion coefficient D = 10^logD (NaN if logD is NaN). */

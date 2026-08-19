@@ -58,6 +58,14 @@ def _cp(step):
     return (step > 2.0 * mean).float()
 
 
+def _model_type(step):
+    # (1, T, 5) per-frame softmax over the 5 AnDi-2 phenomenological models,
+    # mapped from step magnitude (purely illustrative).
+    centers = torch.tensor([0.5, 1.0, 1.5, 2.0, 2.5])           # (5,)
+    logits  = -3.0 * (step.unsqueeze(-1) - centers) ** 2        # (1, T, 5)
+    return torch.softmax(logits, dim=-1)
+
+
 class AlphaModel(nn.Module):
     def forward(self, x): return _alpha(_step(x))
 
@@ -70,10 +78,14 @@ class CpModel(nn.Module):
     def forward(self, x): return _cp(_step(x))
 
 
+class ModelTypeModel(nn.Module):
+    def forward(self, x): return _model_type(_step(x))
+
+
 class CombinedModel(nn.Module):
     def forward(self, x):
         s = _step(x)
-        return _alpha(s), _logd(s), _cp(s)
+        return _alpha(s), _logd(s), _cp(s), _model_type(s)
 
 
 def export(model, name, out_names):
@@ -93,17 +105,19 @@ def export(model, name, out_names):
 
 if __name__ == "__main__":
     print("Exporting segmentation test models …")
-    export(AlphaModel(),    "seg_alpha.onnx",    ["alpha"])
-    export(LogDModel(),     "seg_logd.onnx",     ["logD"])
-    export(CpModel(),       "seg_cp.onnx",       ["cp"])
-    export(CombinedModel(), "seg_combined.onnx", ["alpha", "logD", "cp"])
+    export(AlphaModel(),     "seg_alpha.onnx",     ["alpha"])
+    export(LogDModel(),      "seg_logd.onnx",      ["logD"])
+    export(CpModel(),        "seg_cp.onnx",        ["cp"])
+    export(ModelTypeModel(), "seg_modeltype.onnx", ["model_type"])
+    export(CombinedModel(),  "seg_combined.onnx",  ["alpha", "logD", "cp", "model_type"])
 
     # Optional round-trip check
     try:
         import numpy as np
         import onnxruntime as ort
         print("\nVerifying (each output should be length T):")
-        for name in ("seg_alpha.onnx", "seg_logd.onnx", "seg_cp.onnx", "seg_combined.onnx"):
+        for name in ("seg_alpha.onnx", "seg_logd.onnx", "seg_cp.onnx",
+                     "seg_modeltype.onnx", "seg_combined.onnx"):
             s = ort.InferenceSession(str(SCRIPT_DIR / name), providers=["CPUExecutionProvider"])
             for T in (37, 128):
                 outs = s.run(None, {"input": np.random.randn(1, T, 2).astype("float32")})

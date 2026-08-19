@@ -61,6 +61,17 @@ public class ExperimentData {
 
     public boolean hasDiffModel() { return diffModel != null && !diffModel.isEmpty(); }
 
+    // -- predicted phenomenological model class from the segmentation model --
+    /**
+     * Predicted AnDi-2 phenomenological model per track: trackId → class index
+     * into {@link SegPhenomPanel#PHENOM_NAMES} (0=single-state … 4=immobile-traps).
+     * Filled by {@link SegmentationRunner} when the model provides a model-type
+     * output. -1 (or absent) means "not predicted".
+     */
+    public Map<Integer, Integer> phenomModel;
+
+    public boolean hasPhenomModel() { return phenomModel != null && !phenomModel.isEmpty(); }
+
     // -- change-point segments (null until ChangePointDetector runs) --
     /** Per-track list of segments from change-point detection on the STEP predictions. */
     public Map<Integer, List<Segment>> segments;

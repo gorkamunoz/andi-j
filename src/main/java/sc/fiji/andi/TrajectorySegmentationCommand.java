@@ -38,8 +38,11 @@ public class TrajectorySegmentationCommand implements PlugIn {
         final Map<Integer, double[]>            stepAlpha;
         final Map<Integer, double[]>            stepLogD;
         final Map<Integer, List<Segment>>       segments;
+        final Map<Integer, Integer>             phenom;
         Cached(Map<Integer, double[]> a, Map<Integer, double[]> d,
-               Map<Integer, List<Segment>> s) { stepAlpha = a; stepLogD = d; segments = s; }
+               Map<Integer, List<Segment>> s, Map<Integer, Integer> p) {
+            stepAlpha = a; stepLogD = d; segments = s; phenom = p;
+        }
     }
 
     /**
@@ -130,9 +133,10 @@ public class TrajectorySegmentationCommand implements PlugIn {
                     for (ExperimentData exp : exps) {
                         Cached cached = CACHE.get(signature(exp, cfg));
                         if (cached != null) {
-                            exp.stepAlpha = cached.stepAlpha;
-                            exp.stepLogD  = cached.stepLogD;
-                            exp.segments  = cached.segments;
+                            exp.stepAlpha   = cached.stepAlpha;
+                            exp.stepLogD    = cached.stepLogD;
+                            exp.segments    = cached.segments;
+                            exp.phenomModel = cached.phenom;
                             for (int k = 0; k < exp.tracks.size(); k++) tick.trackDone();
                         } else {
                             toCompute.add(exp);
@@ -143,7 +147,8 @@ public class TrajectorySegmentationCommand implements PlugIn {
                             SegmentationRunner.run(toCompute, cfg, tick);
                             for (ExperimentData exp : toCompute)
                                 CACHE.put(signature(exp, cfg),
-                                          new Cached(exp.stepAlpha, exp.stepLogD, exp.segments));
+                                          new Cached(exp.stepAlpha, exp.stepLogD,
+                                                     exp.segments, exp.phenomModel));
                         }
                     } catch (OrtException | java.io.IOException ex) {
                         error = ex;

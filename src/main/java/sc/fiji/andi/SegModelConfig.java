@@ -22,9 +22,10 @@ public final class SegModelConfig {
     public final File    alphaFile;    // per-output mode (any may be null → default)
     public final File    dFile;
     public final File    cpFile;
+    public final File    phenomFile;   // per-output phenomenological-model (optional)
 
-    private SegModelConfig(boolean useDefault, boolean tta, boolean combined,
-                           File combinedFile, File alphaFile, File dFile, File cpFile) {
+    private SegModelConfig(boolean useDefault, boolean tta, boolean combined, File combinedFile,
+                           File alphaFile, File dFile, File cpFile, File phenomFile) {
         this.useDefault   = useDefault;
         this.tta          = tta;
         this.combined     = combined;
@@ -32,21 +33,22 @@ public final class SegModelConfig {
         this.alphaFile    = alphaFile;
         this.dFile        = dFile;
         this.cpFile       = cpFile;
+        this.phenomFile   = phenomFile;
     }
 
     public static SegModelConfig defaultModel(boolean tta) {
-        return new SegModelConfig(true, tta, false, null, null, null, null);
+        return new SegModelConfig(true, tta, false, null, null, null, null, null);
     }
 
     public static SegModelConfig combined(File file) {
-        return new SegModelConfig(false, false, true, file, null, null, null);
+        return new SegModelConfig(false, false, true, file, null, null, null, null);
     }
 
-    public static SegModelConfig perOutput(File alpha, File d, File cp, boolean tta) {
-        return new SegModelConfig(false, tta, false, null, alpha, d, cp);
+    public static SegModelConfig perOutput(File alpha, File d, File cp, File phenom, boolean tta) {
+        return new SegModelConfig(false, tta, false, null, alpha, d, cp, phenom);
     }
 
-    /** True in per-output mode when at least one output falls back to the default. */
+    /** True in per-output mode when at least one α/D/CP output falls back to the default. */
     public boolean needsDefault() {
         return !useDefault && !combined && (alphaFile == null || dFile == null || cpFile == null);
     }
@@ -55,8 +57,8 @@ public final class SegModelConfig {
     public String key() {
         if (useDefault) return "default:tta=" + tta;
         if (combined)   return "combined:" + path(combinedFile);
-        return "perout:a=" + path(alphaFile) + ";d=" + path(dFile)
-             + ";cp=" + path(cpFile) + ";tta=" + tta;
+        return "perout:a=" + path(alphaFile) + ";d=" + path(dFile) + ";cp=" + path(cpFile)
+             + ";ph=" + path(phenomFile) + ";tta=" + tta;
     }
 
     private static String path(File f) { return f == null ? "-" : f.getAbsolutePath(); }

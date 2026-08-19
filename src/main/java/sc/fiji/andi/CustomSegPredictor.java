@@ -18,11 +18,12 @@ import java.util.*;
  */
 public class CustomSegPredictor implements Closeable {
 
-    public enum Kind { COMBINED, ALPHA, LOGD, CP }
+    public enum Kind { COMBINED, ALPHA, LOGD, CP, MODELTYPE }
 
     /** Per-frame outputs; any field may be null if this model does not provide it. */
     public static final class Out {
         public double[] alpha, logD, cp;
+        public int      phenom = -1;   // aggregated phenomenological-model class (−1 = none)
     }
 
     private final Kind          kind;
@@ -60,9 +61,12 @@ public class CustomSegPredictor implements Closeable {
         try (OnnxTensor tensor = OnnxTensor.createTensor(env, in);
              OrtSession.Result res = session.run(Collections.singletonMap(inputName, tensor))) {
             if (kind == Kind.COMBINED) {
-                out.alpha = read(res, "alpha", 0, T);
-                out.logD  = read(res, "logD",  1, T);
-                out.cp    = read(res, "cp",    2, T);
+                out.alpha  = read(res, "alpha", 0, T);
+                out.logD   = read(res, "logD",  1, T);
+                out.cp     = read(res, "cp",    2, T);
+                out.phenom = readPhenom(res, "model_type", 3);   // optional 4th output
+            } else if (kind == Kind.MODELTYPE) {
+                out.phenom = readPhenom(res, null, 0);
             } else {
                 double[] v = read(res, null, 0, T);
                 if (kind == Kind.ALPHA)     out.alpha = v;
@@ -102,6 +106,37 @@ public class CustomSegPredictor implements Closeable {
                     + (val == null ? "null" : val.getClass().getName()));
         }
         return out;
+    }
+
+    /**
+     * Reads an optional per-frame class-probability output ({@code (1, T, K)} or
+     * a per-trajectory {@code (1, K)}) and returns the aggregated class index
+     * (argmax of the probabilities summed over frames), or −1 if absent.
+     */
+    private int readPhenom(OrtSession.Result res, String name, int index) throws OrtException {
+        OnnxValue v = null;
+        if (name != null)
+            for (String o : outNames)
+                if (o.equalsIgnoreCase(name)) { v = res.get(o).orElse(null); break; }
+        if (v == null && index < outNames.size())
+            v = res.get(outNames.get(index)).orElse(null);
+        if (v == null) return -1;
+
+        Object val = v.getValue();
+        double[] acc = null;
+        if (val instanceof float[][][]) {              // (1, T, K)
+            for (float[] frame : ((float[][][]) val)[0]) {
+                if (acc == null) acc = new double[frame.length];
+                for (int k = 0; k < frame.length; k++) acc[k] += frame[k];
+            }
+        } else if (val instanceof float[][]) {          // (1, K)
+            float[] row = ((float[][]) val)[0];
+            acc = new double[row.length];
+            for (int k = 0; k < row.length; k++) acc[k] = row[k];
+        } else {
+            return -1;
+        }
+        return (acc == null) ? -1 : UclStepPredictor.argmax(acc);
     }
 
     private static byte[] readFile(File f) throws IOException {

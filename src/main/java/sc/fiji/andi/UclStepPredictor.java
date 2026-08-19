@@ -82,9 +82,11 @@ public class UclStepPredictor implements Closeable {
     private final String         inputName;
     private final String         cpName;
     private final String         kacName;
-    private final String         mtName;    // model_type head (may be null)
     /** Whether to average the 8 TTA views (higher accuracy, ~8× slower). */
     private final boolean        useTta;
+
+    /** Number of AnDi-2 phenomenological-model classes (kac channel 2 ∈ [0, 4]). */
+    private static final int PHENOM_CLASSES = 5;
 
     // -----------------------------------------------------------------------
     // Construction
@@ -109,8 +111,7 @@ public class UclStepPredictor implements Closeable {
         // Outputs are exported in the order: cp, kac, model_type.
         List<String> outs = new ArrayList<>(session.getOutputNames());
         cpName  = pickOutput(outs, "cp",  0);
-        kacName = pickOutput(outs, "kac", 1);
-        mtName  = (outs.size() >= 3) ? pickOutput(outs, "model_type", 2) : null;
+        kacName = pickOutput(outs, "kac", 1);   // channels: [α, D, model]
         printInfo();
     }
 
@@ -215,8 +216,7 @@ public class UclStepPredictor implements Closeable {
 
                 float[][][] cp  = new float[rows][][];
                 float[][][] kac = new float[rows][][];
-                float[][][] mt  = (mtName != null) ? new float[rows][][] : null;
-                runBatch(in, cp, kac, mt);
+                runBatch(in, cp, kac);
 
                 for (int j = 0; j < nb; j++) {
                     Track tr = tracks.get(off + j);
@@ -248,8 +248,7 @@ public class UclStepPredictor implements Closeable {
                     outAlpha.put(tr.id, alpha);
                     outLogD.put(tr.id,  logD);
                     outSegs.put(tr.id,  buildSegments(cpProb, alpha, logD));
-                    outPhenom.put(tr.id, (mt != null)
-                            ? phenomClass(mt, j * views, views, T) : -1);
+                    outPhenom.put(tr.id, phenomFromKac(kac, j * views, views, T));
                     if (listener != null) listener.trackDone();
                 }
             }
@@ -262,25 +261,23 @@ public class UclStepPredictor implements Closeable {
     }
 
     /**
-     * Aggregates the per-frame model-type softmax over frames and TTA views into
-     * one class index (argmax of the summed probabilities), as the Python
-     * reference does ({@code model_type_prob.mean(axis=0).argmax()}).
+     * Aggregates the model channel {@code kac[:, 2]} into a phenomenological-model
+     * class: the mean over frames and TTA views, rounded and clamped to
+     * {@code [0, PHENOM_CLASSES − 1]}. (The bundled model encodes the class in the
+     * third {@code kac} channel, not in the {@code model_type} head.)
      *
-     * @param mt      model-type output {@code [rows][Tpad][K]}
-     * @param row0    first row for this track (view 0)
-     * @param views   number of TTA views for this track
-     * @param T       real (unpadded) track length
+     * @param kac    kac output {@code [rows][Tpad][3]} = [α, D, model]
+     * @param row0   first row for this track (view 0)
+     * @param views  number of TTA views for this track
+     * @param T      real (unpadded) track length
      */
-    static int phenomClass(float[][][] mt, int row0, int views, int T) {
-        if (mt[row0] == null || mt[row0].length == 0) return -1;
-        int K = mt[row0][0].length;
-        double[] acc = new double[K];
+    static int phenomFromKac(float[][][] kac, int row0, int views, int T) {
+        if (kac[row0] == null || kac[row0].length == 0 || kac[row0][0].length < 3) return -1;
+        double s = 0;
         for (int t = 0; t < T; t++)
-            for (int v = 0; v < views; v++) {
-                float[] row = mt[row0 + v][t];
-                for (int k = 0; k < K; k++) acc[k] += row[k];
-            }
-        return argmax(acc);
+            for (int v = 0; v < views; v++) s += kac[row0 + v][t][2];
+        int c = (int) Math.round(s / ((double) T * views));
+        return Math.max(0, Math.min(PHENOM_CLASSES - 1, c));
     }
 
     static int argmax(double[] a) {
@@ -326,8 +323,7 @@ public class UclStepPredictor implements Closeable {
             }
         }
         float[][][] cp = new float[views][][], kac = new float[views][][];
-        float[][][] mt = (mtName != null) ? new float[views][][] : null;
-        runBatch(in, cp, kac, mt);
+        runBatch(in, cp, kac);
 
         double[] alpha = new double[T], logD = new double[T], cpProb = new double[T];
         for (int t = 0; t < T; t++) {
@@ -339,7 +335,7 @@ public class UclStepPredictor implements Closeable {
             cpProb[t] = cpv;
         }
         o.alpha = alpha; o.logD = logD; o.cpProb = cpProb;
-        o.phenom = (mt != null) ? phenomClass(mt, 0, views, T) : -1;
+        o.phenom = phenomFromKac(kac, 0, views, T);
         return o;
     }
 
@@ -427,13 +423,13 @@ public class UclStepPredictor implements Closeable {
     // -----------------------------------------------------------------------
 
     /**
-     * Runs one batched forward pass and copies the {@code cp}, {@code kac} (and,
-     * when {@code mtOut != null} and the model has one, {@code model_type})
-     * outputs — all {@code (rows, Tpad, C)} — into the caller's arrays. A single
-     * run yields every output; the model computes them together.
+     * Runs one batched forward pass and copies the {@code cp} and {@code kac}
+     * outputs (both {@code (rows, Tpad, C)}) into the caller's arrays. A single
+     * run yields both; the model computes them together. The phenomenological
+     * class is read from {@code kac}'s third channel, so no extra output is needed.
      */
-    private void runBatch(float[][][] input, float[][][] cpOut, float[][][] kacOut,
-                          float[][][] mtOut) throws OrtException {
+    private void runBatch(float[][][] input, float[][][] cpOut, float[][][] kacOut)
+            throws OrtException {
         try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
              OrtSession.Result res = session.run(
                      Collections.singletonMap(inputName, tensor))) {
@@ -442,10 +438,6 @@ public class UclStepPredictor implements Closeable {
             float[][][] kac = as3d(res, kacName);
             System.arraycopy(cp,  0, cpOut,  0, cp.length);
             System.arraycopy(kac, 0, kacOut, 0, kac.length);
-            if (mtOut != null && mtName != null) {
-                float[][][] mt = as3d(res, mtName);
-                System.arraycopy(mt, 0, mtOut, 0, mt.length);
-            }
         }
     }
 

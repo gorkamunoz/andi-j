@@ -6,15 +6,17 @@ These are NOT trained networks — they are deterministic, data-dependent dummie
 that follow the custom-segmentation contract, so you can check that both Load
 modes work end-to-end before dropping in real models:
 
-  Combined mode   → seg_combined.onnx   (outputs alpha, logD, cp)
-  Per-output mode → seg_alpha.onnx, seg_logd.onnx, seg_cp.onnx
+  Combined mode   → seg_combined.onnx   (outputs alpha, logD, cp, model_type)
+  Per-output mode → seg_alpha.onnx, seg_logd.onnx, seg_cp.onnx, seg_modeltype.onnx
 
-Contract (see Custom-Segmentation-Models.md)
---------------------------------------------
-  Input  "input" : (1, T, 2) float32 — raw x,y positions, T dynamic.
-  Output "alpha" : (1, T)   per-frame α                     (verbatim)
-  Output "logD"  : (1, T)   per-frame log10(D)              (verbatim)
-  Output "cp"    : (1, T)   per-frame 0/1 change-point flag
+Contract (see the ML Models wiki page)
+---------------------------------------
+  Input  "input"      : (1, T, 2)   float32 — raw x,y positions, T dynamic.
+  Output "alpha"      : (1, T)      per-frame α                     (verbatim)
+  Output "logD"       : (1, T)      per-frame log10(D)              (verbatim)
+  Output "cp"         : (1, T)      per-frame 0/1 change-point flag
+  Output "model_type" : (1, T, 4)   per-frame diffusive-mode softmax (optional)
+                         classes: 0=immobile, 1=confined, 2=free diffusion, 3=directed
 
 What these dummies compute (purely illustrative, so you can *see* your model is
 being used rather than the default):
@@ -22,11 +24,12 @@ being used rather than the default):
   alpha       = clamp(step / mean(step), 0, 2)     ~1 on average, varies
   logD        = log10(step^2 + 1e-6)
   cp          = 1 where step > 2·mean(step)        (flags big jumps)
+  model_type  = softmax over 4 step-magnitude prototypes (illustrative only)
 
 Usage
 -----
     pip install torch
-    python make_seg_test_onnx_models.py
+    python make_traj_seg_test_onnx_models.py
 """
 
 from pathlib import Path
@@ -59,10 +62,11 @@ def _cp(step):
 
 
 def _model_type(step):
-    # (1, T, 5) per-frame softmax over the 5 AnDi-2 phenomenological models,
-    # mapped from step magnitude (purely illustrative).
-    centers = torch.tensor([0.5, 1.0, 1.5, 2.0, 2.5])           # (5,)
-    logits  = -3.0 * (step.unsqueeze(-1) - centers) ** 2        # (1, T, 5)
+    # (1, T, 4) per-frame softmax over the 4 AnDi diffusive modes
+    # (immobile, confined, free diffusion, directed), mapped from step
+    # magnitude (purely illustrative).
+    centers = torch.tensor([0.25, 1.0, 1.75, 2.5])               # (4,)
+    logits  = -3.0 * (step.unsqueeze(-1) - centers) ** 2         # (1, T, 4)
     return torch.softmax(logits, dim=-1)
 
 

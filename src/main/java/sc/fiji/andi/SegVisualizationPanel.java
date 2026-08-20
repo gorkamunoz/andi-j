@@ -588,7 +588,7 @@ public class SegVisualizationPanel extends JPanel {
         boolean showState    = true;   // top diffusive-state strip
         boolean leftCol, rightCol, bottomRow;   // border-plot axis-title flags
 
-        private static final int STRIP_H = 4;   // diffusive-state strip height (px)
+        private static final int STRIP_H = 6;   // diffusive-state strip height (px)
 
         TrajectoryPlot() {
             setBackground(BG_COLOR);
@@ -651,10 +651,10 @@ public class SegVisualizationPanel extends JPanel {
                 return;
             }
 
-            // Title (top-left corner, so the top strip has the rest of the margin)
+            // Title (top-left corner, kept short so the state strip stays wide)
             g2.setColor(Color.DARK_GRAY);
             g2.setFont(g2.getFont().deriveFont(Font.BOLD, 9f));
-            g2.drawString("Track #" + trackId, 2, PAD_T - 3);
+            g2.drawString("#" + trackId, 2, 8);
 
             // Track not found in experiment
             if (notFound) {
@@ -680,14 +680,16 @@ public class SegVisualizationPanel extends JPanel {
             int ph = H - PAD_T - PAD_B;
             if (pw < 10 || ph < 10) return;
 
-            // ── Diffusive-state strip (top, aligned with the frame axis) ───
+            // ── Diffusive-state strip (sits right above the plot, aligned with
+            //    the frame axis) ────────────────────────────────────────────
             if (showState && segments != null && !segments.isEmpty()) {
+                int stripY = py - STRIP_H;
                 for (Segment s : segments) {
                     if (s.state < 0 || s.state >= SegPhenomPanel.STATE_COLORS.length) continue;
                     int x0 = px + xToPixel(s.start, seqLen, pw);
                     int x1 = px + xToPixel(Math.min(seqLen, s.start + s.length), seqLen, pw);
                     g2.setColor(SegPhenomPanel.STATE_COLORS[s.state]);
-                    g2.fillRect(x0, 0, Math.max(1, x1 - x0), STRIP_H);
+                    g2.fillRect(x0, stripY, Math.max(1, x1 - x0), STRIP_H);
                 }
             }
 

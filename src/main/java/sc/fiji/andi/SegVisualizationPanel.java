@@ -857,17 +857,22 @@ public class SegVisualizationPanel extends JPanel {
             String[] names = SegPhenomPanel.PHENOM_NAMES;
             Color[]  cols  = SegPhenomPanel.STATE_COLORS;
 
-            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 8f));
+            // Match the toolbar's text size (e.g. "Experiment:", "Sample random 16").
+            float sz = UIManager.getFont("Label.font") != null
+                     ? UIManager.getFont("Label.font").getSize2D() : 12f;
+
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, sz));
             FontMetrics fmBold = g2.getFontMetrics();
             String title = "Diffusive state";
             int titleW = fmBold.stringWidth(title);
 
-            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 8f));
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, sz));
             FontMetrics fm = g2.getFontMetrics();
             int maxW = titleW;
-            for (String n : names) maxW = Math.max(maxW, fm.stringWidth(n) + 12);
+            for (String n : names) maxW = Math.max(maxW, fm.stringWidth(n) + 18);
 
-            int pad = 4, lineH = 10;
+            int pad = 6, lineH = fm.getHeight() + 2;
+            int swatch = Math.max(10, fm.getAscent());
             int boxW = maxW + pad * 2;
             int boxH = pad * 2 + lineH + names.length * lineH;
 
@@ -876,23 +881,23 @@ public class SegVisualizationPanel extends JPanel {
             int lx = lp.x, ly = lp.y;
 
             g2.setColor(new Color(255, 255, 255, 225));
-            g2.fillRoundRect(lx, ly, boxW, boxH, 5, 5);
+            g2.fillRoundRect(lx, ly, boxW, boxH, 6, 6);
             g2.setColor(new Color(180, 180, 180));
             g2.setStroke(new BasicStroke(0.7f));
-            g2.drawRoundRect(lx, ly, boxW, boxH, 5, 5);
+            g2.drawRoundRect(lx, ly, boxW, boxH, 6, 6);
 
             g2.setColor(Color.DARK_GRAY);
-            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 8f));
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, sz));
             g2.drawString(title, lx + pad, ly + pad + fmBold.getAscent() - 1);
 
-            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 8f));
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, sz));
             fm = g2.getFontMetrics();
             for (int i = 0; i < names.length; i++) {
                 int ry = ly + pad + lineH + i * lineH;
                 g2.setColor(cols[i]);
-                g2.fillRect(lx + pad, ry, 8, 8);
+                g2.fillRect(lx + pad, ry, swatch, swatch);
                 g2.setColor(Color.BLACK);
-                g2.drawString(names[i], lx + pad + 11, ry + fm.getAscent() - 1);
+                g2.drawString(names[i], lx + pad + swatch + 5, ry + fm.getAscent() - 1);
             }
         }
 

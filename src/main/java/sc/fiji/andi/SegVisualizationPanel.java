@@ -4,6 +4,8 @@ import ij.IJ;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Line2D;
 import java.io.*;
@@ -103,6 +105,7 @@ public class SegVisualizationPanel extends JPanel {
             plots[i].leftCol   = (col == 0);                 // blue log₁₀(D) label
             plots[i].rightCol  = (col == GRID_COLS - 1);     // red α label
             plots[i].bottomRow = (row == GRID_ROWS - 1);     // "Frame" label
+            plots[i].topLeft   = (row == 0 && col == 0);     // diffusive-state legend
             grid.add(plots[i]);
         }
         add(grid, BorderLayout.CENTER);
@@ -213,14 +216,6 @@ public class SegVisualizationPanel extends JPanel {
             showState = stateToggle.isSelected();
             for (TrajectoryPlot p : plots) { p.showState = showState; p.repaint(); }
         });
-        JButton stateHint = DiffusionCoeffPanel.makeHintLabel(
-            "<html><b>Diffusive state</b><br>"
-            + "A thin strip along the top of each plot shows the diffusive mode "
-            + "of the segment covering each frame:<br>"
-            + swatch(SegPhenomPanel.STATE_COLORS[0]) + " Immobile<br>"
-            + swatch(SegPhenomPanel.STATE_COLORS[1]) + " Confined<br>"
-            + swatch(SegPhenomPanel.STATE_COLORS[2]) + " Free diffusion<br>"
-            + swatch(SegPhenomPanel.STATE_COLORS[3]) + " Directed</html>");
 
         // Kernel-CP parameter dialog — hidden for now (change points come from
         // the segmentation model). Kept for later use.
@@ -257,18 +252,12 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(segDToggle);
         bar.add(cpToggle);
         bar.add(stateToggle);
-        bar.add(stateHint);
         bar.add(Box.createHorizontalStrut(10));
         bar.add(paramsBtn);
         bar.add(saveRawBtn);
         bar.add(saveSegBtn);
 
         return bar;
-    }
-
-    /** A small HTML colour swatch for use inside a hint tooltip. */
-    private static String swatch(Color c) {
-        return String.format("<font color='#%06X'>&#9632;</font>", c.getRGB() & 0xFFFFFF);
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -587,11 +576,26 @@ public class SegVisualizationPanel extends JPanel {
         boolean showCP       = true;
         boolean showState    = true;   // top diffusive-state strip
         boolean leftCol, rightCol, bottomRow;   // border-plot axis-title flags
+        boolean topLeft;                        // shows the diffusive-state legend
 
         private static final int STRIP_H = 6;   // diffusive-state strip height (px)
+        private final MovableLegend legend = new MovableLegend();
 
         TrajectoryPlot() {
             setBackground(BG_COLOR);
+            MouseAdapter ma = new MouseAdapter() {
+                @Override public void mousePressed(MouseEvent e) { legend.press(e.getX(), e.getY()); }
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (legend.dragTo(e.getX(), e.getY())) repaint();
+                }
+                @Override public void mouseReleased(MouseEvent e) { legend.release(); }
+                @Override public void mouseMoved(MouseEvent e) {
+                    setCursor(Cursor.getPredefinedCursor(
+                        legend.over(e.getX(), e.getY()) ? Cursor.MOVE_CURSOR : Cursor.DEFAULT_CURSOR));
+                }
+            };
+            addMouseListener(ma);
+            addMouseMotionListener(ma);
         }
 
         /** Show data for an existing track. */
@@ -842,6 +846,54 @@ public class SegVisualizationPanel extends JPanel {
             }
 
             g2.setClip(oldClip);
+
+            // ── Diffusive-state legend (top-left plot of the grid only) ─────
+            if (topLeft && showState) drawStateLegend(g2, px, py, pw, ph, W, H);
+            else legend.clear();
+        }
+
+        /** Draggable legend for the diffusive-state strip colours (top-left plot only). */
+        private void drawStateLegend(Graphics2D g2, int px, int py, int pw, int ph, int W, int H) {
+            String[] names = SegPhenomPanel.PHENOM_NAMES;
+            Color[]  cols  = SegPhenomPanel.STATE_COLORS;
+
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 8f));
+            FontMetrics fmBold = g2.getFontMetrics();
+            String title = "Diffusive state";
+            int titleW = fmBold.stringWidth(title);
+
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 8f));
+            FontMetrics fm = g2.getFontMetrics();
+            int maxW = titleW;
+            for (String n : names) maxW = Math.max(maxW, fm.stringWidth(n) + 12);
+
+            int pad = 4, lineH = 10;
+            int boxW = maxW + pad * 2;
+            int boxH = pad * 2 + lineH + names.length * lineH;
+
+            Point lp = legend.layout(px + pw - boxW - 3, py + STRIP_H + 3, boxW, boxH,
+                                     0, 0, W, H);
+            int lx = lp.x, ly = lp.y;
+
+            g2.setColor(new Color(255, 255, 255, 225));
+            g2.fillRoundRect(lx, ly, boxW, boxH, 5, 5);
+            g2.setColor(new Color(180, 180, 180));
+            g2.setStroke(new BasicStroke(0.7f));
+            g2.drawRoundRect(lx, ly, boxW, boxH, 5, 5);
+
+            g2.setColor(Color.DARK_GRAY);
+            g2.setFont(g2.getFont().deriveFont(Font.BOLD, 8f));
+            g2.drawString(title, lx + pad, ly + pad + fmBold.getAscent() - 1);
+
+            g2.setFont(g2.getFont().deriveFont(Font.PLAIN, 8f));
+            fm = g2.getFontMetrics();
+            for (int i = 0; i < names.length; i++) {
+                int ry = ly + pad + lineH + i * lineH;
+                g2.setColor(cols[i]);
+                g2.fillRect(lx + pad, ry, 8, 8);
+                g2.setColor(Color.BLACK);
+                g2.drawString(names[i], lx + pad + 11, ry + fm.getAscent() - 1);
+            }
         }
 
         // ── Helpers ───────────────────────────────────────────────────────

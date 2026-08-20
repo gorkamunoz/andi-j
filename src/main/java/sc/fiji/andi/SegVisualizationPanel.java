@@ -141,8 +141,8 @@ public class SegVisualizationPanel extends JPanel {
         sampleBtn.setToolTipText("Pick 16 random trajectories from the selected experiment");
         sampleBtn.addActionListener(e -> sampleRandom());
 
-        // "Choose trajectories…" opens a small popup with the ID field (saves space)
-        JButton showTrajBtn = new JButton("Choose trajectories…");
+        // "Choose trajectories" opens a small popup with the ID field (saves space)
+        JButton showTrajBtn = new JButton("Choose trajectories");
         showTrajBtn.setToolTipText("Enter specific track IDs to display");
         final JPopupMenu trajPopup = new JPopupMenu();
         JPanel pp = new JPanel(new BorderLayout(4, 4));
@@ -211,12 +211,12 @@ public class SegVisualizationPanel extends JPanel {
         paramsBtn.addActionListener(e -> openParamsDialog());
         paramsBtn.setVisible(false);
 
-        JButton saveRawBtn = new JButton("Save raw preds.…");
-        saveRawBtn.setToolTipText("Export the per-frame α / D predictions to CSV "
-            + "(experiment, traj_idx, frame, alpha, D)");
+        JButton saveRawBtn = new JButton("Save raw preds.");
+        saveRawBtn.setToolTipText("Export the per-frame α / D / state predictions to CSV "
+            + "(experiment, traj_idx, frame, alpha, D, state)");
         saveRawBtn.addActionListener(e -> saveRawPredictions());
 
-        JButton saveSegBtn = new JButton("Save segments…");
+        JButton saveSegBtn = new JButton("Save segments");
         saveSegBtn.setToolTipText("Export all segments (length, α, D) to CSV");
         saveSegBtn.addActionListener(e -> saveSegments());
 
@@ -353,8 +353,8 @@ public class SegVisualizationPanel extends JPanel {
         boolean multiExp = experiments.stream().filter(ExperimentData::hasSegments).count() > 1;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            if (multiExp) pw.println("experiment,track_id,segment,start_frame,length,alpha,D");
-            else          pw.println("track_id,segment,start_frame,length,alpha,D");
+            if (multiExp) pw.println("experiment,track_id,segment,start_frame,length,alpha,D,state");
+            else          pw.println("track_id,segment,start_frame,length,alpha,D,state");
 
             for (ExperimentData exp : experiments) {
                 if (!exp.hasSegments()) continue;
@@ -365,11 +365,11 @@ public class SegVisualizationPanel extends JPanel {
                         Segment s = segs.get(k);
                         int startFrame = s.start + 1;   // 1-based
                         if (multiExp)
-                            pw.printf("%s,%d,%d,%d,%d,%.6f,%.6e%n",
-                                exp.name, id, k + 1, startFrame, s.length, s.alpha, s.d());
+                            pw.printf("%s,%d,%d,%d,%d,%.6f,%.6e,%s%n",
+                                exp.name, id, k + 1, startFrame, s.length, s.alpha, s.d(), stateLabel(s.state));
                         else
-                            pw.printf("%d,%d,%d,%d,%.6f,%.6e%n",
-                                id, k + 1, startFrame, s.length, s.alpha, s.d());
+                            pw.printf("%d,%d,%d,%d,%.6f,%.6e,%s%n",
+                                id, k + 1, startFrame, s.length, s.alpha, s.d(), stateLabel(s.state));
                     }
                 }
             }
@@ -381,10 +381,28 @@ public class SegVisualizationPanel extends JPanel {
         }
     }
 
+    /** Diffusive-state name for a class index, or "" when unknown. */
+    private static String stateLabel(int st) {
+        return (st >= 0 && st < SegPhenomPanel.PHENOM_NAMES.length)
+             ? SegPhenomPanel.PHENOM_NAMES[st] : "";
+    }
+
+    /** Per-frame diffusive state (from the segment covering each frame; -1 if none). */
+    private static int[] perFrameStates(List<Segment> segs, int n) {
+        int[] st = new int[n];
+        Arrays.fill(st, -1);
+        if (segs != null)
+            for (Segment s : segs)
+                for (int t = s.start; t < s.start + s.length && t < n; t++)
+                    if (t >= 0) st[t] = s.state;
+        return st;
+    }
+
     /**
      * Exports the per-frame predictions to CSV with columns
-     * {@code experiment, traj_idx, frame, alpha, D}. α is the per-frame
-     * anomalous exponent; D = 10^log₁₀(D) (blank where D is undefined).
+     * {@code experiment, traj_idx, frame, alpha, D, state}. α is the per-frame
+     * anomalous exponent; D = 10^log₁₀(D) (blank where D is undefined); state is
+     * the diffusive state of the segment covering the frame.
      */
     private void saveRawPredictions() {
         if (experiments.stream().noneMatch(ExperimentData::hasStepPredictions)) {
@@ -404,7 +422,7 @@ public class SegVisualizationPanel extends JPanel {
             f = new File(f.getParent(), f.getName() + ".csv");
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            pw.println("experiment,traj_idx,frame,alpha,D");
+            pw.println("experiment,traj_idx,frame,alpha,D,state");
 
             for (ExperimentData exp : experiments) {
                 if (!exp.hasStepPredictions()) continue;
@@ -415,12 +433,14 @@ public class SegVisualizationPanel extends JPanel {
                     List<double[]> spots = exp.tracks.get(id);
                     if (a == null) continue;
                     int n = (spots != null) ? Math.min(a.length, spots.size()) : a.length;
+                    int[] states = perFrameStates(exp.segments != null ? exp.segments.get(id) : null, n);
                     for (int t = 0; t < n; t++) {
                         long   frame = (spots != null) ? Math.round(spots.get(t)[0]) : t;
                         String dStr  = "";
                         if (ld != null && t < ld.length && Double.isFinite(ld[t]))
                             dStr = String.format("%.6e", Math.pow(10, ld[t]));
-                        pw.printf("%s,%d,%d,%.6f,%s%n", exp.name, id, frame, a[t], dStr);
+                        pw.printf("%s,%d,%d,%.6f,%s,%s%n",
+                            exp.name, id, frame, a[t], dStr, stateLabel(states[t]));
                     }
                 }
             }

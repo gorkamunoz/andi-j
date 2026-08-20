@@ -74,10 +74,7 @@ public class SegPhenomPanel extends JPanel {
             lengthHist.setNormalize(normalizeBox.isSelected());
             lengthHist.repaint();
         });
-        JPanel north = new JPanel(new BorderLayout());
-        north.add(info, BorderLayout.CENTER);
-        north.add(normalizeBox, BorderLayout.EAST);
-        add(north, BorderLayout.NORTH);
+        add(info, BorderLayout.NORTH);
 
         JSplitPane plots = new JSplitPane(JSplitPane.VERTICAL_SPLIT, barPanel, lengthHist);
         plots.setResizeWeight(0.5);
@@ -182,6 +179,8 @@ public class SegPhenomPanel extends JPanel {
             col.add(Box.createVerticalStrut(3));
         }
         col.add(Box.createVerticalGlue());
+        normalizeBox.setAlignmentX(Component.LEFT_ALIGNMENT);
+        col.add(normalizeBox);
 
         JScrollPane sp = new JScrollPane(col);
         sp.setBorder(BorderFactory.createTitledBorder("Diffusive states"));

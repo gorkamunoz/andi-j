@@ -28,12 +28,17 @@ public class SegPhenomPanel extends JPanel {
         "Immobile", "Confined", "Free diffusion", "Directed"
     };
 
-    /** Per-state line colours (Okabe–Ito, colour-blind friendly). */
+    /**
+     * Per-state colours (Okabe–Ito, colour-blind friendly), deliberately kept
+     * clear of {@link SegVisualizationPanel#ALPHA_COLOR} (red) and
+     * {@link SegVisualizationPanel#D_COLOR} (blue) so the state strip in the
+     * Visualization tab never gets confused with the α / D lines.
+     */
     static final Color[] STATE_COLORS = {
-        new Color(120, 120, 120),   // Immobile
-        new Color(230, 159,   0),   // Confined
-        new Color(  0, 114, 178),   // Free diffusion
-        new Color(213,  94,   0),   // Directed
+        new Color(120, 120, 120),   // Immobile        — grey
+        new Color(230, 159,   0),   // Confined         — orange
+        new Color(  0, 158, 115),   // Free diffusion   — bluish-green
+        new Color(204, 121, 167),   // Directed         — reddish-purple
     };
 
     private final List<ExperimentData>         experiments;

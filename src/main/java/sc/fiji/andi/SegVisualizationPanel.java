@@ -50,6 +50,7 @@ public class SegVisualizationPanel extends JPanel {
     private boolean showSegAlpha = true;
     private boolean showSegD     = true;
     private boolean showCP       = true;   // vertical change-point markers
+    private boolean showState    = true;   // top diffusive-state strip
 
     /** Current change-point parameters; edited via the parameters dialog. */
     private final SegmentationParams segParams = new SegmentationParams();
@@ -204,6 +205,23 @@ public class SegVisualizationPanel extends JPanel {
             for (TrajectoryPlot p : plots) { p.showCP = showCP; p.repaint(); }
         });
 
+        // Diffusive-state strip toggle
+        JToggleButton stateToggle = new JToggleButton("State", true);
+        stateToggle.setFont(stateToggle.getFont().deriveFont(Font.BOLD, 11f));
+        stateToggle.setToolTipText("Show/hide the diffusive-state strip at the top of each plot");
+        stateToggle.addActionListener(e -> {
+            showState = stateToggle.isSelected();
+            for (TrajectoryPlot p : plots) { p.showState = showState; p.repaint(); }
+        });
+        JButton stateHint = DiffusionCoeffPanel.makeHintLabel(
+            "<html><b>Diffusive state</b><br>"
+            + "A thin strip along the top of each plot shows the diffusive mode "
+            + "of the segment covering each frame:<br>"
+            + swatch(SegPhenomPanel.STATE_COLORS[0]) + " Immobile<br>"
+            + swatch(SegPhenomPanel.STATE_COLORS[1]) + " Confined<br>"
+            + swatch(SegPhenomPanel.STATE_COLORS[2]) + " Free diffusion<br>"
+            + swatch(SegPhenomPanel.STATE_COLORS[3]) + " Directed</html>");
+
         // Kernel-CP parameter dialog — hidden for now (change points come from
         // the segmentation model). Kept for later use.
         JButton paramsBtn = new JButton("Segmentation Parameters");
@@ -238,12 +256,19 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(segAlphaToggle);
         bar.add(segDToggle);
         bar.add(cpToggle);
+        bar.add(stateToggle);
+        bar.add(stateHint);
         bar.add(Box.createHorizontalStrut(10));
         bar.add(paramsBtn);
         bar.add(saveRawBtn);
         bar.add(saveSegBtn);
 
         return bar;
+    }
+
+    /** A small HTML colour swatch for use inside a hint tooltip. */
+    private static String swatch(Color c) {
+        return String.format("<font color='#%06X'>&#9632;</font>", c.getRGB() & 0xFFFFFF);
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -522,6 +547,7 @@ public class SegVisualizationPanel extends JPanel {
             plots[i].showSegAlpha = showSegAlpha;
             plots[i].showSegD     = showSegD;
             plots[i].showCP       = showCP;
+            plots[i].showState    = showState;
         }
     }
 
@@ -559,7 +585,10 @@ public class SegVisualizationPanel extends JPanel {
         boolean showSegAlpha = true;
         boolean showSegD     = true;
         boolean showCP       = true;
+        boolean showState    = true;   // top diffusive-state strip
         boolean leftCol, rightCol, bottomRow;   // border-plot axis-title flags
+
+        private static final int STRIP_H = 4;   // diffusive-state strip height (px)
 
         TrajectoryPlot() {
             setBackground(BG_COLOR);
@@ -622,10 +651,10 @@ public class SegVisualizationPanel extends JPanel {
                 return;
             }
 
-            // Title
+            // Title (top-left corner, so the top strip has the rest of the margin)
             g2.setColor(Color.DARK_GRAY);
             g2.setFont(g2.getFont().deriveFont(Font.BOLD, 9f));
-            drawCentred(g2, "Track #" + trackId, W / 2, PAD_T - 3);
+            g2.drawString("Track #" + trackId, 2, PAD_T - 3);
 
             // Track not found in experiment
             if (notFound) {
@@ -650,6 +679,17 @@ public class SegVisualizationPanel extends JPanel {
             int pw = W - PAD_L - PAD_R;
             int ph = H - PAD_T - PAD_B;
             if (pw < 10 || ph < 10) return;
+
+            // ── Diffusive-state strip (top, aligned with the frame axis) ───
+            if (showState && segments != null && !segments.isEmpty()) {
+                for (Segment s : segments) {
+                    if (s.state < 0 || s.state >= SegPhenomPanel.STATE_COLORS.length) continue;
+                    int x0 = px + xToPixel(s.start, seqLen, pw);
+                    int x1 = px + xToPixel(Math.min(seqLen, s.start + s.length), seqLen, pw);
+                    g2.setColor(SegPhenomPanel.STATE_COLORS[s.state]);
+                    g2.fillRect(x0, 0, Math.max(1, x1 - x0), STRIP_H);
+                }
+            }
 
             // ── Auto-scale logD axis ───────────────────────────────────────
             boolean dAxis = (rawOpacity > 0 || showSegD) && logD != null;

@@ -39,10 +39,15 @@ Required columns (case-insensitive): `TRACK_ID`, `POSITION_X`, `POSITION_Y`, `FR
 1. During beta testing: go to folder [**Target**](https://github.com/gorkamunoz/andi_fiji/tree/main/target)
 1. (When released, no beta testing) Go to the [**Releases**](https://github.com/gorkamunoz/andi_fiji/releases) page of this repository.
 2. Under the latest release, download the file **`andi-j-X.Y.Z.jar`**.
-3. Drag the `.jar` file into the **`Fiji.app/plugins/`** folder  
-   *(on Windows: `C:\Users\<you>\Fiji.app\plugins\`)*
-4. **Restart Fiji.**
-5. The plugin is now available under **Plugins › AnDi**.
+3. This plugin uses **ONNX Runtime** for its machine-learning predictions
+   (anomalous exponent, diffusion model, and trajectory segmentation). Download
+   it directly from Maven Central — no account or build tool needed:
+   [`onnxruntime-1.17.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.17.0/onnxruntime-1.17.0.jar)
+4. Copy **both** `andi-j-X.Y.Z.jar` and `onnxruntime-1.17.0.jar` into the
+   **`Fiji.app/jars/`** folder  
+   *(on Windows: `C:\Users\<you>\Fiji.app\jars\`)*
+5. **Restart Fiji.**
+6. The plugin is now available under **Plugins › AnDi**.
 
 ### For developers
 
@@ -50,7 +55,14 @@ Required columns (case-insensitive): `TRACK_ID`, `POSITION_X`, `POSITION_Y`, `FR
 git clone https://github.com/gorkamunoz/andi_fiji.git
 cd andi_fiji
 mvn clean package
-# then copy target/andi-j-*.jar into Fiji.app/plugins/
+# then copy target/andi-j-*.jar into Fiji.app/jars/
+```
+
+`mvn clean package` also resolves `onnxruntime-1.17.0.jar` into your local
+Maven cache, so you can copy it from there instead of downloading it again:
+
+```bash
+cp ~/.m2/repository/com/microsoft/onnxruntime/onnxruntime/1.17.0/onnxruntime-1.17.0.jar Fiji.app/jars/
 ```
 
 Requires Java 8+ and Maven. The build uses the [pom-scijava](https://github.com/scijava/pom-scijava) parent POM.

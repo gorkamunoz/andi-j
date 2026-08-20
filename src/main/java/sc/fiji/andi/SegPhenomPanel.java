@@ -1,12 +1,9 @@
 package sc.fiji.andi;
 
-import ij.IJ;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.*;
-import java.io.*;
 import java.util.*;
 import java.util.List;
 
@@ -141,17 +138,8 @@ public class SegPhenomPanel extends JPanel {
             rebuild();
         });
 
-        JButton saveBtn = new JButton("Save…");
-        saveBtn.setFont(saveBtn.getFont().deriveFont(Font.PLAIN, 10f));
-        saveBtn.setAlignmentX(Component.LEFT_ALIGNMENT);
-        saveBtn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
-        saveBtn.setToolTipText("Export the per-segment diffusive state to CSV");
-        saveBtn.addActionListener(e -> save());
-
         col.add(Box.createVerticalStrut(6));
         col.add(deselect);
-        col.add(Box.createVerticalStrut(3));
-        col.add(saveBtn);
         col.add(Box.createVerticalGlue());
 
         JScrollPane sp = new JScrollPane(col);
@@ -228,42 +216,6 @@ public class SegPhenomPanel extends JPanel {
     private static int bin(double v, double vMin, double vMax, int n) {
         int b = (int) ((v - vMin) / (vMax - vMin) * n);
         return Math.max(0, Math.min(n - 1, b));
-    }
-
-    private void save() {
-        if (experiments.stream().noneMatch(ExperimentData::hasSegments)) {
-            JOptionPane.showMessageDialog(this, "No segments available.",
-                "Save", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-        JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
-        fc.setDialogTitle("Save per-segment diffusive state");
-        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-        File f = fc.getSelectedFile();
-        if (!f.getName().toLowerCase().endsWith(".csv"))
-            f = new File(f.getParent(), f.getName() + ".csv");
-
-        try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            pw.println("experiment,traj_idx,segment,start_frame,length,state");
-            for (ExperimentData exp : experiments) {
-                if (!exp.hasSegments()) continue;
-                for (Map.Entry<Integer, List<Segment>> e : exp.segments.entrySet()) {
-                    List<Segment> segs = e.getValue();
-                    for (int k = 0; k < segs.size(); k++) {
-                        Segment s = segs.get(k);
-                        String state = (s.state >= 0 && s.state < PHENOM_NAMES.length)
-                                     ? String.valueOf(s.state) : "";
-                        pw.printf("%s,%d,%d,%d,%d,%s%n",
-                            exp.name, e.getKey(), k + 1, s.start + 1, s.length, state);
-                    }
-                }
-            }
-            IJ.log("AnDi-J: per-segment diffusive state saved → " + f.getAbsolutePath());
-        } catch (IOException ex) {
-            JOptionPane.showMessageDialog(this, "Could not save file:\n" + ex.getMessage(),
-                "Save – error", JOptionPane.ERROR_MESSAGE);
-        }
     }
 
     // ═════════════════════════════════════════════════════════════════════

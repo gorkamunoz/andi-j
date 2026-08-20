@@ -253,7 +253,7 @@ public class SegPhenomPanel extends JPanel {
                     for (int k = 0; k < segs.size(); k++) {
                         Segment s = segs.get(k);
                         String state = (s.state >= 0 && s.state < PHENOM_NAMES.length)
-                                     ? PHENOM_NAMES[s.state] : "";
+                                     ? String.valueOf(s.state) : "";
                         pw.printf("%s,%d,%d,%d,%d,%s%n",
                             exp.name, e.getKey(), k + 1, s.start + 1, s.length, state);
                     }

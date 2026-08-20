@@ -381,10 +381,9 @@ public class SegVisualizationPanel extends JPanel {
         }
     }
 
-    /** Diffusive-state name for a class index, or "" when unknown. */
+    /** Diffusive-state class as an integer (0=immobile, 1=confined, 2=free, 3=directed), or "" when unknown. */
     private static String stateLabel(int st) {
-        return (st >= 0 && st < SegPhenomPanel.PHENOM_NAMES.length)
-             ? SegPhenomPanel.PHENOM_NAMES[st] : "";
+        return (st >= 0 && st < SegPhenomPanel.PHENOM_NAMES.length) ? String.valueOf(st) : "";
     }
 
     /** Per-frame diffusive state (from the segment covering each frame; -1 if none). */

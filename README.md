@@ -2,7 +2,7 @@
 
 **AnDi-J** is a [Fiji](https://fiji.sc/)/ImageJ plugin for **anomalous-diffusion analysis of single-particle tracking (SPT) data**, combining statistical and machine-learning (ML) analysis. It works at two scales: per-trajectory observables, and per-frame predictions for fine-grained segmentation of trajectories with expected diffusion changes.
 
-📖 **For the full documentation of every tab and feature, see the [AnDi-J Wiki](https://github.com/gorkamunoz/andi_fiji/wiki).**
+📖 **For the full documentation, see the [AnDi-J Wiki](https://github.com/gorkamunoz/andi_fiji/wiki).**
 
 ---
 
@@ -12,38 +12,25 @@ AnDi-J is organised around two menu commands under **`Plugins ▸ AnDi`**:
 
 | Command | Purpose |
 |---|---|
-| [**Trajectory Analysis**](https://github.com/gorkamunoz/andi_fiji/wiki/Trajectory-Analysis) | Per-trajectory observables: MSD analysis, diffusion coefficient *D*, anomalous exponent *α*, the *D*–*α* plane, diffusion-model classification, and turning angles. |
-| [**Trajectory Segmentation**](https://github.com/gorkamunoz/andi_fiji/wiki/Trajectory-Segmentation) | Per-frame predictions of *α* and *D* along each trajectory, change-point detection into homogeneous segments, and the diffusive state (immobile, confined, free diffusion, or directed) of each segment. |
-
-Both commands share the same **Data Manager** for loading and grouping data, and both can analyse several experiments (conditions) at once, each with its own colour, overlaid for comparison.
-
----
-
-## Input format
-
-The plugin reads the **Spots CSV export from TrackMate** (tested with TrackMate ≥ 7).  
-Required columns (case-insensitive): `TRACK_ID`, `POSITION_X`, `POSITION_Y`, `FRAME`.
-
+| [**Trajectory Analysis**](https://github.com/gorkamunoz/andi_fiji/wiki/Trajectory-Analysis) | Per-trajectory observables: MSD analysis, diffusion coefficient *D*, anomalous exponent *α*, diffusion-model classification, turning angles and power-spectral density..
+| [**Trajectory Segmentation**](https://github.com/gorkamunoz/andi_fiji/wiki/Trajectory-Segmentation) | Per-frame predictions of *α*, *D* and diffusive state (immobile, confined, free diffusion, or directed)along each trajectory, as well as  diffusion change-point detection. |
 
 ---
 
 ## Installation
 
-### For users
+### Recommended
 
 1. Go to the [**Releases**](https://github.com/gorkamunoz/andi_fiji/releases) page of this repository.
 2. Under the latest release, download the file **`andi-j-X.Y.Z.jar`**.
-3. This plugin uses **ONNX Runtime** for its machine-learning predictions
-   (anomalous exponent, diffusion model, and trajectory segmentation). Download
-   it directly from Maven Central — no account or build tool needed:
+3. This plugin uses **ONNX Runtime** for its machine-learning predictions. You can download it directly from Maven Central:
    [`onnxruntime-1.17.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.17.0/onnxruntime-1.17.0.jar)
 4. Copy **both** `andi-j-X.Y.Z.jar` and `onnxruntime-1.17.0.jar` into the
-   **`Fiji.app/jars/`** folder  
-   *(on Windows: `C:\Users\<you>\Fiji.app\jars\`)*
+   **`Fiji.app/jars/`** folder. 
 5. **Restart Fiji.**
-6. The plugin is now available under **Plugins › AnDi**.
+6. The plugin is now available under **Plugins › AnDi-J**.
 
-### For developers
+### Build from scratch
 
 ```bash
 git clone https://github.com/gorkamunoz/andi_fiji.git
@@ -61,26 +48,20 @@ cp ~/.m2/repository/com/microsoft/onnxruntime/onnxruntime/1.17.0/onnxruntime-1.1
 
 Requires Java 8+ and Maven. The build uses the [pom-scijava](https://github.com/scijava/pom-scijava) parent POM.
 
-#### Debug mode
-
-AnDi-J keeps its diagnostics quiet by default, so running an ML prediction never
-pops a console window at users. To see them, enable ImageJ's debug mode:
+**Debug mode:** AnDi-J keeps its diagnostics quiet by default. To see them, enable ImageJ's debug mode:
 
 **`Edit ▸ Options ▸ Misc… ▸ Debug mode`**
 
-and open **`Window ▸ Console`**. With debug mode on, the plugin prints the ONNX
-model input/output tensor shapes, whether the CUDA GPU provider was picked up or
-it fell back to CPU, and similar details. Genuine anomalies (e.g. a custom model
-returning an unexpected output type) are always reported, debug mode or not.
+and open **`Window ▸ Console`**. With debug mode on, the plugin prints information about the ML-models (ONNX model input/output tensor shapes and CPU/GPU usage). Genuine anomalies (e.g. a custom model returning an unexpected output type) are always reported, debug mode or not.
 
----
+#### GPU / CUDA support
+ML execution is prepared to run both in CPU / GPU. The later requires building the plugin from scracth against `onnxruntime_gpu` (with a matching CUDA/cuDNN install). For that, you must change `pom.xml` onxxruntim call to:
 
-## Usage
-
-1. **Plugins › AnDi › Trajectory Analysis**
-2. Select one or more TrackMate CSV files.
-3. The analysis window opens with all tabs pre-populated using default parameters.
-4. Adjust parameters (lag ranges, bins, frame interval) and click **Compute** / **Compute D** / **Compute α** to rerun with custom settings.
+```xml
+<artifactId>onnxruntime_gpu</artifactId>
+<version>1.xx.0</version>
+```
+where `xx` depends on your current CUDA installation. Then, just follow the build from scratch recipe above, copying this time the relevant `onnxruntime_gpu` .jar file.
 
 ---
 

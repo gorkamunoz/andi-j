@@ -1,6 +1,7 @@
 package sc.fiji.andi;
 
 import ai.onnxruntime.OrtException;
+import ij.IJ;
 import ij.plugin.PlugIn;
 
 import javax.swing.*;
@@ -105,6 +106,18 @@ public class TrajectorySegmentationCommand implements PlugIn {
             bar.setPreferredSize(new Dimension(320, 20));
             pp.add(bar, BorderLayout.CENTER);
 
+            final boolean[] aborted = {false};
+            JButton abortBtn = new JButton("Abort");
+            abortBtn.setToolTipText("Stop the inference (results so far are discarded)");
+            abortBtn.addActionListener(e -> {
+                aborted[0] = true;
+                abortBtn.setEnabled(false);
+                abortBtn.setText("Aborting…");
+            });
+            JPanel abortRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 4));
+            abortRow.add(abortBtn);
+            pp.add(abortRow, BorderLayout.SOUTH);
+
             prog.setContentPane(pp);
             prog.setResizable(false);
             prog.pack();
@@ -120,6 +133,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
                 @Override
                 protected Void doInBackground() {
                     UclStepPredictor.ProgressListener tick = () -> {
+                        if (aborted[0]) throw new java.util.concurrent.CancellationException();
                         int d = ++done[0];
                         SwingUtilities.invokeLater(() -> {
                             bar.setValue(d);
@@ -127,20 +141,20 @@ public class TrajectorySegmentationCommand implements PlugIn {
                         });
                     };
 
-                    // Serve cached experiments; run the model only for the rest.
-                    List<ExperimentData> toCompute = new ArrayList<>();
-                    for (ExperimentData exp : exps) {
-                        Cached cached = CACHE.get(signature(exp, cfg));
-                        if (cached != null) {
-                            exp.stepAlpha = cached.stepAlpha;
-                            exp.stepLogD  = cached.stepLogD;
-                            exp.segments  = cached.segments;
-                            for (int k = 0; k < exp.tracks.size(); k++) tick.trackDone();
-                        } else {
-                            toCompute.add(exp);
-                        }
-                    }
                     try {
+                        // Serve cached experiments; run the model only for the rest.
+                        List<ExperimentData> toCompute = new ArrayList<>();
+                        for (ExperimentData exp : exps) {
+                            Cached cached = CACHE.get(signature(exp, cfg));
+                            if (cached != null) {
+                                exp.stepAlpha = cached.stepAlpha;
+                                exp.stepLogD  = cached.stepLogD;
+                                exp.segments  = cached.segments;
+                                for (int k = 0; k < exp.tracks.size(); k++) tick.trackDone();
+                            } else {
+                                toCompute.add(exp);
+                            }
+                        }
                         if (!toCompute.isEmpty()) {
                             SegmentationRunner.run(toCompute, cfg, tick);
                             for (ExperimentData exp : toCompute)
@@ -149,6 +163,8 @@ public class TrajectorySegmentationCommand implements PlugIn {
                         }
                     } catch (OrtException | java.io.IOException ex) {
                         error = ex;
+                    } catch (java.util.concurrent.CancellationException ignored) {
+                        // handled via the aborted[0] flag in done()
                     }
                     return null;
                 }
@@ -157,6 +173,10 @@ public class TrajectorySegmentationCommand implements PlugIn {
                 protected void done() {
                     prog.dispose();   // close modal → control returns below
 
+                    if (aborted[0]) {
+                        IJ.log("AnDi-J: segmentation aborted by user.");
+                        return;
+                    }
                     if (error != null) {
                         JOptionPane.showMessageDialog(dm,
                             "<html>Could not run STEP predictions:<br><br>"

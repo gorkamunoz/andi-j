@@ -160,7 +160,7 @@ public class DataManagerWindow extends JFrame {
         // ── assemble ──────────────────────────────────────────────────────
         JPanel content = new JPanel(new BorderLayout(0, 4));
         content.setBorder(new EmptyBorder(6, 6, 6, 6));
-        content.add(loadBar, BorderLayout.NORTH);
+        content.add(Toolbars.makeScrollable(loadBar), BorderLayout.NORTH);
         content.add(scroll,  BorderLayout.CENTER);
         content.add(south,   BorderLayout.SOUTH);
         setContentPane(content);

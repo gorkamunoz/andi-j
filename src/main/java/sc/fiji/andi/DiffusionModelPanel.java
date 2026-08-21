@@ -283,6 +283,19 @@ public class DiffusionModelPanel extends JPanel {
         bar.setString("0 / " + nTracks);
         bar.setPreferredSize(new Dimension(320, 20));
         pp.add(bar, BorderLayout.CENTER);
+
+        final boolean[] aborted = {false};
+        JButton abortBtn = new JButton("Abort");
+        abortBtn.setToolTipText("Stop the inference (results so far are discarded)");
+        abortBtn.addActionListener(e -> {
+            aborted[0] = true;
+            abortBtn.setEnabled(false);
+            abortBtn.setText("Aborting…");
+        });
+        JPanel abortRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 4));
+        abortRow.add(abortBtn);
+        pp.add(abortRow, BorderLayout.SOUTH);
+
         prog.setContentPane(pp);
         prog.setResizable(false);
         prog.pack();
@@ -296,6 +309,7 @@ public class DiffusionModelPanel extends JPanel {
             protected Void doInBackground() {
                 try {
                     MlPredictor.ProgressListener tick = () -> {
+                        if (aborted[0]) throw new java.util.concurrent.CancellationException();
                         int d = ++done[0];
                         SwingUtilities.invokeLater(() -> {
                             bar.setValue(d);
@@ -306,6 +320,8 @@ public class DiffusionModelPanel extends JPanel {
                         active.computeForExperiment(exp, tick);
                 } catch (OrtException ex) {
                     error = ex;
+                } catch (java.util.concurrent.CancellationException ignored) {
+                    // handled via the aborted[0] flag in done()
                 }
                 return null;
             }
@@ -313,6 +329,10 @@ public class DiffusionModelPanel extends JPanel {
             @Override
             protected void done() {
                 prog.dispose();
+                if (aborted[0]) {
+                    IJ.log("AnDi-J: diffusion-model classification aborted by user.");
+                    return;
+                }
                 if (error != null) {
                     JOptionPane.showMessageDialog(DiffusionModelPanel.this,
                         "Classification failed:\n" + error.getMessage(),

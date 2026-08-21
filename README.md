@@ -1,25 +1,21 @@
 # AnDi-J
 
-A [Fiji/ImageJ](https://fiji.sc) plugin for analysing single-particle tracking (SPT) trajectories exported from [TrackMate](https://imagej.net/plugins/trackmate/).  
-It computes the **time-averaged Mean Squared Displacement (tMSD)**, **diffusion coefficient *D***, and **anomalous exponent *α*** for each trajectory, following the algorithms of the [AnDi-datasets](https://github.com/AnDiChallenge/ANDI_datasets) library.
+**AnDi-J** is a [Fiji](https://fiji.sc/)/ImageJ plugin for **anomalous-diffusion analysis of single-particle tracking (SPT) data**, combining statistical and machine-learning (ML) analysis. It works at two scales: per-trajectory observables, and per-frame predictions for fine-grained segmentation of trajectories with expected diffusion changes.
+
+📖 **For the full documentation of every tab and feature, see the [AnDi-J Wiki](https://github.com/gorkamunoz/andi_fiji/wiki).**
 
 ---
 
 ## Features
 
-| Tab | What it does |
-|-----|-------------|
-| **TMSD Visualization** | Plots the tMSD curve for each trajectory and/or its average. Log or linear axes, configurable lag range. |
-| **Diffusion coefficient** | Histogram of *D* values (linear fit of tMSD vs *t*). Independent 2D / X / Y components. Average table, CSV export. |
-| **Anomalous exponent** | Histogram of *α* values (log-log fit of tMSD vs *t*). Same controls as the *D* tab. |
-| **Full analysis** | 2-D scatter plot *α* vs *D*, one point per trajectory. Log *D* axis by default. |
+AnDi-J is organised around two menu commands under **`Plugins ▸ AnDi`**:
 
-All analysis tabs share the same interaction model:
+| Command | Purpose |
+|---|---|
+| [**Trajectory Analysis**](https://github.com/gorkamunoz/andi_fiji/wiki/Trajectory-Analysis) | Per-trajectory observables: MSD analysis, diffusion coefficient *D*, anomalous exponent *α*, the *D*–*α* plane, diffusion-model classification, and turning angles. |
+| [**Trajectory Segmentation**](https://github.com/gorkamunoz/andi_fiji/wiki/Trajectory-Segmentation) | Per-frame predictions of *α* and *D* along each trajectory, change-point detection into homogeneous segments, and the diffusive state (immobile, confined, free diffusion, or directed) of each segment. |
 
-- **Per-experiment colour coding** – each loaded CSV gets a distinct colour.
-- **2D / X / Y component selection** – analyse the full displacement or its X/Y projections independently.
-- **Zoom & pan** – drag a rectangle to zoom in, drag in pan mode to move, double-click to reset.
-- **Save** buttons export CSV files with per-trajectory results.
+Both commands share the same **Data Manager** for loading and grouping data, and both can analyse several experiments (conditions) at once, each with its own colour, overlaid for comparison.
 
 ---
 
@@ -28,7 +24,6 @@ All analysis tabs share the same interaction model:
 The plugin reads the **Spots CSV export from TrackMate** (tested with TrackMate ≥ 7).  
 Required columns (case-insensitive): `TRACK_ID`, `POSITION_X`, `POSITION_Y`, `FRAME`.
 
-> Multiple CSV files can be loaded at once; each file becomes one labelled experiment.
 
 ---
 
@@ -36,8 +31,7 @@ Required columns (case-insensitive): `TRACK_ID`, `POSITION_X`, `POSITION_Y`, `FR
 
 ### For users
 
-1. During beta testing: go to folder [**Target**](https://github.com/gorkamunoz/andi_fiji/tree/main/target)
-1. (When released, no beta testing) Go to the [**Releases**](https://github.com/gorkamunoz/andi_fiji/releases) page of this repository.
+1. Go to the [**Releases**](https://github.com/gorkamunoz/andi_fiji/releases) page of this repository.
 2. Under the latest release, download the file **`andi-j-X.Y.Z.jar`**.
 3. This plugin uses **ONNX Runtime** for its machine-learning predictions
    (anomalous exponent, diffusion model, and trajectory segmentation). Download

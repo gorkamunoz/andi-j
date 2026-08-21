@@ -1,4 +1,4 @@
-utils/test_trajs/
 target/
+*.csv
 *.onnx
 *.pth

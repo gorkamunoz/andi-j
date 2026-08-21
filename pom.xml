@@ -18,12 +18,12 @@
 
     <name>AnDi-J</name>
     <description>Anomalous Diffusion trajectory analysis plugin for Fiji</description>
-    <url>https://github.com/gorkamunoz/andi_fiji</url>
+    <url>https://github.com/gorkamunoz/andi-j</url>
     <inceptionYear>2026</inceptionYear>
 
     <organization>
         <name>AnDi-J</name>
-        <url>https://github.com/gorkamunoz/andi_fiji</url>
+        <url>https://github.com/gorkamunoz/andi-j</url>
     </organization>
 
     <licenses>
@@ -54,14 +54,14 @@
     </mailingLists>
 
     <scm>
-        <connection>scm:git:git://github.com/gorkamunoz/andi_fiji</connection>
-        <developerConnection>scm:git:git@github.com:gorkamunoz/andi_fiji</developerConnection>
-        <url>https://github.com/gorkamunoz/andi_fiji</url>
+        <connection>scm:git:git://github.com/gorkamunoz/andi-j</connection>
+        <developerConnection>scm:git:git@github.com:gorkamunoz/andi-j</developerConnection>
+        <url>https://github.com/gorkamunoz/andi-j</url>
     </scm>
 
     <issueManagement>
         <system>GitHub Issues</system>
-        <url>https://github.com/gorkamunoz/andi_fiji/issues</url>
+        <url>https://github.com/gorkamunoz/andi-j/issues</url>
     </issueManagement>
 
     <ciManagement>
@@ -87,8 +87,8 @@
         <!-- ONNX Runtime – used for ML-based anomalous-exponent estimation -->
         <dependency>
             <groupId>com.microsoft.onnxruntime</groupId>
-            <artifactId>onnxruntime</artifactId>
-            <version>1.17.0</version>
+            <artifactId>onnxruntime_gpu</artifactId>
+            <version>1.26.0</version>
         </dependency>
     </dependencies>
 

@@ -4,12 +4,6 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
-    <!--
-        pom-scijava is the standard parent for all Fiji plugins.
-        It manages all ImageJ/Fiji dependency versions in a tested BOM,
-        and configures the annotation processor that registers @Plugin classes.
-    -->
     <parent>
         <groupId>org.scijava</groupId>
         <artifactId>pom-scijava</artifactId>
@@ -24,26 +18,26 @@
 
     <name>AnDi-J</name>
     <description>Anomalous Diffusion trajectory analysis plugin for Fiji</description>
-    <url>https://github.com/your-username/andi-j</url>
+    <url>https://github.com/gorkamunoz/andi_fiji</url>
     <inceptionYear>2026</inceptionYear>
 
     <organization>
         <name>AnDi-J</name>
-        <url>https://github.com/your-username/andi-j</url>
+        <url>https://github.com/gorkamunoz/andi_fiji</url>
     </organization>
 
     <licenses>
         <license>
-            <name>GNU General Public License v3+</name>
-            <url>https://www.gnu.org/licenses/gpl-3.0.html</url>
+            <name>MIT License</name>
+            <url>https://opensource.org/license/mit/</url>
         </license>
     </licenses>
 
     <developers>
         <developer>
-            <id>your-username</id>
-            <name>Your Name</name>
-            <email>your@email.com</email>
+            <id>gorkamunoz</id>
+            <name>Gorka Muñoz-Gil</name>
+            <email>munoz.gil.gorka@gmail.com</email>
         </developer>
     </developers>
 
@@ -60,14 +54,14 @@
     </mailingLists>
 
     <scm>
-        <connection>scm:git:git://github.com/your-username/andi-j</connection>
-        <developerConnection>scm:git:git@github.com:your-username/andi-j</developerConnection>
-        <url>https://github.com/your-username/andi-j</url>
+        <connection>scm:git:git://github.com/gorkamunoz/andi_fiji</connection>
+        <developerConnection>scm:git:git@github.com:gorkamunoz/andi_fiji</developerConnection>
+        <url>https://github.com/gorkamunoz/andi_fiji</url>
     </scm>
 
     <issueManagement>
         <system>GitHub Issues</system>
-        <url>https://github.com/your-username/andi-j/issues</url>
+        <url>https://github.com/gorkamunoz/andi_fiji/issues</url>
     </issueManagement>
 
     <ciManagement>
@@ -75,8 +69,8 @@
     </ciManagement>
 
     <properties>
-        <license.licenseName>gpl_v3</license.licenseName>
-        <license.copyrightOwners>AnDi-J contributors</license.copyrightOwners>
+        <license.licenseName>mit</license.licenseName>
+        <license.copyrightOwners>Gorka Muñoz-Gil</license.copyrightOwners>
         <!-- Target Java 8 for maximum Fiji compatibility -->
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>

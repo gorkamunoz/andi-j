@@ -103,7 +103,7 @@ public class StepPredictor implements Closeable {
         try {
             opts.addCUDA(0);   // device 0; CPU remains as automatic fallback
         } catch (Throwable t) {
-            System.err.println("[StepPredictor] CUDA GPU unavailable, using CPU: " + t.getMessage());
+            AndiLog.debug("StepPredictor: CUDA GPU unavailable, using CPU: " + t.getMessage());
         }
         return opts;
     }
@@ -297,7 +297,7 @@ public class StepPredictor implements Closeable {
                     System.arraycopy(arr[b], 0, results[b], 0, Math.min(L, arr[b].length));
 
             } else {
-                System.err.println("[StepPredictor] unexpected output type: "
+                AndiLog.warn("StepPredictor: unexpected output type: "
                         + (val == null ? "null" : val.getClass().getName()));
                 for (float[] row : results) Arrays.fill(row, Float.NaN);
             }
@@ -334,13 +334,14 @@ public class StepPredictor implements Closeable {
     }
 
     private static void printInfo(String label, OrtSession s) throws OrtException {
-        System.err.println("[StepPredictor] === " + label + " ===");
+        if (!AndiLog.isDebug()) return;
+        AndiLog.debug("=== " + label + " ===");
         for (NodeInfo ni : s.getInputInfo().values())
-            System.err.println("[StepPredictor]  INPUT  " + ni.getName()
+            AndiLog.debug("  INPUT  " + ni.getName()
                     + "  shape=" + Arrays.toString(
                             ((TensorInfo) ni.getInfo()).getShape()));
         for (NodeInfo ni : s.getOutputInfo().values())
-            System.err.println("[StepPredictor]  OUTPUT " + ni.getName()
+            AndiLog.debug("  OUTPUT " + ni.getName()
                     + "  shape=" + Arrays.toString(
                             ((TensorInfo) ni.getInfo()).getShape()));
     }

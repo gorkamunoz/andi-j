@@ -115,7 +115,7 @@ public class CustomOnnxPredictor implements MlPredictor {
         if (val instanceof float[][]) return ((float[][]) val)[0];   // (1, K)
         if (val instanceof float[])   return (float[]) val;          // (K,)
         if (val instanceof Float)     return new float[]{(Float) val};
-        System.err.println("[CustomOnnxPredictor] unexpected output type: "
+        AndiLog.warn("CustomOnnxPredictor: unexpected output type: "
                 + (val == null ? "null" : val.getClass().getName()));
         return new float[]{Float.NaN};
     }

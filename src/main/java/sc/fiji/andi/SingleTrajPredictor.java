@@ -186,7 +186,7 @@ public class SingleTrajPredictor implements MlPredictor {
             Object val = outVal.getValue();
             if (val instanceof float[][]) return ((float[][]) val)[0];   // (1, 11)
             if (val instanceof float[])   return (float[]) val;          // (11,)
-            System.err.println("[SingleTrajPredictor] unexpected output type: "
+            AndiLog.warn("SingleTrajPredictor: unexpected output type: "
                     + (val == null ? "null" : val.getClass().getName()));
             float[] nan = new float[11];
             Arrays.fill(nan, Float.NaN);

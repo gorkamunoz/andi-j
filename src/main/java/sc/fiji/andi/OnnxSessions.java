@@ -19,7 +19,8 @@ final class OnnxSessions {
             opts.setIntraOpNumThreads(Math.max(1, Runtime.getRuntime().availableProcessors()));
             opts.addCUDA(0);   // device 0; CPU remains the automatic fallback
         } catch (Throwable t) {
-            System.err.println("[AnDi-J] GPU (CUDA) unavailable, using CPU: " + t.getMessage());
+            // Expected on the released CPU-only build — a diagnostic, not an error.
+            AndiLog.debug("GPU (CUDA) unavailable, using CPU: " + t.getMessage());
         }
         return opts;
     }

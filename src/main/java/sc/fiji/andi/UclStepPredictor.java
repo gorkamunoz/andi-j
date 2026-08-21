@@ -495,12 +495,13 @@ public class UclStepPredictor implements Closeable {
     }
 
     private void printInfo() throws OrtException {
-        System.err.println("[UclStepPredictor] === UCL-Net (UNet3+) ===");
+        if (!AndiLog.isDebug()) return;
+        AndiLog.debug("=== UCL-Net (UNet3+) ===");
         for (NodeInfo ni : session.getInputInfo().values())
-            System.err.println("[UclStepPredictor]  INPUT  " + ni.getName()
+            AndiLog.debug("  INPUT  " + ni.getName()
                     + "  shape=" + Arrays.toString(((TensorInfo) ni.getInfo()).getShape()));
         for (NodeInfo ni : session.getOutputInfo().values())
-            System.err.println("[UclStepPredictor]  OUTPUT " + ni.getName()
+            AndiLog.debug("  OUTPUT " + ni.getName()
                     + "  shape=" + Arrays.toString(((TensorInfo) ni.getInfo()).getShape()));
     }
 

@@ -61,6 +61,18 @@ cp ~/.m2/repository/com/microsoft/onnxruntime/onnxruntime/1.17.0/onnxruntime-1.1
 
 Requires Java 8+ and Maven. The build uses the [pom-scijava](https://github.com/scijava/pom-scijava) parent POM.
 
+#### Debug mode
+
+AnDi-J keeps its diagnostics quiet by default, so running an ML prediction never
+pops a console window at users. To see them, enable ImageJ's debug mode:
+
+**`Edit ▸ Options ▸ Misc… ▸ Debug mode`**
+
+and open **`Window ▸ Console`**. With debug mode on, the plugin prints the ONNX
+model input/output tensor shapes, whether the CUDA GPU provider was picked up or
+it fell back to CPU, and similar details. Genuine anomalies (e.g. a custom model
+returning an unexpected output type) are always reported, debug mode or not.
+
 ---
 
 ## Usage

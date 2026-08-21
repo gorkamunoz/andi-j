@@ -1,4 +1,4 @@
-test_trajs/
+utils/test_trajs/
 target/
 *.onnx
 *.pth

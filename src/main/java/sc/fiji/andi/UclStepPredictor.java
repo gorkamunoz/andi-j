@@ -42,7 +42,7 @@ import java.util.*;
 public class UclStepPredictor implements Closeable {
 
     /** Classpath resource for the bundled ONNX model. */
-    public static final String DEFAULT_RESOURCE = "/models/ucl_step.onnx";
+    public static final String DEFAULT_RESOURCE = "/models/andi-j-seg-v0.onnx";
 
     /** Required divisor of the input sequence length (5 pooling levels → 2^5). */
     private static final int LEN_MULTIPLE = 32;

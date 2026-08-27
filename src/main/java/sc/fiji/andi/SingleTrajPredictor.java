@@ -33,7 +33,7 @@ import java.util.*;
 public class SingleTrajPredictor implements MlPredictor {
 
     /** Classpath resource path for the bundled andi-j-analysis-v0 model. */
-    public static final String DEFAULT_RESOURCE = "/models/single_traj_v2.onnx";
+    public static final String DEFAULT_RESOURCE = "/models/andi-j-analysis-v0.onnx";
 
     /** Number of diffusion-model classes (= classification logits). */
     public static final int N_MODELS = 5;
@@ -55,7 +55,7 @@ public class SingleTrajPredictor implements MlPredictor {
         InputStream is = SingleTrajPredictor.class.getResourceAsStream(DEFAULT_RESOURCE);
         if (is == null)
             throw new FileNotFoundException(
-                    "Model resource not found: " + DEFAULT_RESOURCE + "\n"
+                    "Bundled model andi-j-analysis-v0 not found: " + DEFAULT_RESOURCE + "\n"
                     + "Copy the model into src/main/resources/models/ and rebuild.");
         byte[] bytes;
         try { bytes = readAllBytes(is); } finally { is.close(); }

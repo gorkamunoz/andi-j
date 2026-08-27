@@ -103,7 +103,7 @@ If your machine has a different CUDA toolkit installed than the recommended one,
 
 If you use this plugin in your work, please cite:
 
-> *[citation placeholder – add your paper or the AnDi challenge reference here]*
+> *soon*
 
 ---
 

@@ -42,13 +42,13 @@ AnDi-J is organised around two menu commands under **`Plugins ▸ AnDi-J`**:
 ### Recommended
 
 1. Go to the [**Releases**](https://github.com/gorkamunoz/andi-j/releases) page of this repository.
-2. Under the latest release, download the file **`andi-j-X.Y.Z.jar`**.
+2. Under the latest plugin release, download the file **`andi-j-X.Y.Z.jar`**.
 3. This plugin uses **ONNX Runtime** for its machine-learning predictions. It provides support both **CPU** and **GPU** (CUDA) support. The latter allows for much faster computations. The current release requires CUDA Toolkit 12.x and cuDNN 9.x for CUDA 12 (see below for other CUDA versions). You can download the corresponding file directly from Maven Central:
    - CPU:
    [`onnxruntime-1.26.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.26.0/onnxruntime-1.26.0.jar)
    - GPU/CUDA: [`onnxruntime_gpu-1.26.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar) 
    
-4. Copy **both** `andi-j-X.Y.Z.jar` and `onnxruntime-1.17.0.jar` into the
+4. Copy **both** `andi-j` and `onnxruntime` jars into the
    **`Fiji.app/jars/`** folder. 
 5. **Restart Fiji.**
 6. The plugin is now available under **Plugins › AnDi-J**.
@@ -57,16 +57,20 @@ AnDi-J is organised around two menu commands under **`Plugins ▸ AnDi-J`**:
 
 ```bash
 git clone https://github.com/gorkamunoz/andi-j.git
+```
+You will then need to download the two default ML models (see (https://github.com/gorkamunoz/andi-j/releases), look for the latest model release). Place these models in `andi-j/src/main/resources/models/`. Then:
+
+```bash
 cd andi-j
 mvn clean package
 # then copy target/andi-j-*.jar into Fiji.app/jars/
 ```
 
-`mvn clean package` also resolves `onnxruntime-1.17.0.jar` into your local
+`mvn clean package` also resolves `onnxruntime-1.26.0.jar` into your local
 Maven cache, so you can copy it from there instead of downloading it again:
 
 ```bash
-cp ~/.m2/repository/com/microsoft/onnxruntime/onnxruntime/1.17.0/onnxruntime-1.17.0.jar Fiji.app/jars/
+cp ~/.m2/repository/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime-1.26.0.jar Fiji.app/jars/
 ```
 
 Requires Java 8+ and Maven. The build uses the [pom-scijava](https://github.com/scijava/pom-scijava) parent POM.

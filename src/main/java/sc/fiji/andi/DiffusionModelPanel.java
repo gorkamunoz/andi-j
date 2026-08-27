@@ -19,7 +19,7 @@ import java.util.List;
  * predicted as each model in a grouped bar chart.
  *
  * <p>Predictions come from the bundled andi-j-analysis-v0 model
- * ({@link SingleTrajPredictor}); "Compute models (ML)" runs the classifier
+ * ({@link AnalysisPredictor}); "Compute models (ML)" runs the classifier
  * (with a progress bar) and fills {@link ExperimentData#diffModel}.  Running
  * the ML α prediction in the Anomalous-exponent tab fills the same map, so the
  * bars appear here automatically in that case.</p>
@@ -42,7 +42,7 @@ public class DiffusionModelPanel extends JPanel {
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
 
     /** Bundled default predictor (α + diffusion model), lazily loaded. */
-    private SingleTrajPredictor defaultPredictor = null;
+    private AnalysisPredictor defaultPredictor = null;
     /** Optional user-loaded model-only predictor. */
     private CustomOnnxPredictor customPredictor  = null;
     private boolean             useDefault       = true;
@@ -246,7 +246,7 @@ public class DiffusionModelPanel extends JPanel {
         if (usingDefault) {
             if (defaultPredictor == null) {
                 try {
-                    defaultPredictor = SingleTrajPredictor.fromResource();
+                    defaultPredictor = AnalysisPredictor.fromResource();
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this,
                         "<html>The bundled model <tt>andi-j-analysis-v0</tt> was not found.<br>"

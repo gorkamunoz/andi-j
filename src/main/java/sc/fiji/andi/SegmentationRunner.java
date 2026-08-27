@@ -11,7 +11,7 @@ import java.util.*;
  * {@link ExperimentData#segments}.
  *
  * <ul>
- *   <li><b>Default</b> – the bundled batched {@link UclStepPredictor}.</li>
+ *   <li><b>Default</b> – the bundled batched {@link SegPredictor}.</li>
  *   <li><b>Combined</b> – one custom ONNX providing α, log₁₀(D) &amp; cp.</li>
  *   <li><b>Per-output</b> – a custom ONNX per output; missing outputs come from
  *       the default model (run per-track). Custom cp is treated as a 0/1 signal;
@@ -23,11 +23,11 @@ public final class SegmentationRunner {
     private SegmentationRunner() {}
 
     public static void run(List<ExperimentData> exps, SegModelConfig cfg,
-                           UclStepPredictor.ProgressListener tick)
+                           SegPredictor.ProgressListener tick)
             throws OrtException, IOException {
 
         if (cfg.useDefault) {
-            try (UclStepPredictor def = UclStepPredictor.fromResources(cfg.tta)) {
+            try (SegPredictor def = SegPredictor.fromResources(cfg.tta)) {
                 for (ExperimentData exp : exps) def.computeForExperiment(exp, tick);
             }
             return;
@@ -43,7 +43,7 @@ public final class SegmentationRunner {
         }
 
         // Per-output: default fills any output without a custom model.
-        UclStepPredictor def = cfg.needsDefault() ? UclStepPredictor.fromResources(cfg.tta) : null;
+        SegPredictor def = cfg.needsDefault() ? SegPredictor.fromResources(cfg.tta) : null;
         CustomSegPredictor ca  = cfg.alphaFile  != null ? new CustomSegPredictor(cfg.alphaFile,  CustomSegPredictor.Kind.ALPHA)     : null;
         CustomSegPredictor cd  = cfg.dFile      != null ? new CustomSegPredictor(cfg.dFile,      CustomSegPredictor.Kind.LOGD)      : null;
         CustomSegPredictor cc  = cfg.cpFile     != null ? new CustomSegPredictor(cfg.cpFile,     CustomSegPredictor.Kind.CP)        : null;
@@ -61,8 +61,8 @@ public final class SegmentationRunner {
 
     // -----------------------------------------------------------------------
 
-    private static void runMixed(List<ExperimentData> exps, UclStepPredictor.ProgressListener tick,
-                                 CustomSegPredictor combined, UclStepPredictor def,
+    private static void runMixed(List<ExperimentData> exps, SegPredictor.ProgressListener tick,
+                                 CustomSegPredictor combined, SegPredictor def,
                                  CustomSegPredictor ca, CustomSegPredictor cd, CustomSegPredictor cc,
                                  CustomSegPredictor cph)
             throws OrtException {
@@ -94,7 +94,7 @@ public final class SegmentationRunner {
                     CustomSegPredictor.Out o = combined.run(xy);
                     a = o.alpha; d = o.logD; cp = o.cp; cpIsProb = false; state = o.state;
                 } else {
-                    UclStepPredictor.TrackOut base = (def != null) ? def.computeTrack(spots) : null;
+                    SegPredictor.TrackOut base = (def != null) ? def.computeTrack(spots) : null;
                     a = (ca != null) ? ca.run(xy).alpha : (base != null ? base.alpha  : null);
                     d = (cd != null) ? cd.run(xy).logD  : (base != null ? base.logD   : null);
                     if (cc != null) { cp = cc.run(xy).cp;   cpIsProb = false; }
@@ -111,13 +111,13 @@ public final class SegmentationRunner {
 
                 int[] cps;
                 if (cp == null) cps = new int[0];
-                else cps = cpIsProb ? UclStepPredictor.findChangePoints(cp)
-                                    : UclStepPredictor.thresholdChangePoints(cp);
+                else cps = cpIsProb ? SegPredictor.findChangePoints(cp)
+                                    : SegPredictor.thresholdChangePoints(cp);
                 cps = interior(cps, n);
 
                 outA.put(id, a);
                 outD.put(id, d);
-                outS.put(id, UclStepPredictor.segmentsFrom(cps, a, d, state));
+                outS.put(id, SegPredictor.segmentsFrom(cps, a, d, state));
                 if (tick != null) tick.trackDone();
             }
 

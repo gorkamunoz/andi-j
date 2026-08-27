@@ -61,7 +61,7 @@ public class AnomalousExponentPanel extends JPanel {
 
     // ML predictors: bundled default (predicts α AND diffusion model) and an
     // optional user-loaded α-only model.
-    private SingleTrajPredictor mlDefaultPredictor = null;
+    private AnalysisPredictor mlDefaultPredictor = null;
     private CustomOnnxPredictor mlCustomPredictor  = null;
     private boolean             mlUseDefault       = true;
 
@@ -434,7 +434,7 @@ public class AnomalousExponentPanel extends JPanel {
         if (useDefault) {
             if (mlDefaultPredictor == null) {
                 try {
-                    mlDefaultPredictor = SingleTrajPredictor.fromResource();
+                    mlDefaultPredictor = AnalysisPredictor.fromResource();
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this,
                         "<html>The bundled model <tt>andi-j-analysis-v0</tt> was not found.<br><br>"

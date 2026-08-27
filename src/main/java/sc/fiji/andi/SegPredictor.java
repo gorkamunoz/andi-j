@@ -39,7 +39,7 @@ import java.util.*;
  * (height ≥ {@value #CP_MIN_HEIGHT}, ≥ {@value #CP_DISTANCE} apart, excluding
  * the first/last two frames), matching the Python {@code find_changepoints}.
  */
-public class UclStepPredictor implements Closeable {
+public class SegPredictor implements Closeable {
 
     /** Classpath resource for the bundled ONNX model. */
     public static final String DEFAULT_RESOURCE = "/models/andi-j-seg-v0.onnx";
@@ -93,17 +93,17 @@ public class UclStepPredictor implements Closeable {
     // Construction
     // -----------------------------------------------------------------------
 
-    public static UclStepPredictor fromResources(boolean useTta)
+    public static SegPredictor fromResources(boolean useTta)
             throws OrtException, IOException {
-        return new UclStepPredictor(loadResource(DEFAULT_RESOURCE), useTta);
+        return new SegPredictor(loadResource(DEFAULT_RESOURCE), useTta);
     }
 
-    public UclStepPredictor(File modelFile, boolean useTta)
+    public SegPredictor(File modelFile, boolean useTta)
             throws OrtException, IOException {
         this(readFile(modelFile), useTta);
     }
 
-    public UclStepPredictor(byte[] modelBytes, boolean useTta) throws OrtException {
+    public SegPredictor(byte[] modelBytes, boolean useTta) throws OrtException {
         this.useTta = useTta;
         env       = OrtEnvironment.getEnvironment();
         session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
@@ -473,7 +473,7 @@ public class UclStepPredictor implements Closeable {
     }
 
     private static byte[] loadResource(String path) throws IOException {
-        InputStream is = UclStepPredictor.class.getResourceAsStream(path);
+        InputStream is = SegPredictor.class.getResourceAsStream(path);
         if (is == null)
             throw new FileNotFoundException(
                     "Bundled model andi-j-seg-v0 not found: " + path + "\n"

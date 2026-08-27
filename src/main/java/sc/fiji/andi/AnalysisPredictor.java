@@ -16,7 +16,7 @@ import java.util.*;
  * <h3>Model contract</h3>
  * <ul>
  *   <li>Input  {@code "input"}  : {@code (1, T-1, 2)} float32 relative-polar features
- *       (same {@code cartesian_to_relative_polar} preprocessing as before).</li>
+ *       ({@code cartesian_to_relative_polar} preprocessing).</li>
  *   <li>Output {@code "output"} : {@code (1, 11)} float32
  *       <ul>
  *         <li>cols 0-4  : per-type α regressions</li>
@@ -30,7 +30,7 @@ import java.util.*;
  * ({@code {α, NaN, NaN}}) and {@link ExperimentData#diffModel} (class index).
  * Tracks with fewer than 2 frames get {@code NaN} α and no model entry.</p>
  */
-public class SingleTrajPredictor implements MlPredictor {
+public class AnalysisPredictor implements MlPredictor {
 
     /** Classpath resource path for the bundled andi-j-analysis-v0 model. */
     public static final String DEFAULT_RESOURCE = "/models/andi-j-analysis-v0.onnx";
@@ -47,22 +47,22 @@ public class SingleTrajPredictor implements MlPredictor {
     // Construction
     // -----------------------------------------------------------------------
 
-    public SingleTrajPredictor(File modelFile) throws OrtException, IOException {
+    public AnalysisPredictor(File modelFile) throws OrtException, IOException {
         this(readFile(modelFile));
     }
 
-    public static SingleTrajPredictor fromResource() throws OrtException, IOException {
-        InputStream is = SingleTrajPredictor.class.getResourceAsStream(DEFAULT_RESOURCE);
+    public static AnalysisPredictor fromResource() throws OrtException, IOException {
+        InputStream is = AnalysisPredictor.class.getResourceAsStream(DEFAULT_RESOURCE);
         if (is == null)
             throw new FileNotFoundException(
                     "Bundled model andi-j-analysis-v0 not found: " + DEFAULT_RESOURCE + "\n"
                     + "Copy the model into src/main/resources/models/ and rebuild.");
         byte[] bytes;
         try { bytes = readAllBytes(is); } finally { is.close(); }
-        return new SingleTrajPredictor(bytes);
+        return new AnalysisPredictor(bytes);
     }
 
-    public SingleTrajPredictor(byte[] modelBytes) throws OrtException {
+    public AnalysisPredictor(byte[] modelBytes) throws OrtException {
         env        = OrtEnvironment.getEnvironment();
         session    = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
         inputName  = session.getInputNames().iterator().next();
@@ -119,7 +119,7 @@ public class SingleTrajPredictor implements MlPredictor {
     }
 
     // -----------------------------------------------------------------------
-    // Preprocessing  (identical to the previous predictor)
+    // Preprocessing
     // -----------------------------------------------------------------------
 
     private static double[][] extractXY(List<double[]> spots) {
@@ -185,7 +185,7 @@ public class SingleTrajPredictor implements MlPredictor {
             Object val = outVal.getValue();
             if (val instanceof float[][]) return ((float[][]) val)[0];   // (1, 11)
             if (val instanceof float[])   return (float[]) val;          // (11,)
-            AndiLog.warn("SingleTrajPredictor: unexpected output type: "
+            AndiLog.warn("AnalysisPredictor: unexpected output type: "
                     + (val == null ? "null" : val.getClass().getName()));
             float[] nan = new float[11];
             Arrays.fill(nan, Float.NaN);

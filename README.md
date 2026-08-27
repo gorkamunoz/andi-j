@@ -58,7 +58,7 @@ AnDi-J is organised around two menu commands under **`Plugins ▸ AnDi-J`**:
 ```bash
 git clone https://github.com/gorkamunoz/andi-j.git
 ```
-You will then need to download the two default ML models (see (https://github.com/gorkamunoz/andi-j/releases), look for the latest model release). Place these models in `andi-j/src/main/resources/models/`. Then:
+You will then need to download the two default ML models (see [Releases](https://github.com/gorkamunoz/andi-j/releases), look for the latest model release). Place these models in `andi-j/src/main/resources/models/`. Then:
 
 ```bash
 cd andi-j

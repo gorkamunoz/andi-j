@@ -37,10 +37,10 @@ public class ExperimentData {
     // Maps trackId -> { alpha_2D, alpha_X, alpha_Y }
     public Map<Integer, double[]> alphaCoeffs;
 
-    // -- STEP per-frame predictions (null until StepPredictor.computeForExperiment() called) --
-    /** Per-frame anomalous exponent: trackId → double[T-1]. Null until STEP runs. */
+    // -- per-frame predictions from andi-j-seg-v0 (null until segmentation runs) --
+    /** Per-frame anomalous exponent: trackId → double[T-1]. Null until segmentation runs. */
     public Map<Integer, double[]> stepAlpha;
-    /** Per-frame log₁₀(D): trackId → double[T-1]. Null until STEP runs. */
+    /** Per-frame log₁₀(D): trackId → double[T-1]. Null until segmentation runs. */
     public Map<Integer, double[]> stepLogD;
 
     // -- ensemble MSD (null until computeEmsd() is called) --
@@ -62,7 +62,7 @@ public class ExperimentData {
     public boolean hasDiffModel() { return diffModel != null && !diffModel.isEmpty(); }
 
     // -- change-point segments (null until ChangePointDetector runs) --
-    /** Per-track list of segments from change-point detection on the STEP predictions. */
+    /** Per-track list of segments from change-point detection on the per-frame predictions. */
     public Map<Integer, List<Segment>> segments;
 
     public boolean hasSegments() { return segments != null && !segments.isEmpty(); }

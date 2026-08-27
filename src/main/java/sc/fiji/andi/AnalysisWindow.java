@@ -25,7 +25,7 @@ public class AnalysisWindow extends JFrame {
         final AnglesPanel            anglesPanel     = new AnglesPanel(experiments);
         final AnomalousExponentPanel anomalousPanel  = new AnomalousExponentPanel(experiments);
 
-        // The V2 single-trajectory model predicts α AND the diffusion model in
+        // The andi-j-analysis-v0 model predicts α AND the diffusion model in
         // one pass, so running ML in either tab updates both. Sync the other
         // tab and inform the user (so the change isn't silent).
         anomalousPanel.setOnMlComputed(() -> {

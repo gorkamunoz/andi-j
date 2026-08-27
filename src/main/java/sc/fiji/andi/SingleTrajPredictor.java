@@ -6,7 +6,7 @@ import java.io.*;
 import java.util.*;
 
 /**
- * Runs the V2 combined single-trajectory model (exported to ONNX) to estimate,
+ * Runs the bundled analysis model <b>andi-j-analysis-v0</b> to estimate,
  * for every trajectory in an {@link ExperimentData}, both:
  * <ul>
  *   <li>the anomalous exponent α (the soft-routed prediction), and</li>
@@ -32,7 +32,7 @@ import java.util.*;
  */
 public class SingleTrajPredictor implements MlPredictor {
 
-    /** Classpath resource path for the bundled V2 model. */
+    /** Classpath resource path for the bundled andi-j-analysis-v0 model. */
     public static final String DEFAULT_RESOURCE = "/models/single_traj_v2.onnx";
 
     /** Number of diffusion-model classes (= classification logits). */
@@ -56,8 +56,7 @@ public class SingleTrajPredictor implements MlPredictor {
         if (is == null)
             throw new FileNotFoundException(
                     "Model resource not found: " + DEFAULT_RESOURCE + "\n"
-                    + "Run ML_analysis/pythons_for_plugin/convert_single_traj_v2_to_onnx.py, "
-                    + "copy single_traj_v2.onnx to src/main/resources/models/ and rebuild.");
+                    + "Copy the model into src/main/resources/models/ and rebuild.");
         byte[] bytes;
         try { bytes = readAllBytes(is); } finally { is.close(); }
         return new SingleTrajPredictor(bytes);

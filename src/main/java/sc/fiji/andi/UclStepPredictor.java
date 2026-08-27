@@ -6,10 +6,10 @@ import java.io.*;
 import java.util.*;
 
 /**
- * Runs the UCL-Net (UNet3+) segmentation model — exported to ONNX by
- * {@code convert_step_v0814_to_onnx.py} — to estimate, for every trajectory,
- * the per-frame anomalous exponent α, per-frame log₁₀(D), <em>and</em> the
- * change-point positions (from the model's own change-point head).
+ * Runs the bundled segmentation model <b>andi-j-seg-v0</b> to estimate, for
+ * every trajectory, the per-frame anomalous exponent α, per-frame log₁₀(D), the
+ * per-frame diffusive state, <em>and</em> the change-point positions (from the
+ * model's own change-point head).
  *
  * <h3>Input preprocessing</h3>
  * The model consumes the <em>displacement</em> trajectory, not positions or
@@ -451,7 +451,7 @@ public class UclStepPredictor implements Closeable {
     private static float[][][] as3d(OrtSession.Result res, String name) throws OrtException {
         OnnxValue outVal = res.get(name)
                 .orElseThrow(() -> new OrtException(
-                        "Output '" + name + "' not found in UCL-Net model"));
+                        "Output '" + name + "' not found in the andi-j-seg-v0 model"));
         Object val = outVal.getValue();
         if (val instanceof float[][][]) return (float[][][]) val;
         throw new OrtException("Unexpected output type for '" + name
@@ -476,9 +476,8 @@ public class UclStepPredictor implements Closeable {
         InputStream is = UclStepPredictor.class.getResourceAsStream(path);
         if (is == null)
             throw new FileNotFoundException(
-                    "Segmentation model resource not found: " + path + "\n"
-                    + "Run ML_analysis/pythons_for_plugin/convert_step_v0814_to_onnx.py,\n"
-                    + "copy ucl_step.onnx to src/main/resources/models/, and rebuild.");
+                    "Bundled model andi-j-seg-v0 not found: " + path + "\n"
+                    + "Copy the model into src/main/resources/models/ and rebuild.");
         try { return readAllBytes(is); } finally { is.close(); }
     }
 
@@ -496,7 +495,7 @@ public class UclStepPredictor implements Closeable {
 
     private void printInfo() throws OrtException {
         if (!AndiLog.isDebug()) return;
-        AndiLog.debug("=== UCL-Net (UNet3+) ===");
+        AndiLog.debug("=== andi-j-seg-v0 ===");
         for (NodeInfo ni : session.getInputInfo().values())
             AndiLog.debug("  INPUT  " + ni.getName()
                     + "  shape=" + Arrays.toString(((TensorInfo) ni.getInfo()).getShape()));

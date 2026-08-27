@@ -14,7 +14,7 @@ import java.util.List;
  *
  * <p>Mirrors the Trajectory-Analysis "D vs α" tab (left experiment multi-select,
  * marginal KDE strips on the top/right edges) but, because the data are
- * per-frame STEP predictions (far too many to scatter), the centre shows a
+ * per-frame predictions (far too many to scatter), the centre shows a
  * 2-D density histogram instead of individual points.  There is no point
  * selection / tagging.</p>
  *
@@ -487,7 +487,7 @@ public class SegDvsAlphaPanel extends JPanel {
             g2.fillRect(px, py, pw, ph);
 
             if (!hasData) {
-                drawMsg(g2, "No STEP predictions — run Perform Analysis, or select an experiment",
+                drawMsg(g2, "No predictions — run Perform Analysis, or select an experiment",
                         px, py, pw, ph);
                 drawFrame(g2, px, py, pw, ph);
                 drawAxisTitles(g2, px, py, pw, ph);

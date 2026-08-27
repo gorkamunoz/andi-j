@@ -437,8 +437,8 @@ public class AnomalousExponentPanel extends JPanel {
                     mlDefaultPredictor = SingleTrajPredictor.fromResource();
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this,
-                        "<html>No bundled model was found.<br><br>"
-                      + "Run <tt>convert_single_traj_v2_to_onnx.py</tt> and rebuild, or "
+                        "<html>The bundled model <tt>andi-j-analysis-v0</tt> was not found.<br><br>"
+                      + "Rebuild the plugin with the model bundled, or "
                       + "switch <b>Type</b> to <b>Load</b> and choose an ONNX file.<br><br>"
                       + "Details: " + ex.getMessage() + "</html>",
                         "ML model not found", JOptionPane.WARNING_MESSAGE);

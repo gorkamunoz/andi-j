@@ -7,7 +7,7 @@ import java.io.File;
  * {@link SegModelOptionsPanel} and consumed by {@link SegmentationRunner}.
  *
  * <ul>
- *   <li>{@code useDefault} – run the bundled UNet3+ model (with {@code tta}).</li>
+ *   <li>{@code useDefault} – run the bundled andi-j-seg-v0 model (with {@code tta}).</li>
  *   <li>Load / combined – one custom ONNX providing α, log₁₀(D) and CP.</li>
  *   <li>Load / per-output – a custom ONNX per output; any {@code null} file is
  *       filled from the default model.</li>

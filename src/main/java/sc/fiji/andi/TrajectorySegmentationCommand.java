@@ -14,7 +14,7 @@ import java.util.Map;
 /**
  * Entry-point plugin for the Trajectory Segmentation feature.
  * Opens (or brings to front) the persistent data-manager window configured
- * for segmentation:  on "Perform Analysis" it runs the STEP models and
+ * for segmentation:  on "Perform Analysis" it runs the andi-j-seg-v0 model and
  * opens {@link TrajectorySegmentationWindow}.
  *
  * Registered in plugins.config as: Plugins > AnDi-J > Trajectory Segmentation
@@ -87,7 +87,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
             final SegModelConfig cfg = dm.getSegModelConfig();
 
             // ── Progress dialog (modal, dismissed when the worker finishes) ─
-            JDialog prog = new JDialog(dm, "AnDi-J – Running STEP Predictions", true);
+            JDialog prog = new JDialog(dm, "AnDi-J – Running Segmentation Predictions", true);
             JPanel pp = new JPanel(new BorderLayout(12, 12));
             pp.setBorder(BorderFactory.createEmptyBorder(18, 24, 18, 24));
 
@@ -95,7 +95,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
                               .mapToInt(e -> e.tracks.size())
                               .sum();
             pp.add(new JLabel(
-                "<html>Running STEP predictions on <b>" + nTracks
+                "<html>Running segmentation predictions on <b>" + nTracks
                 + "</b> track(s) across <b>" + exps.size()
                 + "</b> experiment(s)…</html>"), BorderLayout.NORTH);
 
@@ -179,10 +179,10 @@ public class TrajectorySegmentationCommand implements PlugIn {
                     }
                     if (error != null) {
                         JOptionPane.showMessageDialog(dm,
-                            "<html>Could not run STEP predictions:<br><br>"
+                            "<html>Could not run segmentation predictions:<br><br>"
                             + "<tt>" + error.getMessage().replace("\n", "<br>")
                             + "</tt></html>",
-                            "AnDi-J – STEP Error",
+                            "AnDi-J – Segmentation Error",
                             JOptionPane.ERROR_MESSAGE);
                         return;
                     }

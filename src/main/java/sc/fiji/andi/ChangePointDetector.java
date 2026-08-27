@@ -3,7 +3,7 @@ package sc.fiji.andi;
 import java.util.*;
 
 /**
- * Change-point detection on the per-frame STEP predictions, producing one set
+ * Change-point detection on the per-frame model predictions, producing one set
  * of {@link Segment}s per trajectory.
  *
  * <h3>Algorithm</h3>

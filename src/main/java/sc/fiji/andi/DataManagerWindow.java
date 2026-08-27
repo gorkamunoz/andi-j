@@ -46,7 +46,7 @@ public class DataManagerWindow extends JFrame {
     /**
      * Callback invoked by {@link DataManagerWindow} once experiments have been
      * assembled.  Implementations are responsible for running any required
-     * computations (tMSD, STEP predictions, …) and opening the target window.
+     * computations (tMSD, segmentation predictions, …) and opening the target window.
      *
      * <p>This method is called on the Swing Event Dispatch Thread.</p>
      */

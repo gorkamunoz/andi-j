@@ -61,7 +61,7 @@ public class ExperimentData {
 
     public boolean hasDiffModel() { return diffModel != null && !diffModel.isEmpty(); }
 
-    // -- change-point segments (null until ChangePointDetector runs) --
+    // -- change-point segments (filled by the segmentation model) --
     /** Per-track list of segments from change-point detection on the per-frame predictions. */
     public Map<Integer, List<Segment>> segments;
 

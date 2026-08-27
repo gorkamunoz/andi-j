@@ -54,10 +54,6 @@ public class SegVisualizationPanel extends JPanel {
     private boolean showCP       = true;   // vertical change-point markers
     private boolean showState    = true;   // top diffusive-state strip
 
-    /** Current change-point parameters; edited via the parameters dialog. */
-    private final SegmentationParams segParams = new SegmentationParams();
-    private JDialog paramsDialog;
-
     private final Random rng = new Random();
 
     // ═════════════════════════════════════════════════════════════════════
@@ -110,21 +106,8 @@ public class SegVisualizationPanel extends JPanel {
         }
         add(grid, BorderLayout.CENTER);
 
-        // ── initial segmentation + display ────────────────────────────────
-        recomputeSegments();
+        // ── initial display ───────────────────────────────────────────────
         if (currentExp != null) sampleRandom();
-    }
-
-    /**
-     * Ensures every experiment has segments. Change points now come from the
-     * segmentation model (filled by {@link UclStepPredictor}); the kernel-based
-     * {@link ChangePointDetector} is kept only as a fallback for experiments
-     * that somehow arrive without model segments (and is otherwise hidden).
-     */
-    private void recomputeSegments() {
-        for (ExperimentData exp : experiments)
-            if (exp.hasStepPredictions() && !exp.hasSegments())
-                ChangePointDetector.computeForExperiment(exp, segParams);
     }
 
     // ═════════════════════════════════════════════════════════════════════
@@ -217,13 +200,6 @@ public class SegVisualizationPanel extends JPanel {
             for (TrajectoryPlot p : plots) { p.showState = showState; p.repaint(); }
         });
 
-        // Kernel-CP parameter dialog — hidden for now (change points come from
-        // the segmentation model). Kept for later use.
-        JButton paramsBtn = new JButton("Segmentation Parameters");
-        paramsBtn.setToolTipText("Change the change-point detection parameters and recalculate");
-        paramsBtn.addActionListener(e -> openParamsDialog());
-        paramsBtn.setVisible(false);
-
         JButton saveRawBtn = new JButton("Save raw preds.");
         saveRawBtn.setToolTipText("Export the per-frame α / D / state predictions to CSV "
             + "(experiment, traj_idx, frame, alpha, D, state)");
@@ -253,94 +229,10 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(cpToggle);
         bar.add(stateToggle);
         bar.add(Box.createHorizontalStrut(10));
-        bar.add(paramsBtn);
         bar.add(saveRawBtn);
         bar.add(saveSegBtn);
 
         return bar;
-    }
-
-    // ═════════════════════════════════════════════════════════════════════
-    // Segmentation parameters dialog
-    // ═════════════════════════════════════════════════════════════════════
-
-    private void openParamsDialog() {
-        if (paramsDialog != null && paramsDialog.isDisplayable()) {
-            paramsDialog.toFront();
-            return;
-        }
-        Window owner = SwingUtilities.getWindowAncestor(this);
-        paramsDialog = new JDialog(owner, "Segmentation Parameters");
-        paramsDialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-        final JTextField penField  = new JTextField(String.valueOf(segParams.penalty), 6);
-        final JTextField minField  = new JTextField(String.valueOf(segParams.minSize), 6);
-        final JTextField jumpField = new JTextField(String.valueOf(segParams.jump),    6);
-        final JCheckBox  rescaleBox = new JCheckBox(
-            "Rescale log₁₀(D) to [0,1] before detection", segParams.rescaleD);
-
-        JPanel form = new JPanel(new GridBagLayout());
-        form.setBorder(BorderFactory.createEmptyBorder(10, 12, 6, 12));
-        GridBagConstraints c = new GridBagConstraints();
-        c.insets = new Insets(3, 3, 3, 3);
-        c.anchor = GridBagConstraints.WEST;
-
-        int row = 0;
-        addFormRow(form, c, row++, "Penalty (fewer ↔ more segments):", penField);
-        addFormRow(form, c, row++, "Min. segment length (frames):",    minField);
-        addFormRow(form, c, row++, "Jump (candidate grid step):",       jumpField);
-        c.gridx = 0; c.gridy = row++; c.gridwidth = 2;
-        form.add(rescaleBox, c);
-        c.gridwidth = 1;
-
-        JLabel hint = new JLabel("<html><i>Linear-kernel change-point detection on (D, α). "
-            + "Penalty is the cost per change point.</i></html>");
-        hint.setForeground(new Color(110, 110, 110));
-        c.gridx = 0; c.gridy = row++; c.gridwidth = 2;
-        form.add(hint, c);
-
-        JButton recalcBtn = new JButton("Recalculate");
-        recalcBtn.addActionListener(ev -> {
-            segParams.penalty  = parseDoubleOr(penField.getText(),  segParams.penalty);
-            segParams.minSize  = parseIntOr(minField.getText(),     segParams.minSize);
-            segParams.jump     = parseIntOr(jumpField.getText(),    segParams.jump);
-            segParams.rescaleD = rescaleBox.isSelected();
-            // reflect any clamping back into the fields
-            penField.setText(String.valueOf(segParams.penalty));
-            minField.setText(String.valueOf(segParams.minSize));
-            jumpField.setText(String.valueOf(segParams.jump));
-            recomputeSegments();
-            showSpecified();   // refresh the currently displayed trajectories
-        });
-        JButton closeBtn = new JButton("Close");
-        closeBtn.addActionListener(ev -> paramsDialog.dispose());
-
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
-        buttons.add(recalcBtn);
-        buttons.add(closeBtn);
-
-        JPanel content = new JPanel(new BorderLayout());
-        content.add(form,    BorderLayout.CENTER);
-        content.add(buttons, BorderLayout.SOUTH);
-        paramsDialog.setContentPane(content);
-        paramsDialog.pack();
-        paramsDialog.setLocationRelativeTo(this);
-        paramsDialog.setVisible(true);
-    }
-
-    private static void addFormRow(JPanel form, GridBagConstraints c, int row,
-                                   String label, JComponent field) {
-        c.gridx = 0; c.gridy = row; c.weightx = 0;
-        form.add(new JLabel(label), c);
-        c.gridx = 1; c.gridy = row; c.weightx = 1;
-        form.add(field, c);
-    }
-
-    private static int parseIntOr(String s, int d) {
-        try { return Math.max(1, Integer.parseInt(s.trim())); } catch (Exception e) { return d; }
-    }
-    private static double parseDoubleOr(String s, double d) {
-        try { return Math.max(0, Double.parseDouble(s.trim())); } catch (Exception e) { return d; }
     }
 
     // ═════════════════════════════════════════════════════════════════════

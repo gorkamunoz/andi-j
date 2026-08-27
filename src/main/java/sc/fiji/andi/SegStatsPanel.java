@@ -179,11 +179,6 @@ public class SegStatsPanel extends JPanel {
         int dBins     = (Integer) dBinsSpin.getValue();
         int lenBinsChosen = (Integer) lenBinsSpin.getValue();
 
-        // Make sure segments exist (compute with defaults if the viz tab hasn't yet)
-        for (ExperimentData exp : experiments)
-            if (exp.hasStepPredictions() && !exp.hasSegments())
-                ChangePointDetector.computeForExperiment(exp, new SegmentationParams());
-
         List<ExperimentData> sel = new ArrayList<>();
         for (ExperimentData exp : experiments)
             if (expVisible.getOrDefault(exp, true) && exp.hasSegments())

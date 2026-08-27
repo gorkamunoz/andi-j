@@ -2,3 +2,7 @@ target/
 *.csv
 *.onnx
 *.pth
+
+# Python bytecode
+__pycache__/
+*.pyc

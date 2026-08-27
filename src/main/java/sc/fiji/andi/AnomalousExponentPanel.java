@@ -62,7 +62,7 @@ public class AnomalousExponentPanel extends JPanel {
     // ML predictors: bundled default (predicts α AND diffusion model) and an
     // optional user-loaded α-only model.
     private AnalysisPredictor mlDefaultPredictor = null;
-    private CustomOnnxPredictor mlCustomPredictor  = null;
+    private CustomAnalysisPredictor mlCustomPredictor  = null;
     private boolean             mlUseDefault       = true;
 
     // Sub-panels
@@ -409,7 +409,7 @@ public class AnomalousExponentPanel extends JPanel {
         File f = fc.getSelectedFile();
         try {
             if (mlCustomPredictor != null) { mlCustomPredictor.close(); mlCustomPredictor = null; }
-            mlCustomPredictor = new CustomOnnxPredictor(f, CustomOnnxPredictor.Mode.ALPHA);
+            mlCustomPredictor = new CustomAnalysisPredictor(f, CustomAnalysisPredictor.Mode.ALPHA);
             statusLabel.setText(f.getName());
             statusLabel.setForeground(new Color(0, 120, 0));
         } catch (Exception ex) {

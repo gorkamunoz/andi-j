@@ -26,7 +26,7 @@ import java.util.*;
  * Only the relevant {@link ExperimentData} map is written:
  * {@code alphaCoeffs} for ALPHA, {@code diffModel} for MODEL.
  */
-public class CustomOnnxPredictor implements MlPredictor {
+public class CustomAnalysisPredictor implements MlPredictor {
 
     public enum Mode { ALPHA, MODEL }
 
@@ -36,11 +36,11 @@ public class CustomOnnxPredictor implements MlPredictor {
     private final String         inputName;
     private final String         outputName;
 
-    public CustomOnnxPredictor(File modelFile, Mode mode) throws OrtException, IOException {
+    public CustomAnalysisPredictor(File modelFile, Mode mode) throws OrtException, IOException {
         this(readFile(modelFile), mode);
     }
 
-    public CustomOnnxPredictor(byte[] modelBytes, Mode mode) throws OrtException {
+    public CustomAnalysisPredictor(byte[] modelBytes, Mode mode) throws OrtException {
         this.mode  = mode;
         env        = OrtEnvironment.getEnvironment();
         session    = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
@@ -115,7 +115,7 @@ public class CustomOnnxPredictor implements MlPredictor {
         if (val instanceof float[][]) return ((float[][]) val)[0];   // (1, K)
         if (val instanceof float[])   return (float[]) val;          // (K,)
         if (val instanceof Float)     return new float[]{(Float) val};
-        AndiLog.warn("CustomOnnxPredictor: unexpected output type: "
+        AndiLog.warn("CustomAnalysisPredictor: unexpected output type: "
                 + (val == null ? "null" : val.getClass().getName()));
         return new float[]{Float.NaN};
     }

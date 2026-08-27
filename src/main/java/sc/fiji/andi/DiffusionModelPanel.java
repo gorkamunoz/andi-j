@@ -44,7 +44,7 @@ public class DiffusionModelPanel extends JPanel {
     /** Bundled default predictor (α + diffusion model), lazily loaded. */
     private AnalysisPredictor defaultPredictor = null;
     /** Optional user-loaded model-only predictor. */
-    private CustomOnnxPredictor customPredictor  = null;
+    private CustomAnalysisPredictor customPredictor  = null;
     private boolean             useDefault       = true;
     private JLabel              modelStatusLabel;
 
@@ -224,8 +224,8 @@ public class DiffusionModelPanel extends JPanel {
         if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
         try {
             if (customPredictor != null) { customPredictor.close(); customPredictor = null; }
-            customPredictor = new CustomOnnxPredictor(fc.getSelectedFile(),
-                    CustomOnnxPredictor.Mode.MODEL);
+            customPredictor = new CustomAnalysisPredictor(fc.getSelectedFile(),
+                    CustomAnalysisPredictor.Mode.MODEL);
             modelStatusLabel.setText(fc.getSelectedFile().getName());
             modelStatusLabel.setForeground(new Color(0, 120, 0));
         } catch (Exception ex) {

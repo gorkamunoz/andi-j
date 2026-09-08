@@ -1,16 +1,9 @@
 """
-Convert the V2 combined single-trajectory model to ONNX for ONNX Runtime in Fiji.
+Convert the  combined single-trajectory model to ONNX for ONNX Runtime in Fiji.
 
-Run from this directory (ML_analysis/pythons_for_plugin/):
-    python convert_single_traj_v2_to_onnx.py
 
 Output:
-    single_traj_v2.onnx   – one model, any trajectory length
-
-After conversion:
-    1. Copy single_traj_v2.onnx to ../../src/main/resources/models/
-    2. mvn clean package      (from the project root)
-    3. Copy both JARs to Fiji.app/jars/
+    model_analysis_v0.onnx   – one model, any trajectory length
 
 Model contract (single input, single output)
 ---------------------------------------------
@@ -39,8 +32,8 @@ from pathlib import Path
 from step.models import XResAttn
 
 SCRIPT_DIR = Path(__file__).parent
-MODEL_PATH = SCRIPT_DIR / 'V2-Exp14_model.pth'
-OUT_PATH   = SCRIPT_DIR / 'single_traj_v2.onnx'
+MODEL_PATH = SCRIPT_DIR / '../model_weights/analysis_v0.pth'
+OUT_PATH   = SCRIPT_DIR / '../model_weights/model_analysis_v0.onnx'
 OPSET      = 17
 DUMMY_LEN  = 50
 
@@ -209,6 +202,6 @@ if __name__ == '__main__':
     print(f'  -> {OUT_PATH.name}  ({kb} kB)')
     print()
     print('Next steps:')
-    print('  1. cp single_traj_v2.onnx ../../src/main/resources/models/')
+    print('  1. cp model_analysis_v0.onnx ../../src/main/resources/models/')
     print('  2. mvn clean package   (from the project root)')
     print('  3. Copy both JARs to Fiji.app/jars/')

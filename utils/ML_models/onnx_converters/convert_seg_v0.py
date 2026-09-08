@@ -2,13 +2,13 @@
 Convert the UCL-Net (UNet3+) segmentation model to ONNX for AnDi-J.
 
 Run from this folder (ML_analysis/pythons_for_plugin/):
-    python convert_step_v0814_to_onnx.py
+    python convert_model_segmentation_prerelease_to_onnx.py
 
 Output:
-    ucl_step.onnx   – per-step α, D, change-point prob, and model-type
+    seg_v0.onnx   – per-step α, D, change-point prob, and model-type
 
 After conversion:
-    1. Copy ucl_step.onnx to ../../src/main/resources/models/
+    1. Copy seg_v0.onnx to ../../src/main/resources/models/
     2. mvn clean package    (from the project root)
     3. Copy the JAR(s) to Fiji.app/jars/
 
@@ -35,11 +35,11 @@ from pathlib import Path
 import torch
 
 # Reuse the reference architecture / loader
-from step_prediction_v0814 import UNet3P, load_model
+from utils.ML_models.onnx_converters.model_seg_v0 import UNet3P, load_model
 
 SCRIPT_DIR = Path(__file__).parent
-MODEL_PATH = 'seg_ucl_step_exp_34.pth'
-OUT_PATH   = SCRIPT_DIR / 'ucl_step.onnx'
+MODEL_PATH = SCRIPT_DIR / '../model_weights/seg_v0.pth'
+OUT_PATH   = SCRIPT_DIR / '../model_weights/seg_v0.onnx'
 OPSET      = 13
 DUMMY_T    = 224     # multiple of 32 for tracing; the T axis is exported dynamic
 
@@ -93,4 +93,4 @@ if __name__ == '__main__':
     print('before inference (the model has 5 pooling levels), and applies TTA itself')
     print('when enabled in the Data Manager.')
     print()
-    print('Next: cp ucl_step.onnx ../../src/main/resources/models/ ; mvn clean package')
+    print('Next: cp seg_v0.onnx ../../src/main/resources/models/ ; mvn clean package')

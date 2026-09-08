@@ -16,9 +16,11 @@ Diffusion trajectory analysis and segmentation in Fiji
 </h4>
 
 
-<p align="center">
+<!-- <p align="center">
 <a href="https://github.com/gorkamunoz/andi-j/releases"><img alt="Version" src="https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgorkamunoz%2Fandi-j%2Fmain%2Fpom.xml&query=%2F%2A%5Blocal-name%28%29%3D%27project%27%5D%2F%2A%5Blocal-name%28%29%3D%27version%27%5D&label=version&color=blue"></a>
-</p>
+</p> -->
+
+> **Disclaimer:** AnDi-J is currently in beta version. Expect broken proceeses. Please open an [Issue](https://github.com/gorkamunoz/andi-j/issues) to notify of any problem or request enhacements!
 
 **AnDi-J** is a [Fiji](https://fiji.sc/)/ImageJ plugin for **anomalous-diffusion analysis of single-particle tracking (SPT) data**, combining statistical and machine-learning (ML) analysis. It works at two scales: per-trajectory observables, and per-frame predictions for fine-grained segmentation of trajectories with expected diffusion changes.
 

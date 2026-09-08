@@ -19,7 +19,6 @@ public class SegModelOptionsPanel extends JPanel {
 
     private final JRadioButton defaultRadio = new JRadioButton("Default", true);
     private final JRadioButton loadRadio    = new JRadioButton("Load");
-    private final JCheckBox    ttaCheck      = new JCheckBox("TTA", false);
 
     private final JRadioButton combinedRadio  = new JRadioButton("Combined model", true);
     private final JRadioButton perOutputRadio = new JRadioButton("Per output");
@@ -51,19 +50,11 @@ public class SegModelOptionsPanel extends JPanel {
 
         ButtonGroup src = new ButtonGroup();
         src.add(defaultRadio); src.add(loadRadio);
-        ttaCheck.setToolTipText("Default model only: average 8 symmetry views for higher accuracy.");
 
         JPanel row1 = leftRow();
         row1.add(new JLabel("Model:"));
         row1.add(defaultRadio);
         row1.add(loadRadio);
-        row1.add(Box.createHorizontalStrut(10));
-        row1.add(ttaCheck);
-        row1.add(DiffusionCoeffPanel.makeHintLabel(
-            "<html><b>Test-time augmentation</b><br>"
-            + "Averages the model's prediction over 8 symmetry views<br>"
-            + "(4 rotations × 2 flips) of each trajectory for slightly<br>"
-            + "higher accuracy, at ~8× the compute. Default model only.</html>"));
         add(row1);
 
         ButtonGroup layout = new ButtonGroup();
@@ -131,21 +122,16 @@ public class SegModelOptionsPanel extends JPanel {
 
     /** The current model selection. */
     public SegModelConfig getConfig() {
-        if (defaultRadio.isSelected()) return SegModelConfig.defaultModel(ttaCheck.isSelected());
+        if (defaultRadio.isSelected()) return SegModelConfig.defaultModel();
         if (combinedRadio.isSelected()) return SegModelConfig.combined(combinedFile);
-        return SegModelConfig.perOutput(alphaFile, dFile, cpFile, phenomFile, ttaCheck.isSelected());
+        return SegModelConfig.perOutput(alphaFile, dFile, cpFile, phenomFile);
     }
-
-    public boolean isTtaEnabled() { return ttaCheck.isSelected(); }
 
     // -----------------------------------------------------------------------
 
     private void refresh() {
         boolean load = loadRadio.isSelected();
         loadPanel.setVisible(load);
-        ttaCheck.setEnabled(defaultRadio.isSelected()
-            || (load && perOutputRadio.isSelected()
-                && (alphaFile == null || dFile == null || cpFile == null)));
         if (load) {
             boolean comb = combinedRadio.isSelected();
             combinedCard.setVisible(comb);

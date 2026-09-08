@@ -16,7 +16,7 @@ import java.util.List;
  * Visualization tab for Trajectory Segmentation.
  *
  * <p>Displays a 4 × 4 grid of small per-trajectory plots.  Each plot shows
- * the per-frame predictions of andi-j-seg-v0 as two time series:
+ * the per-frame predictions of andi-j-seg-latest as two time series:
  * <ul>
  *   <li><b style="color:#C80000">red</b>   – anomalous exponent α  (right y-axis, range [0, 2])</li>
  *   <li><b style="color:#0050C8">blue</b>  – log₁₀(D)              (left  y-axis, auto-scaled)</li>

@@ -6,7 +6,7 @@ import java.io.*;
 import java.util.*;
 
 /**
- * Runs the bundled analysis model <b>andi-j-analysis-v0</b> to estimate,
+ * Runs the bundled analysis model <b>andi-j-analysis-latest</b> to estimate,
  * for every trajectory in an {@link ExperimentData}, both:
  * <ul>
  *   <li>the anomalous exponent α (the soft-routed prediction), and</li>
@@ -32,8 +32,8 @@ import java.util.*;
  */
 public class AnalysisPredictor implements MlPredictor {
 
-    /** Classpath resource path for the bundled andi-j-analysis-v0 model. */
-    public static final String DEFAULT_RESOURCE = "/models/andi-j-analysis-v0.onnx";
+    /** Classpath resource path for the bundled andi-j-analysis-latest model. */
+    public static final String DEFAULT_RESOURCE = "/models/andi-j-analysis-latest.onnx";
 
     /** Number of diffusion-model classes (= classification logits). */
     public static final int N_MODELS = 5;
@@ -55,7 +55,7 @@ public class AnalysisPredictor implements MlPredictor {
         InputStream is = AnalysisPredictor.class.getResourceAsStream(DEFAULT_RESOURCE);
         if (is == null)
             throw new FileNotFoundException(
-                    "Bundled model andi-j-analysis-v0 not found: " + DEFAULT_RESOURCE + "\n"
+                    "Bundled model andi-j-analysis-latest not found: " + DEFAULT_RESOURCE + "\n"
                     + "Copy the model into src/main/resources/models/ and rebuild.");
         byte[] bytes;
         try { bytes = readAllBytes(is); } finally { is.close(); }

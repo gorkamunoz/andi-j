@@ -27,7 +27,7 @@ public final class SegmentationRunner {
             throws OrtException, IOException {
 
         if (cfg.useDefault) {
-            try (SegPredictor def = SegPredictor.fromResources(cfg.tta)) {
+            try (SegPredictor def = SegPredictor.fromResources()) {
                 for (ExperimentData exp : exps) def.computeForExperiment(exp, tick);
             }
             return;
@@ -43,7 +43,7 @@ public final class SegmentationRunner {
         }
 
         // Per-output: default fills any output without a custom model.
-        SegPredictor def = cfg.needsDefault() ? SegPredictor.fromResources(cfg.tta) : null;
+        SegPredictor def = cfg.needsDefault() ? SegPredictor.fromResources() : null;
         CustomSegPredictor ca  = cfg.alphaFile  != null ? new CustomSegPredictor(cfg.alphaFile,  CustomSegPredictor.Kind.ALPHA)     : null;
         CustomSegPredictor cd  = cfg.dFile      != null ? new CustomSegPredictor(cfg.dFile,      CustomSegPredictor.Kind.LOGD)      : null;
         CustomSegPredictor cc  = cfg.cpFile     != null ? new CustomSegPredictor(cfg.cpFile,     CustomSegPredictor.Kind.CP)        : null;
@@ -88,17 +88,15 @@ public final class SegmentationRunner {
                 for (int t = 0; t < T; t++) { xy[t][0] = spots.get(t)[1]; xy[t][1] = spots.get(t)[2]; }
 
                 double[] a, d, cp;
-                boolean cpIsProb;
                 int[] state;
                 if (combined != null) {
                     CustomSegPredictor.Out o = combined.run(xy);
-                    a = o.alpha; d = o.logD; cp = o.cp; cpIsProb = false; state = o.state;
+                    a = o.alpha; d = o.logD; cp = o.cp; state = o.state;
                 } else {
                     SegPredictor.TrackOut base = (def != null) ? def.computeTrack(spots) : null;
                     a = (ca != null) ? ca.run(xy).alpha : (base != null ? base.alpha  : null);
                     d = (cd != null) ? cd.run(xy).logD  : (base != null ? base.logD   : null);
-                    if (cc != null) { cp = cc.run(xy).cp;   cpIsProb = false; }
-                    else            { cp = (base != null ? base.cpProb : null); cpIsProb = true; }
+                    cp = (cc != null) ? cc.run(xy).cp   : (base != null ? base.cpProb : null);
                     state = (cph != null) ? cph.run(xy).state : (base != null ? base.state : null);
                 }
 
@@ -109,10 +107,7 @@ public final class SegmentationRunner {
                 a = crop(a, n);
                 d = crop(d, n);
 
-                int[] cps;
-                if (cp == null) cps = new int[0];
-                else cps = cpIsProb ? SegPredictor.findChangePoints(cp)
-                                    : SegPredictor.thresholdChangePoints(cp);
+                int[] cps = (cp == null) ? new int[0] : SegPredictor.thresholdChangePoints(cp);
                 cps = interior(cps, n);
 
                 outA.put(id, a);

@@ -14,7 +14,7 @@ import java.util.Map;
 /**
  * Entry-point plugin for the Trajectory Segmentation feature.
  * Opens (or brings to front) the persistent data-manager window configured
- * for segmentation:  on "Perform Analysis" it runs the andi-j-seg-v0 model and
+ * for segmentation:  on "Perform Analysis" it runs the andi-j-seg-latest model and
  * opens {@link TrajectorySegmentationWindow}.
  *
  * Registered in plugins.config as: Plugins > AnDi-J > Trajectory Segmentation
@@ -29,7 +29,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
 
     /**
      * Session cache of segmentation predictions, keyed by a content signature of
-     * the experiment (name + TTA flag + all track data). Lets repeated
+     * the experiment (name + model config + all track data). Lets repeated
      * "Perform Analysis" runs on an already-analysed dataset skip inference.
      */
     private static final Map<String, Cached> CACHE = new HashMap<>();

@@ -81,7 +81,7 @@ public class DataManagerWindow extends JFrame {
 
     /**
      * @param showMlOptions when {@code true}, shows an "ML model options" row
-     *                      (currently just the TTA toggle) above Perform Analysis.
+     *                      above Perform Analysis.
      */
     public DataManagerWindow(AnalysisLauncher launcher, boolean showMlOptions) {
         // The segmentation manager carries ML options; name the window after its
@@ -183,7 +183,7 @@ public class DataManagerWindow extends JFrame {
 
     /** The segmentation ML-model selection, or the default when no options panel. */
     public SegModelConfig getSegModelConfig() {
-        return mlOptions != null ? mlOptions.getConfig() : SegModelConfig.defaultModel(false);
+        return mlOptions != null ? mlOptions.getConfig() : SegModelConfig.defaultModel();
     }
 
     // ═════════════════════════════════════════════════════════════════════════

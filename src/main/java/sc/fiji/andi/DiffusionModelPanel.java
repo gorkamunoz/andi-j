@@ -18,7 +18,7 @@ import java.util.List;
  * diffusion models and shows, per experiment, the percentage of trajectories
  * predicted as each model in a grouped bar chart.
  *
- * <p>Predictions come from the bundled andi-j-analysis-v0 model
+ * <p>Predictions come from the bundled andi-j-analysis-latest model
  * ({@link AnalysisPredictor}); "Compute models (ML)" runs the classifier
  * (with a progress bar) and fills {@link ExperimentData#diffModel}.  Running
  * the ML α prediction in the Anomalous-exponent tab fills the same map, so the
@@ -32,7 +32,7 @@ public class DiffusionModelPanel extends JPanel {
 
     /**
      * The five anomalous-diffusion model classes, in the classifier's output
-     * (logit) order.  Must match the training label order of andi-j-analysis-v0.
+     * (logit) order.  Must match the training label order of andi-j-analysis-latest.
      */
     public static final String[] MODEL_NAMES = {"ATTM", "CTRW", "FBM", "LW", "SBM"};
 
@@ -213,7 +213,7 @@ public class DiffusionModelPanel extends JPanel {
     }
 
     // -----------------------------------------------------------------------
-    // ML prediction (andi-j-analysis-v0)
+    // ML prediction (andi-j-analysis-latest)
     // -----------------------------------------------------------------------
 
     /** Load a user model-only ONNX for the "Load" type. */
@@ -249,7 +249,7 @@ public class DiffusionModelPanel extends JPanel {
                     defaultPredictor = AnalysisPredictor.fromResource();
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this,
-                        "<html>The bundled model <tt>andi-j-analysis-v0</tt> was not found.<br>"
+                        "<html>The bundled model <tt>andi-j-analysis-latest</tt> was not found.<br>"
                       + "Rebuild the plugin with the model bundled, or switch "
                       + "<b>Type</b> to <b>Load</b> and choose an ONNX file.<br><br>"
                       + "Details: " + ex.getMessage() + "</html>",

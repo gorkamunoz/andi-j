@@ -437,7 +437,7 @@ public class AnomalousExponentPanel extends JPanel {
                     mlDefaultPredictor = AnalysisPredictor.fromResource();
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this,
-                        "<html>The bundled model <tt>andi-j-analysis-v0</tt> was not found.<br><br>"
+                        "<html>The bundled model <tt>andi-j-analysis-latest</tt> was not found.<br><br>"
                       + "Rebuild the plugin with the model bundled, or "
                       + "switch <b>Type</b> to <b>Load</b> and choose an ONNX file.<br><br>"
                       + "Details: " + ex.getMessage() + "</html>",

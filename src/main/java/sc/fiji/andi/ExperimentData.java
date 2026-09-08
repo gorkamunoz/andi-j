@@ -37,7 +37,7 @@ public class ExperimentData {
     // Maps trackId -> { alpha_2D, alpha_X, alpha_Y }
     public Map<Integer, double[]> alphaCoeffs;
 
-    // -- per-frame predictions from andi-j-seg-v0 (null until segmentation runs) --
+    // -- per-frame predictions from andi-j-seg-latest (null until segmentation runs) --
     /** Per-frame anomalous exponent: trackId → double[T-1]. Null until segmentation runs. */
     public Map<Integer, double[]> stepAlpha;
     /** Per-frame log₁₀(D): trackId → double[T-1]. Null until segmentation runs. */

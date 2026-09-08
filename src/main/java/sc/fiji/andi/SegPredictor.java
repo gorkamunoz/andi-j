@@ -6,113 +6,80 @@ import java.io.*;
 import java.util.*;
 
 /**
- * Runs the bundled segmentation model <b>andi-j-seg-v0</b> to estimate, for
+ * Runs the bundled segmentation model <b>andi-j-seg-latest</b> to estimate, for
  * every trajectory, the per-frame anomalous exponent α, per-frame log₁₀(D), the
  * per-frame diffusive state, <em>and</em> the change-point positions (from the
  * model's own change-point head).
  *
- * <h3>Input preprocessing</h3>
- * The model consumes the <em>displacement</em> trajectory, not positions or
- * polar features:
- * <ol>
- *   <li>Δx[i] = x[i+1] − x[i], Δy[i] = y[i+1] − y[i]; the last step is padded
- *       with zeros so the displacement array keeps length T.</li>
- *   <li>The length is zero-padded up to the next multiple of {@value #LEN_MULTIPLE}
- *       (the network has 5 pooling levels, so it only accepts lengths divisible
- *       by 32); the extra steps are cropped off the outputs.</li>
- *   <li>The tensor is laid out channel-first: {@code (B, 2, Tpad)} with
- *       channel 0 = Δx, channel 1 = Δy.</li>
- * </ol>
- * The exported model is the plain backbone (dynamic batch and length), so many
- * trajectories run in one call: they are grouped by padded length and batched.
- * Test-time augmentation is optional ({@code useTta}); when on, each trajectory's
- * 8 rotated/flipped views are added as extra batch rows and their outputs
- * averaged, reproducing {@code predict_trajectory(use_tta=True)}; when off, a
- * single view runs (≈8× faster).
+ * <h3>Model contract</h3>
+ * The bundled model follows the same contract as user-supplied models (see the
+ * <i>ML Models</i> wiki page), so the plugin does no pre- or post-processing of
+ * the signal itself:
+ * <ul>
+ *   <li>Input {@code (B, T, 2)} float32 — raw x,y positions, one row per frame.
+ *       {@code T} is dynamic, so no padding is needed.</li>
+ *   <li>Outputs {@code alpha}, {@code logD}, {@code cp} and {@code model_type},
+ *       each {@code (B, T)}.</li>
+ * </ul>
+ * {@code logD} is already log₁₀(D) and is stored verbatim; {@code cp} is a 0/1
+ * per-frame flag; {@code model_type} is the diffusive-state class index
+ * (0 = immobile, 1 = confined, 2 = free diffusion, 3 = directed).
+ *
+ * <p>Batch and length axes are both dynamic, so trajectories of equal length are
+ * grouped and predicted in a single call.</p>
  *
  * <h3>Output</h3>
- * The model returns per-step {@code cp} (change-point probability), {@code kac}
- * = [α, D, state] and {@code model_type}. For a track with T frames we keep the
- * first T steps and store α in {@link ExperimentData#stepAlpha}, log₁₀(D) in
+ * α is stored in {@link ExperimentData#stepAlpha}, log₁₀(D) in
  * {@link ExperimentData#stepLogD}, and the derived {@link Segment}s in
- * {@link ExperimentData#segments}. Change points are peaks of the cp signal
- * (height ≥ {@value #CP_MIN_HEIGHT}, ≥ {@value #CP_DISTANCE} apart, excluding
- * the first/last two frames), matching the Python {@code find_changepoints}.
+ * {@link ExperimentData#segments}.
  */
 public class SegPredictor implements Closeable {
 
     /** Classpath resource for the bundled ONNX model. */
-    public static final String DEFAULT_RESOURCE = "/models/andi-j-seg-v0.onnx";
+    public static final String DEFAULT_RESOURCE = "/models/andi-j-seg-latest.onnx";
 
-    /** Required divisor of the input sequence length (5 pooling levels → 2^5). */
-    private static final int LEN_MULTIPLE = 32;
-
-    /** Change-point peak-detection parameters (mirror the Python reference). */
-    private static final double CP_MIN_HEIGHT = 0.25;
-    private static final int    CP_DISTANCE   = 2;
-
-    /**
-     * Output bounds. α is clipped to [0, {@value #ALPHA_MAX}] exactly like
-     * predict_trajectory(). For D we keep the reference's [D_MIN, D_MAX] window
-     * but treat the D_MIN floor as "undefined" (NaN) rather than log₁₀(1e-12) =
-     * −12 — see {@link #computeForExperiment}.
-     */
+    /** α is clipped to [0, {@value #ALPHA_MAX}]. */
     private static final double ALPHA_MAX = 1.999;
-    private static final double D_MIN     = 1e-12;
-    private static final double D_MAX     = 1e6;
 
-    /**
-     * The 8 test-time-augmentation views as (cos, sin, x-flip) of the 90° symmetry
-     * group — 4 rotations × 2 flips. Each view maps a displacement (Δx, Δy) to
-     * {@code (Δx·c − Δy·s)·sx , Δx·s + Δy·c}, matching predict_trajectory().
-     */
-    private static final double[][] TTA_VIEWS = {
-        { 1,  0,  1}, { 1,  0, -1},
-        { 0,  1,  1}, { 0,  1, -1},
-        {-1,  0,  1}, {-1,  0, -1},
-        { 0, -1,  1}, { 0, -1, -1},
-    };
+    /** Number of AnDi diffusive-state classes:
+     *  0=immobile, 1=confined, 2=free diffusion, 3=directed. */
+    private static final int STATE_CLASSES = 4;
 
     /** Batching caps so one inference call stays a reasonable size. */
     private static final int MAX_BATCH          = 64;       // trajectories per call
-    private static final int MAX_BATCH_ELEMENTS = 400_000;  // rows × Tpad per call
+    private static final int MAX_BATCH_ELEMENTS = 400_000;  // rows × T per call
 
     private final OrtEnvironment env;
     private final OrtSession     session;
     private final String         inputName;
+    private final String         alphaName;
+    private final String         logDName;
     private final String         cpName;
-    private final String         kacName;
-    /** Whether to average the 8 TTA views (higher accuracy, ~8× slower). */
-    private final boolean        useTta;
-
-    /** Number of AnDi diffusive-state classes (kac channel 2 ∈ [0, 3]):
-     *  0=immobile, 1=confined, 2=Brownian, 3=directed. */
-    private static final int STATE_CLASSES = 4;
+    private final String         stateName;
 
     // -----------------------------------------------------------------------
     // Construction
     // -----------------------------------------------------------------------
 
-    public static SegPredictor fromResources(boolean useTta)
-            throws OrtException, IOException {
-        return new SegPredictor(loadResource(DEFAULT_RESOURCE), useTta);
+    public static SegPredictor fromResources() throws OrtException, IOException {
+        return new SegPredictor(loadResource(DEFAULT_RESOURCE));
     }
 
-    public SegPredictor(File modelFile, boolean useTta)
-            throws OrtException, IOException {
-        this(readFile(modelFile), useTta);
+    public SegPredictor(File modelFile) throws OrtException, IOException {
+        this(readFile(modelFile));
     }
 
-    public SegPredictor(byte[] modelBytes, boolean useTta) throws OrtException {
-        this.useTta = useTta;
+    public SegPredictor(byte[] modelBytes) throws OrtException {
         env       = OrtEnvironment.getEnvironment();
         session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
         inputName = session.getInputNames().iterator().next();
 
-        // Outputs are exported in the order: cp, kac, model_type.
+        // Outputs are exported in the order: alpha, logD, cp, model_type.
         List<String> outs = new ArrayList<>(session.getOutputNames());
-        cpName  = pickOutput(outs, "cp",  0);
-        kacName = pickOutput(outs, "kac", 1);   // channels: [α, D, model]
+        alphaName = pickOutput(outs, "alpha",      0);
+        logDName  = pickOutput(outs, "logD",       1);
+        cpName    = pickOutput(outs, "cp",         2);
+        stateName = pickOutput(outs, "model_type", 3);
         printInfo();
     }
 
@@ -120,7 +87,6 @@ public class SegPredictor implements Closeable {
         for (String o : outs) if (o.equalsIgnoreCase(preferred)) return o;
         return outs.get(Math.min(fallbackIdx, outs.size() - 1));
     }
-
 
     // -----------------------------------------------------------------------
     // Public inference
@@ -133,11 +99,11 @@ public class SegPredictor implements Closeable {
     /** Notified once after each track is processed (for progress reporting). */
     public interface ProgressListener { void trackDone(); }
 
-    /** One eligible track: its id, real length T, and (T−1) displacement pairs. */
+    /** One eligible track: its id, length T and (T, 2) positions. */
     private static final class Track {
         final int id, T;
-        final double[] dx, dy;   // length T−1
-        Track(int id, int T, double[] dx, double[] dy) { this.id = id; this.T = T; this.dx = dx; this.dy = dy; }
+        final float[][] xy;   // (T, 2)
+        Track(int id, int T, float[][] xy) { this.id = id; this.T = T; this.xy = xy; }
     }
 
     /**
@@ -146,20 +112,18 @@ public class SegPredictor implements Closeable {
      * {@link ExperimentData#segments}. Tracks with fewer than 2 frames get
      * empty arrays and no segments.
      *
-     * <p>Trajectories are zero-padded to a multiple of 32 and grouped by padded
-     * length so many run in a single batched inference call. When TTA is enabled
-     * each trajectory contributes 8 rotated views (extra batch rows) whose
-     * outputs are averaged, reproducing predict_trajectory(use_tta=True).</p>
+     * <p>Trajectories are grouped by length so that many run in a single batched
+     * inference call.</p>
      */
     public void computeForExperiment(ExperimentData exp, ProgressListener listener)
             throws OrtException {
-        Map<Integer, double[]>        outAlpha  = new LinkedHashMap<>();
-        Map<Integer, double[]>        outLogD   = new LinkedHashMap<>();
-        Map<Integer, List<Segment>>   outSegs   = new LinkedHashMap<>();
+        Map<Integer, double[]>      outAlpha = new LinkedHashMap<>();
+        Map<Integer, double[]>      outLogD  = new LinkedHashMap<>();
+        Map<Integer, List<Segment>> outSegs  = new LinkedHashMap<>();
 
-        // Preprocess: short tracks get empty output; the rest become displacement
-        // pairs bucketed by padded length so each batch tensor is rectangular.
-        Map<Integer, List<Track>> byPad = new LinkedHashMap<>();
+        // Short tracks get empty output; the rest are bucketed by length so each
+        // batch tensor is rectangular.
+        Map<Integer, List<Track>> byLen = new LinkedHashMap<>();
         for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
             int            id    = e.getKey();
             List<double[]> spots = e.getValue();
@@ -171,85 +135,43 @@ public class SegPredictor implements Closeable {
                 if (listener != null) listener.trackDone();
                 continue;
             }
-            double[] dx = new double[T - 1], dy = new double[T - 1];
-            for (int i = 0; i < T - 1; i++) {
-                dx[i] = spots.get(i + 1)[1] - spots.get(i)[1];
-                dy[i] = spots.get(i + 1)[2] - spots.get(i)[2];
-            }
-            byPad.computeIfAbsent(padLength(T), k -> new ArrayList<>())
-                 .add(new Track(id, T, dx, dy));
+            byLen.computeIfAbsent(T, k -> new ArrayList<>())
+                 .add(new Track(id, T, positions(spots)));
         }
 
-        int views = useTta ? TTA_VIEWS.length : 1;
-
-        for (Map.Entry<Integer, List<Track>> bucket : byPad.entrySet()) {
-            int         Tpad   = bucket.getKey();
+        for (Map.Entry<Integer, List<Track>> bucket : byLen.entrySet()) {
+            int         T      = bucket.getKey();
             List<Track> tracks = bucket.getValue();
 
-            // Trajectories per call: cap by both the count and rows×Tpad elements.
+            // Trajectories per call: cap by both the count and rows×T elements.
             int maxTraj = Math.max(1, Math.min(MAX_BATCH,
-                    MAX_BATCH_ELEMENTS / Math.max(1, views * Tpad)));
+                    MAX_BATCH_ELEMENTS / Math.max(1, T)));
 
             for (int off = 0; off < tracks.size(); off += maxTraj) {
-                int nb   = Math.min(maxTraj, tracks.size() - off);
-                int rows = nb * views;
+                int nb = Math.min(maxTraj, tracks.size() - off);
 
-                // Build (rows, 2, Tpad): row r = trajectory j × view v.
-                float[][][] in = new float[rows][2][Tpad];
-                for (int j = 0; j < nb; j++) {
-                    Track tr = tracks.get(off + j);
-                    for (int v = 0; v < views; v++) {
-                        double[] w = useTta ? TTA_VIEWS[v] : null;
-                        float[] cx = in[j * views + v][0];
-                        float[] cy = in[j * views + v][1];
-                        for (int i = 0; i < tr.T - 1; i++) {
-                            double ddx = tr.dx[i], ddy = tr.dy[i];
-                            if (w == null) { cx[i] = (float) ddx; cy[i] = (float) ddy; }
-                            else {
-                                cx[i] = (float) ((ddx * w[0] - ddy * w[1]) * w[2]);
-                                cy[i] = (float) ( ddx * w[1] + ddy * w[0]);
-                            }
-                        }
-                    }
-                }
+                float[][][] in = new float[nb][][];
+                for (int j = 0; j < nb; j++) in[j] = tracks.get(off + j).xy;
 
-                float[][][] cp  = new float[rows][][];
-                float[][][] kac = new float[rows][][];
-                runBatch(in, cp, kac);
+                Out out = runBatch(in, nb, T);
 
                 for (int j = 0; j < nb; j++) {
                     Track tr = tracks.get(off + j);
-                    int   T  = tr.T;
-                    double[] alpha = new double[T], logD = new double[T], cpProb = new double[T];
+                    double[] alpha = new double[T], logD = new double[T], cp = new double[T];
                     int[] state = new int[T];
                     for (int t = 0; t < T; t++) {
-                        double cpv = 0, av = 0, dv = 0, sv = 0;
-                        for (int v = 0; v < views; v++) {
-                            int r = j * views + v;
-                            cpv += cp[r][t][0];
-                            av  += kac[r][t][0];
-                            dv  += kac[r][t][1];
-                            sv  += kac[r][t][2];
-                        }
-                        cpv /= views; av /= views; dv /= views; sv /= views;
-
-                        alpha[t]  = clamp(av, 0.0, ALPHA_MAX);
-                        // The model's D head is a raw, unbounded linear output that
-                        // legitimately dips to ≤ 0 at (near-)immobile / uncertain
-                        // points. The Python reference clips D to [1e-12, 1e6] and
-                        // shows it on a *linear* axis, where ≈0 is invisible; taking
-                        // log₁₀ of that floor would paint spurious −12 spikes. We keep
-                        // every physically meaningful D (log₁₀ of a positive value)
-                        // but mark non-positive D as undefined (NaN), so it is neither
-                        // plotted nor averaged into a segment's mean log₁₀(D).
-                        logD[t]   = (Double.isFinite(dv) && dv > D_MIN)
-                                  ? Math.log10(Math.min(dv, D_MAX)) : Double.NaN;
-                        cpProb[t] = cpv;
-                        state[t]  = stateClass(sv);
+                        alpha[t] = clamp(out.alpha[j][t], 0.0, ALPHA_MAX);
+                        // logD comes out of the model already as log₁₀(D); store it
+                        // verbatim, mapping anything non-finite to NaN so it is
+                        // neither plotted nor averaged into a segment mean.
+                        double ld = out.logD[j][t];
+                        logD[t]  = Double.isFinite(ld) ? ld : Double.NaN;
+                        cp[t]    = out.cp[j][t];
+                        state[t] = stateClass(out.state[j][t]);
                     }
                     outAlpha.put(tr.id, alpha);
                     outLogD.put(tr.id,  logD);
-                    outSegs.put(tr.id,  buildSegments(cpProb, alpha, logD, state));
+                    outSegs.put(tr.id,  buildSegments(cp, alpha, logD, state));
                     if (listener != null) listener.trackDone();
                 }
             }
@@ -260,83 +182,75 @@ public class SegPredictor implements Closeable {
         exp.segments  = outSegs;
     }
 
-    /** Rounds a raw model state value (kac channel 2) to a class in [0, STATE_CLASSES−1]. */
+    /** Rounds a raw model state value to a class in [0, STATE_CLASSES−1]. */
     static int stateClass(double v) {
+        if (Double.isNaN(v)) return 0;
         return Math.max(0, Math.min(STATE_CLASSES - 1, (int) Math.round(v)));
     }
 
-    static int argmax(double[] a) {
-        int best = 0;
-        for (int i = 1; i < a.length; i++) if (a[i] > a[best]) best = i;
-        return a.length == 0 ? -1 : best;
-    }
-
-    /** Per-frame default-model outputs for a single track (cropped to its length T). */
+    /** Per-frame default-model outputs for a single track. */
     public static final class TrackOut {
         public double[] alpha, logD, cpProb;
         public int[]    state;   // per-frame diffusive-state class (may be null)
     }
 
     /**
-     * Runs the default model on one track and returns its per-frame α, log₁₀(D)
-     * and change-point probability. Used by {@link SegmentationRunner} to fill
-     * outputs the user did not supply a custom model for.
+     * Runs the default model on one track and returns its per-frame α, log₁₀(D),
+     * change-point flags and diffusive state. Used by {@link SegmentationRunner}
+     * to fill outputs the user did not supply a custom model for.
      */
     public TrackOut computeTrack(List<double[]> spots) throws OrtException {
         TrackOut o = new TrackOut();
         int T = spots.size();
-        if (T < 2) { o.alpha = new double[0]; o.logD = new double[0]; o.cpProb = new double[0]; return o; }
-
-        double[] dx = new double[T - 1], dy = new double[T - 1];
-        for (int i = 0; i < T - 1; i++) {
-            dx[i] = spots.get(i + 1)[1] - spots.get(i)[1];
-            dy[i] = spots.get(i + 1)[2] - spots.get(i)[2];
+        if (T < 2) {
+            o.alpha = new double[0]; o.logD = new double[0]; o.cpProb = new double[0];
+            return o;
         }
-        int Tpad = padLength(T);
-        int views = useTta ? TTA_VIEWS.length : 1;
-        float[][][] in = new float[views][2][Tpad];
-        for (int v = 0; v < views; v++) {
-            double[] w = useTta ? TTA_VIEWS[v] : null;
-            float[] cx = in[v][0], cy = in[v][1];
-            for (int i = 0; i < T - 1; i++) {
-                double ddx = dx[i], ddy = dy[i];
-                if (w == null) { cx[i] = (float) ddx; cy[i] = (float) ddy; }
-                else {
-                    cx[i] = (float) ((ddx * w[0] - ddy * w[1]) * w[2]);
-                    cy[i] = (float) ( ddx * w[1] + ddy * w[0]);
-                }
-            }
-        }
-        float[][][] cp = new float[views][][], kac = new float[views][][];
-        runBatch(in, cp, kac);
 
-        double[] alpha = new double[T], logD = new double[T], cpProb = new double[T];
+        Out out = runBatch(new float[][][]{ positions(spots) }, 1, T);
+
+        double[] alpha = new double[T], logD = new double[T], cp = new double[T];
         int[] state = new int[T];
         for (int t = 0; t < T; t++) {
-            double cpv = 0, av = 0, dv = 0, sv = 0;
-            for (int v = 0; v < views; v++) {
-                cpv += cp[v][t][0]; av += kac[v][t][0]; dv += kac[v][t][1]; sv += kac[v][t][2];
-            }
-            cpv /= views; av /= views; dv /= views; sv /= views;
-            alpha[t]  = clamp(av, 0.0, ALPHA_MAX);
-            logD[t]   = (Double.isFinite(dv) && dv > D_MIN) ? Math.log10(Math.min(dv, D_MAX)) : Double.NaN;
-            cpProb[t] = cpv;
-            state[t]  = stateClass(sv);
+            alpha[t] = clamp(out.alpha[0][t], 0.0, ALPHA_MAX);
+            double ld = out.logD[0][t];
+            logD[t]  = Double.isFinite(ld) ? ld : Double.NaN;
+            cp[t]    = out.cp[0][t];
+            state[t] = stateClass(out.state[0][t]);
         }
-        o.alpha = alpha; o.logD = logD; o.cpProb = cpProb; o.state = state;
+        o.alpha = alpha; o.logD = logD; o.cpProb = cp; o.state = state;
         return o;
     }
 
-    // -----------------------------------------------------------------------
-    // Change-point → segments
-    // -----------------------------------------------------------------------
-
-    /** Builds segments by peak-picking the default model's cp probability. */
-    static List<Segment> buildSegments(double[] cpProb, double[] alpha, double[] logD, int[] state) {
-        return segmentsFrom(findChangePoints(cpProb), alpha, logD, state);
+    /** Extracts the (T, 2) position matrix from a track's spot list. */
+    private static float[][] positions(List<double[]> spots) {
+        int T = spots.size();
+        float[][] xy = new float[T][2];
+        for (int t = 0; t < T; t++) {
+            xy[t][0] = (float) spots.get(t)[1];
+            xy[t][1] = (float) spots.get(t)[2];
+        }
+        return xy;
     }
 
-    /** Change points from a custom 0/1 (thresholded) per-frame cp signal. */
+    // -----------------------------------------------------------------------
+    // Change points → segments
+    // -----------------------------------------------------------------------
+
+    /** Builds segments from the model's 0/1 change-point flags. */
+    static List<Segment> buildSegments(double[] cp, double[] alpha, double[] logD, int[] state) {
+        return segmentsFrom(thresholdChangePoints(cp), alpha, logD, state);
+    }
+
+    /**
+     * Change points from a per-frame 0/1 flag signal: every interior frame where
+     * {@code cp >= 0.5} starts a new segment. Frame 0 and the last frame are
+     * ignored — they are trajectory ends, not motion changes.
+     *
+     * <p>This is the contract every segmentation model follows, bundled or
+     * user-supplied: one flag per boundary, at the first frame of the new
+     * segment.</p>
+     */
     static int[] thresholdChangePoints(double[] cp) {
         List<Integer> out = new ArrayList<>();
         for (int i = 1; i < cp.length - 1; i++) if (cp[i] >= 0.5) out.add(i);
@@ -389,71 +303,87 @@ public class SegPredictor implements Closeable {
         return best;
     }
 
-    /**
-     * Detects change-point indices from per-step probabilities, mirroring the
-     * Python {@code find_changepoints}: local-maximum peaks with height ≥
-     * {@value #CP_MIN_HEIGHT}, at least {@value #CP_DISTANCE} apart (keeping the
-     * higher when closer), then dropping peaks within 2 frames of either end.
-     */
-    static int[] findChangePoints(double[] p) {
-        int n = p.length;
-
-        // 1) Candidate local maxima above the height threshold.
-        List<Integer> cand = new ArrayList<>();
-        for (int i = 1; i < n - 1; i++)
-            if (p[i] >= CP_MIN_HEIGHT && p[i] > p[i - 1] && p[i] >= p[i + 1])
-                cand.add(i);
-
-        // 2) Enforce minimum distance, keeping the highest-probability peaks.
-        cand.sort((a, b) -> Double.compare(p[b], p[a]));
-        boolean[] removed = new boolean[n];
-        List<Integer> kept = new ArrayList<>();
-        for (int idx : cand) {
-            if (removed[idx]) continue;
-            kept.add(idx);
-            for (int j = Math.max(0, idx - CP_DISTANCE + 1);
-                 j <= Math.min(n - 1, idx + CP_DISTANCE - 1); j++)
-                if (j != idx) removed[j] = true;
-        }
-
-        // 3) Drop peaks too close to either end, then return sorted indices.
-        List<Integer> out = new ArrayList<>();
-        for (int idx : kept) if (idx > 2 && idx < n - 2) out.add(idx);
-        Collections.sort(out);
-        int[] res = new int[out.size()];
-        for (int i = 0; i < res.length; i++) res[i] = out.get(i);
-        return res;
-    }
-
     // -----------------------------------------------------------------------
     // ONNX Runtime inference
     // -----------------------------------------------------------------------
 
+    /** One batched forward pass: each field is {@code (rows, T)}. */
+    private static final class Out {
+        float[][] alpha, logD, cp, state;
+    }
+
     /**
-     * Runs one batched forward pass and copies the {@code cp} and {@code kac}
-     * outputs (both {@code (rows, Tpad, C)}) into the caller's arrays. A single
-     * run yields both; the model computes them together. The phenomenological
-     * class is read from {@code kac}'s third channel, so no extra output is needed.
+     * Runs one batched forward pass over {@code (rows, T, 2)} positions and
+     * returns all four per-frame outputs. A single run yields every output.
      */
-    private void runBatch(float[][][] input, float[][][] cpOut, float[][][] kacOut)
-            throws OrtException {
+    private Out runBatch(float[][][] input, int rows, int T) throws OrtException {
         try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
              OrtSession.Result res = session.run(
                      Collections.singletonMap(inputName, tensor))) {
 
-            float[][][] cp  = as3d(res, cpName);
-            float[][][] kac = as3d(res, kacName);
-            System.arraycopy(cp,  0, cpOut,  0, cp.length);
-            System.arraycopy(kac, 0, kacOut, 0, kac.length);
+            Out o = new Out();
+            o.alpha = as2d(res, alphaName, rows, T);
+            o.logD  = as2d(res, logDName,  rows, T);
+            o.cp    = as2d(res, cpName,    rows, T);
+            o.state = asState(res, stateName, rows, T);
+            return o;
         }
     }
 
-    private static float[][][] as3d(OrtSession.Result res, String name) throws OrtException {
+    /**
+     * Reads the diffusive-state output. The contract allows either the class
+     * index per frame ({@code (rows, T)}) or class probabilities
+     * ({@code (rows, T, K)}, taken as a per-frame {@code argmax}).
+     */
+    private static float[][] asState(OrtSession.Result res, String name, int rows, int T)
+            throws OrtException {
         OnnxValue outVal = res.get(name)
                 .orElseThrow(() -> new OrtException(
-                        "Output '" + name + "' not found in the andi-j-seg-v0 model"));
+                        "Output '" + name + "' not found in the andi-j-seg-latest model"));
         Object val = outVal.getValue();
-        if (val instanceof float[][][]) return (float[][][]) val;
+
+        if (val instanceof float[][][]) {
+            float[][][] v = (float[][][]) val;
+            if (v.length > 0 && v[0].length > 0 && v[0][0].length > 1) {
+                float[][] cls = new float[v.length][];
+                for (int r = 0; r < v.length; r++) {
+                    cls[r] = new float[v[r].length];
+                    for (int t = 0; t < v[r].length; t++) {
+                        float[] p = v[r][t];
+                        int best = 0;
+                        for (int k = 1; k < p.length; k++) if (p[k] > p[best]) best = k;
+                        cls[r][t] = best;
+                    }
+                }
+                return cls;
+            }
+        }
+        return as2d(res, name, rows, T);   // (rows, T) or (rows, T, 1)
+    }
+
+    /**
+     * Reads a per-frame output as {@code (rows, T)}. Accepts {@code (rows, T)}
+     * and {@code (rows, T, 1)} layouts.
+     */
+    private static float[][] as2d(OrtSession.Result res, String name, int rows, int T)
+            throws OrtException {
+        OnnxValue outVal = res.get(name)
+                .orElseThrow(() -> new OrtException(
+                        "Output '" + name + "' not found in the andi-j-seg-latest model"));
+        Object val = outVal.getValue();
+
+        if (val instanceof float[][]) return (float[][]) val;
+
+        if (val instanceof float[][][]) {              // (rows, T, 1)
+            float[][][] v = (float[][][]) val;
+            float[][] flat = new float[v.length][];
+            for (int r = 0; r < v.length; r++) {
+                flat[r] = new float[v[r].length];
+                for (int t = 0; t < v[r].length; t++)
+                    flat[r][t] = v[r][t].length > 0 ? v[r][t][0] : Float.NaN;
+            }
+            return flat;
+        }
         throw new OrtException("Unexpected output type for '" + name
                 + "': " + (val == null ? "null" : val.getClass().getName()));
     }
@@ -461,11 +391,6 @@ public class SegPredictor implements Closeable {
     // -----------------------------------------------------------------------
     // Utilities
     // -----------------------------------------------------------------------
-
-    private static int padLength(int T) {
-        int p = ((T + LEN_MULTIPLE - 1) / LEN_MULTIPLE) * LEN_MULTIPLE;
-        return Math.max(LEN_MULTIPLE, p);
-    }
 
     private static double clamp(double v, double lo, double hi) {
         if (Double.isNaN(v)) return lo;
@@ -476,7 +401,7 @@ public class SegPredictor implements Closeable {
         InputStream is = SegPredictor.class.getResourceAsStream(path);
         if (is == null)
             throw new FileNotFoundException(
-                    "Bundled model andi-j-seg-v0 not found: " + path + "\n"
+                    "Bundled model andi-j-seg-latest not found: " + path + "\n"
                     + "Copy the model into src/main/resources/models/ and rebuild.");
         try { return readAllBytes(is); } finally { is.close(); }
     }
@@ -495,7 +420,7 @@ public class SegPredictor implements Closeable {
 
     private void printInfo() throws OrtException {
         if (!AndiLog.isDebug()) return;
-        AndiLog.debug("=== andi-j-seg-v0 ===");
+        AndiLog.debug("=== andi-j-seg-latest ===");
         for (NodeInfo ni : session.getInputInfo().values())
             AndiLog.debug("  INPUT  " + ni.getName()
                     + "  shape=" + Arrays.toString(((TensorInfo) ni.getInfo()).getShape()));

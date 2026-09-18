@@ -226,6 +226,7 @@ public class AnomalousExponentPanel extends JPanel {
         resetViewBtn.addActionListener(e -> { histPanel.resetViewport(); histPanel.repaint(); });
 
         JPanel histArea = new JPanel(new BorderLayout(0, 2));
+        histToolbar.add(SvgExport.button(() -> histPanel, "anomalous_exponent"));
         histArea.add(Toolbars.makeScrollable(histToolbar), BorderLayout.NORTH);
         histArea.add(histPanel,   BorderLayout.CENTER);
 

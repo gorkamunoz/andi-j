@@ -41,6 +41,8 @@ public class SegStatsPanel extends JPanel {
     private final Hist1D  lengthHist = new Hist1D();
     private final Heat2D  timeAlpha  = new Heat2D("Segment length", "α",         true);
     private final Heat2D  timeD      = new Heat2D("Segment length", "log₁₀(D)",  false);
+    /** The three plots together — what "Save plot" exports. */
+    private JComponent plotArea;
 
     // ═════════════════════════════════════════════════════════════════════
 
@@ -66,6 +68,8 @@ public class SegStatsPanel extends JPanel {
         vSplit.setResizeWeight(0.32);
         vSplit.setContinuousLayout(true);
         vSplit.setDividerLocation(220);
+
+        plotArea = vSplit;
 
         JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftScroll, vSplit);
         mainSplit.setDividerLocation(160);
@@ -124,6 +128,8 @@ public class SegStatsPanel extends JPanel {
         bar.add(zoomBtn);
         bar.add(panBtn);
         bar.add(resetViewBtn);
+        bar.add(Box.createHorizontalStrut(6));
+        bar.add(SvgExport.button(() -> plotArea, "segment_stats"));
         return bar;
     }
 

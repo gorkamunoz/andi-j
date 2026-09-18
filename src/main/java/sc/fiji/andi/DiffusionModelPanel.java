@@ -71,10 +71,16 @@ public class DiffusionModelPanel extends JPanel {
             "(2D). Click \"Compute models (ML)\" to run the classifier.</i></html>");
         infoLabel.setBorder(new EmptyBorder(2, 4, 4, 4));
         infoLabel.setForeground(new Color(80, 80, 80));
-        add(infoLabel, BorderLayout.NORTH);
+        barPanel = new BarPanel();
+
+        JPanel northBar = new JPanel(new BorderLayout());
+        northBar.add(infoLabel, BorderLayout.CENTER);
+        JPanel northRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
+        northRight.add(SvgExport.button(() -> barPanel, "diffusion_model"));
+        northBar.add(northRight, BorderLayout.EAST);
+        add(northBar, BorderLayout.NORTH);
 
         // ── center: bar chart + draggable right experiment column ─────────
-        barPanel   = new BarPanel();
         sideColumn = buildSideColumn();
         split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, barPanel, sideColumn);
         split.setResizeWeight(1.0);          // extra space → plot; column stays draggable

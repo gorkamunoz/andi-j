@@ -48,6 +48,8 @@ public class SegPhenomPanel extends JPanel {
 
     private final BarPanel            barPanel;
     private final SegStatsPanel.Hist1D lengthHist;   // one line per state
+    /** Both plots together — what "Save plot" exports. */
+    private JComponent plotArea;
     private final JCheckBox           normalizeBox = new JCheckBox("Normalize (%)");
 
     public SegPhenomPanel(List<ExperimentData> experiments) {
@@ -76,7 +78,12 @@ public class SegPhenomPanel extends JPanel {
             lengthHist.setNormalize(normalizeBox.isSelected());
             lengthHist.repaint();
         });
-        add(info, BorderLayout.NORTH);
+        JPanel northBar = new JPanel(new BorderLayout());
+        northBar.add(info, BorderLayout.CENTER);
+        JPanel northRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
+        northRight.add(SvgExport.button(() -> plotArea, "diffusive_state"));
+        northBar.add(northRight, BorderLayout.EAST);
+        add(northBar, BorderLayout.NORTH);
 
         JSplitPane plots = new JSplitPane(JSplitPane.VERTICAL_SPLIT, barPanel, lengthHist);
         plots.setResizeWeight(0.5);
@@ -92,6 +99,8 @@ public class SegPhenomPanel extends JPanel {
         controls.setDividerLocation(260);
         controls.setDividerSize(0);   // driven by the plots divider, not dragged directly
         syncDividers(plots, controls);
+
+        plotArea = plots;
 
         JSplitPane main = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, plots, controls);
         main.setResizeWeight(1.0);

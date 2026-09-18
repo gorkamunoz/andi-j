@@ -61,6 +61,7 @@ public class AnglesPanel extends JPanel {
 
         // ── center: polar plot ───────────────────────────────────────────
         polarPanel = new PolarPanel();
+        paramBar.add(SvgExport.button(() -> polarPanel, "turning_angles"));
 
         // Listeners registered after polarPanel is assigned
         applyBtn.addActionListener(e -> polarPanel.repaint());

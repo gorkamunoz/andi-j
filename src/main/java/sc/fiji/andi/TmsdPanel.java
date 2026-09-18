@@ -96,6 +96,7 @@ public class TmsdPanel extends JPanel {
         clearLinesBtn.addActionListener(e -> plotPanel.clearLines());
 
         JPanel plotArea = new JPanel(new BorderLayout(0, 0));
+        plotToolbar.add(SvgExport.button(() -> plotPanel, "tmsd"));
         plotArea.add(plotToolbar, BorderLayout.NORTH);
         plotArea.add(plotPanel,   BorderLayout.CENTER);
 

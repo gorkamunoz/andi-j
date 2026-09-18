@@ -115,6 +115,8 @@ public class SegDvsAlphaPanel extends JPanel {
         bar.add(zoomBtn);
         bar.add(panBtn);
         bar.add(resetViewBtn);
+        bar.add(Box.createHorizontalStrut(6));
+        bar.add(SvgExport.button(() -> canvas, "seg_d_vs_alpha"));
         return bar;
     }
 

@@ -90,6 +90,22 @@
             <artifactId>onnxruntime_gpu</artifactId>
             <version>1.26.0</version>
         </dependency>
+
+        <!-- Batik SVG generator – exports the plots as vector SVG.
+             "provided": Fiji already ships batik-*-1.17.jar in Fiji.app/jars,
+             so nothing is added to our JAR and users need no extra download. -->
+        <dependency>
+            <groupId>org.apache.xmlgraphics</groupId>
+            <artifactId>batik-svggen</artifactId>
+            <version>1.17</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.xmlgraphics</groupId>
+            <artifactId>batik-dom</artifactId>
+            <version>1.17</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <repositories>

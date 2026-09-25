@@ -11,8 +11,8 @@ import java.util.*;
  * (x, y positions) and the per-frame outputs are read verbatim.
  *
  * <p>A {@link Kind#COMBINED} model exposes three outputs — α, log₁₀(D) and a
- * per-frame change-point signal — read by the names {@code alpha}, {@code logD},
- * {@code cp} (falling back to output order 0, 1, 2). A single-output model
+ * per-frame change-point signal — plus an optional {@code diffusive_state} —
+ * read by name (falling back to output order 0, 1, 2, 3). A single-output model
  * ({@link Kind#ALPHA}/{@link Kind#LOGD}/{@link Kind#CP}) exposes just that one.
  * See {@code Custom-Segmentation-Models.md} for the contract.</p>
  */
@@ -64,9 +64,10 @@ public class CustomSegPredictor implements Closeable {
                 out.alpha = read(res, "alpha", 0, T);
                 out.logD  = read(res, "logD",  1, T);
                 out.cp    = read(res, "cp",    2, T);
-                out.state = readStatePerFrame(res, "model_type", 3, T);   // optional 4th output
+                // optional 4th output; "model_type" is its deprecated former name
+                out.state = readStatePerFrame(res, 3, T, "diffusive_state", "model_type");
             } else if (kind == Kind.MODELTYPE) {
-                out.state = readStatePerFrame(res, null, 0, T);
+                out.state = readStatePerFrame(res, 0, T, (String) null);
             } else {
                 double[] v = read(res, null, 0, T);
                 if (kind == Kind.ALPHA)     out.alpha = v;
@@ -77,15 +78,27 @@ public class CustomSegPredictor implements Closeable {
         return out;
     }
 
+    /**
+     * Resolves an output by any of {@code names} (case-insensitive), falling back
+     * to position {@code index}. Returns {@code null} if neither matches.
+     */
+    private OnnxValue find(OrtSession.Result res, int index, String... names)
+            throws OrtException {
+        for (String n : names)
+            if (n != null)
+                for (String o : outNames)
+                    if (o.equalsIgnoreCase(n)) {
+                        OnnxValue v = res.get(o).orElse(null);
+                        if (v != null) return v;
+                    }
+        if (index < outNames.size()) return res.get(outNames.get(index)).orElse(null);
+        return null;
+    }
+
     /** Reads a named (or index-fallback) output as a length-T per-frame array. */
     private double[] read(OrtSession.Result res, String name, int index, int T)
             throws OrtException {
-        OnnxValue v = null;
-        if (name != null)
-            for (String o : outNames)
-                if (o.equalsIgnoreCase(name)) { v = res.get(o).orElse(null); break; }
-        if (v == null && index < outNames.size())
-            v = res.get(outNames.get(index)).orElse(null);
+        OnnxValue v = find(res, index, name);
         if (v == null)
             throw new OrtException("Custom model output '" + name + "' (index " + index
                     + ") not found");
@@ -113,14 +126,9 @@ public class CustomSegPredictor implements Closeable {
      * {@code (1, T, K)} → per-frame argmax; {@code (1, T)} → per-frame rounded
      * value. Returns {@code null} if the output is absent.
      */
-    private int[] readStatePerFrame(OrtSession.Result res, String name, int index, int T)
+    private int[] readStatePerFrame(OrtSession.Result res, int index, int T, String... names)
             throws OrtException {
-        OnnxValue v = null;
-        if (name != null)
-            for (String o : outNames)
-                if (o.equalsIgnoreCase(name)) { v = res.get(o).orElse(null); break; }
-        if (v == null && index < outNames.size())
-            v = res.get(outNames.get(index)).orElse(null);
+        OnnxValue v = find(res, index, names);
         if (v == null) return null;
 
         Object val = v.getValue();

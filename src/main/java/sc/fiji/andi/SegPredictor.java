@@ -18,11 +18,11 @@ import java.util.*;
  * <ul>
  *   <li>Input {@code (B, T, 2)} float32 — raw x,y positions, one row per frame.
  *       {@code T} is dynamic, so no padding is needed.</li>
- *   <li>Outputs {@code alpha}, {@code logD}, {@code cp} and {@code model_type},
+ *   <li>Outputs {@code alpha}, {@code logD}, {@code cp} and {@code diffusive_state},
  *       each {@code (B, T)}.</li>
  * </ul>
  * {@code logD} is already log₁₀(D) and is stored verbatim; {@code cp} is a 0/1
- * per-frame flag; {@code model_type} is the diffusive-state class index
+ * per-frame flag; {@code diffusive_state} is the diffusive-state class index
  * (0 = immobile, 1 = confined, 2 = free diffusion, 3 = directed).
  *
  * <p>Batch and length axes are both dynamic, so trajectories of equal length are
@@ -74,17 +74,20 @@ public class SegPredictor implements Closeable {
         session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
         inputName = session.getInputNames().iterator().next();
 
-        // Outputs are exported in the order: alpha, logD, cp, model_type.
+        // Outputs are exported in the order: alpha, logD, cp, diffusive_state.
         List<String> outs = new ArrayList<>(session.getOutputNames());
-        alphaName = pickOutput(outs, "alpha",      0);
-        logDName  = pickOutput(outs, "logD",       1);
-        cpName    = pickOutput(outs, "cp",         2);
-        stateName = pickOutput(outs, "model_type", 3);
+        alphaName = pickOutput(outs, 0, "alpha");
+        logDName  = pickOutput(outs, 1, "logD");
+        cpName    = pickOutput(outs, 2, "cp");
+        // "model_type" is the deprecated former name of this output.
+        stateName = pickOutput(outs, 3, "diffusive_state", "model_type");
         printInfo();
     }
 
-    private static String pickOutput(List<String> outs, String preferred, int fallbackIdx) {
-        for (String o : outs) if (o.equalsIgnoreCase(preferred)) return o;
+    /** First output matching any of {@code preferred} (case-insensitive), else by index. */
+    private static String pickOutput(List<String> outs, int fallbackIdx, String... preferred) {
+        for (String p : preferred)
+            for (String o : outs) if (o.equalsIgnoreCase(p)) return o;
         return outs.get(Math.min(fallbackIdx, outs.size() - 1));
     }
 

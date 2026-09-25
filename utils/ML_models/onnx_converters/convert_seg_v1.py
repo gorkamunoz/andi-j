@@ -26,7 +26,7 @@ reads per-frame outputs out verbatim; everything else lives inside this graph.
   Output "alpha"      : (B, T) anomalous exponent, clipped to [0, 2]
   Output "logD"       : (B, T) log10(D)
   Output "cp"         : (B, T) change-point flag, 0 or 1
-  Output "model_type" : (B, T) diffusive-state class index
+  Output "diffusive_state" : (B, T) diffusive-state class index
                         (0 = immobile, 1 = confined, 2 = free diffusion, 3 = directed)
 
 What the wrapper does internally
@@ -47,8 +47,12 @@ What the wrapper does internally
     rising edge only keeps exactly one flag per boundary, as the contract
     requires ("Emit 1 at the first frame of each new segment").
 
-The 5-class model-type softmax head is not exported: the plugin's diffusive
-state is the 4-class state channel.
+Note on the name: this output used to be called "model_type", which was
+misleading — the backbone has a *separate* 5-class model-type softmax head
+(single-state, multi-state, dimerization, confinement, immobile-traps) that is
+deliberately NOT exported. The plugin's diffusive state is the 4-class state
+channel, so the output is now called "diffusive_state". The plugin still accepts
+"model_type" as a deprecated alias.
 """
 
 import math
@@ -113,7 +117,7 @@ class ContractSegModel(nn.Module):
         return alpha, log_d10, change_points, state
 
 
-OUTPUT_NAMES = ['alpha', 'logD', 'cp', 'model_type']
+OUTPUT_NAMES = ['alpha', 'logD', 'cp', 'diffusive_state']
 
 
 def export(model, dummy, out_path):
@@ -195,7 +199,7 @@ if __name__ == '__main__':
 
             # 4. state is a class index in 0..3
             if not np.all(np.isin(np.unique(state), (0.0, 1.0, 2.0, 3.0))):
-                failures.append(f'T={length}: model_type is not a 0-3 class index')
+                failures.append(f'T={length}: diffusive_state is not a 0-3 class index')
 
             print(f'   T={length:3d}  max|Δ| = {worst:.2e}   '
                   f'cp flags = {int(change_points.sum())}   '

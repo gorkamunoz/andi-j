@@ -6,8 +6,8 @@ These are NOT trained networks — they are deterministic, data-dependent dummie
 that follow the custom-segmentation contract, so you can check that both Load
 modes work end-to-end before dropping in real models:
 
-  Combined mode   → seg_combined.onnx   (outputs alpha, logD, cp, model_type)
-  Per-output mode → seg_alpha.onnx, seg_logd.onnx, seg_cp.onnx, seg_modeltype.onnx
+  Combined mode   → seg_combined.onnx   (outputs alpha, logD, cp, diffusive_state)
+  Per-output mode → seg_alpha.onnx, seg_logd.onnx, seg_cp.onnx, seg_state.onnx
 
 Contract (see the ML Models wiki page)
 ---------------------------------------
@@ -15,7 +15,7 @@ Contract (see the ML Models wiki page)
   Output "alpha"      : (1, T)      per-frame α                     (verbatim)
   Output "logD"       : (1, T)      per-frame log10(D)              (verbatim)
   Output "cp"         : (1, T)      per-frame 0/1 change-point flag
-  Output "model_type" : (1, T, 4)   per-frame diffusive-mode softmax (optional)
+  Output "diffusive_state" : (1, T, 4)  per-frame diffusive-state softmax (optional)
                          classes: 0=immobile, 1=confined, 2=free diffusion, 3=directed
 
 What these dummies compute (purely illustrative, so you can *see* your model is
@@ -24,7 +24,7 @@ being used rather than the default):
   alpha       = clamp(step / mean(step), 0, 2)     ~1 on average, varies
   logD        = log10(step^2 + 1e-6)
   cp          = 1 where step > 2·mean(step)        (flags big jumps)
-  model_type  = softmax over 4 step-magnitude prototypes (illustrative only)
+  diffusive_state = softmax over 4 step-magnitude prototypes (illustrative only)
 
 Usage
 -----
@@ -112,8 +112,8 @@ if __name__ == "__main__":
     export(AlphaModel(),     "seg_alpha.onnx",     ["alpha"])
     export(LogDModel(),      "seg_logd.onnx",      ["logD"])
     export(CpModel(),        "seg_cp.onnx",        ["cp"])
-    export(ModelTypeModel(), "seg_modeltype.onnx", ["model_type"])
-    export(CombinedModel(),  "seg_combined.onnx",  ["alpha", "logD", "cp", "model_type"])
+    export(ModelTypeModel(), "seg_state.onnx",     ["diffusive_state"])
+    export(CombinedModel(),  "seg_combined.onnx", ["alpha", "logD", "cp", "diffusive_state"])
 
     # Optional round-trip check
     try:
@@ -121,7 +121,7 @@ if __name__ == "__main__":
         import onnxruntime as ort
         print("\nVerifying (each output should be length T):")
         for name in ("seg_alpha.onnx", "seg_logd.onnx", "seg_cp.onnx",
-                     "seg_modeltype.onnx", "seg_combined.onnx"):
+                     "seg_state.onnx", "seg_combined.onnx"):
             s = ort.InferenceSession(str(SCRIPT_DIR / name), providers=["CPUExecutionProvider"])
             for T in (37, 128):
                 outs = s.run(None, {"input": np.random.randn(1, T, 2).astype("float32")})

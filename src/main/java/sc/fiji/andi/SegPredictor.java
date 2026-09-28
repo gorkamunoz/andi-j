@@ -6,32 +6,27 @@ import java.io.*;
 import java.util.*;
 
 /**
- * Runs the bundled segmentation model <b>andi-j-seg-latest</b> to estimate, for
- * every trajectory, the per-frame anomalous exponent α, per-frame log₁₀(D), the
- * per-frame diffusive state, <em>and</em> the change-point positions (from the
- * model's own change-point head).
+ * Runs the bundled segmentation model <b>andi-j-seg-latest</b> on one trajectory
+ * at a time.
  *
  * <h3>Model contract</h3>
  * The bundled model follows the same contract as user-supplied models (see the
- * <i>ML Models</i> wiki page), so the plugin does no pre- or post-processing of
- * the signal itself:
+ * <i>ML Models</i> wiki page): the raw trajectory goes in and per-frame results
+ * come out verbatim, with no pre- or post-processing of the signal.
+ *
+ * <p><b>Required</b> outputs, each {@code (1, T)} — the input is {@code (1, T, 2)}
+ * raw x,y positions:</p>
  * <ul>
- *   <li>Input {@code (B, T, 2)} float32 — raw x,y positions, one row per frame.
- *       {@code T} is dynamic, so no padding is needed.</li>
- *   <li>Outputs {@code alpha}, {@code logD}, {@code cp} and {@code diffusive_state},
- *       each {@code (B, T)}.</li>
+ *   <li>{@code alpha} — anomalous exponent per frame</li>
+ *   <li>{@code logD} — log₁₀(D) per frame</li>
+ *   <li>{@code cp} — change-point flag per frame, 0 or 1</li>
+ *   <li>{@code diffusive_state} — class index, or {@code (1, T, 4)} probabilities</li>
  * </ul>
- * {@code logD} is already log₁₀(D) and is stored verbatim; {@code cp} is a 0/1
- * per-frame flag; {@code diffusive_state} is the diffusive-state class index
- * (0 = immobile, 1 = confined, 2 = free diffusion, 3 = directed).
  *
- * <p>Batch and length axes are both dynamic, so trajectories of equal length are
- * grouped and predicted in a single call.</p>
- *
- * <h3>Output</h3>
- * α is stored in {@link ExperimentData#stepAlpha}, log₁₀(D) in
- * {@link ExperimentData#stepLogD}, and the derived {@link Segment}s in
- * {@link ExperimentData#segments}.
+ * <p><b>Optional</b> segment-level outputs, each {@code (1, S)}:
+ * {@code seg_start}, {@code seg_length}, {@code seg_alpha}, {@code seg_logD},
+ * {@code seg_state}. When the model provides them and they are enabled, they are
+ * used verbatim instead of the segments the plugin derives from {@code cp}.</p>
  */
 public class SegPredictor implements Closeable {
 
@@ -43,51 +38,36 @@ public class SegPredictor implements Closeable {
 
     /** Number of AnDi diffusive-state classes:
      *  0=immobile, 1=confined, 2=free diffusion, 3=directed. */
-    private static final int STATE_CLASSES = 4;
-
-    /** Batching caps so one inference call stays a reasonable size. */
-    private static final int MAX_BATCH          = 64;       // trajectories per call
-    private static final int MAX_BATCH_ELEMENTS = 400_000;  // rows × T per call
+    static final int STATE_CLASSES = 4;
 
     private final OrtEnvironment env;
     private final OrtSession     session;
     private final String         inputName;
-    private final String         alphaName;
-    private final String         logDName;
-    private final String         cpName;
-    private final String         stateName;
+    private final List<String>   outNames;
+    /** Use the model's own seg_* outputs when it provides them. */
+    private final boolean        useModelSegments;
 
     // -----------------------------------------------------------------------
     // Construction
     // -----------------------------------------------------------------------
 
-    public static SegPredictor fromResources() throws OrtException, IOException {
-        return new SegPredictor(loadResource(DEFAULT_RESOURCE));
+    public static SegPredictor fromResources(boolean useModelSegments)
+            throws OrtException, IOException {
+        return new SegPredictor(loadResource(DEFAULT_RESOURCE), useModelSegments);
     }
 
-    public SegPredictor(File modelFile) throws OrtException, IOException {
-        this(readFile(modelFile));
+    public SegPredictor(File modelFile, boolean useModelSegments)
+            throws OrtException, IOException {
+        this(readFile(modelFile), useModelSegments);
     }
 
-    public SegPredictor(byte[] modelBytes) throws OrtException {
+    public SegPredictor(byte[] modelBytes, boolean useModelSegments) throws OrtException {
+        this.useModelSegments = useModelSegments;
         env       = OrtEnvironment.getEnvironment();
         session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
         inputName = session.getInputNames().iterator().next();
-
-        // Outputs are exported in the order: alpha, logD, cp, diffusive_state.
-        List<String> outs = new ArrayList<>(session.getOutputNames());
-        alphaName = pickOutput(outs, 0, "alpha");
-        logDName  = pickOutput(outs, 1, "logD");
-        cpName    = pickOutput(outs, 2, "cp");
-        stateName = pickOutput(outs, 3, "diffusive_state");
+        outNames  = new ArrayList<>(session.getOutputNames());
         printInfo();
-    }
-
-    /** First output matching any of {@code preferred} (case-insensitive), else by index. */
-    private static String pickOutput(List<String> outs, int fallbackIdx, String... preferred) {
-        for (String p : preferred)
-            for (String o : outs) if (o.equalsIgnoreCase(p)) return o;
-        return outs.get(Math.min(fallbackIdx, outs.size() - 1));
     }
 
     // -----------------------------------------------------------------------
@@ -101,126 +81,91 @@ public class SegPredictor implements Closeable {
     /** Notified once after each track is processed (for progress reporting). */
     public interface ProgressListener { void trackDone(); }
 
-    /** One eligible track: its id, length T and (T, 2) positions. */
-    private static final class Track {
-        final int id, T;
-        final float[][] xy;   // (T, 2)
-        Track(int id, int T, float[][] xy) { this.id = id; this.T = T; this.xy = xy; }
-    }
-
     /**
      * Runs the model on every track of {@code exp} and fills
-     * {@link ExperimentData#stepAlpha}, {@link ExperimentData#stepLogD} and
-     * {@link ExperimentData#segments}. Tracks with fewer than 2 frames get
-     * empty arrays and no segments.
-     *
-     * <p>Trajectories are grouped by length so that many run in a single batched
-     * inference call.</p>
+     * {@link ExperimentData#stepAlpha}, {@link ExperimentData#stepLogD},
+     * {@link ExperimentData#stepState} and {@link ExperimentData#segments}.
+     * Tracks with fewer than 2 frames get empty arrays and no segments.
      */
     public void computeForExperiment(ExperimentData exp, ProgressListener listener)
             throws OrtException {
         Map<Integer, double[]>      outAlpha = new LinkedHashMap<>();
         Map<Integer, double[]>      outLogD  = new LinkedHashMap<>();
+        Map<Integer, int[]>         outState = new LinkedHashMap<>();
         Map<Integer, List<Segment>> outSegs  = new LinkedHashMap<>();
 
-        // Short tracks get empty output; the rest are bucketed by length so each
-        // batch tensor is rectangular.
-        Map<Integer, List<Track>> byLen = new LinkedHashMap<>();
         for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
             int            id    = e.getKey();
             List<double[]> spots = e.getValue();
-            int T = spots.size();
-            if (T < 2) {
+
+            if (spots.size() < 2) {
                 outAlpha.put(id, new double[0]);
                 outLogD.put(id,  new double[0]);
+                outState.put(id, new int[0]);
                 outSegs.put(id,  Collections.<Segment>emptyList());
                 if (listener != null) listener.trackDone();
                 continue;
             }
-            byLen.computeIfAbsent(T, k -> new ArrayList<>())
-                 .add(new Track(id, T, positions(spots)));
-        }
 
-        for (Map.Entry<Integer, List<Track>> bucket : byLen.entrySet()) {
-            int         T      = bucket.getKey();
-            List<Track> tracks = bucket.getValue();
-
-            // Trajectories per call: cap by both the count and rows×T elements.
-            int maxTraj = Math.max(1, Math.min(MAX_BATCH,
-                    MAX_BATCH_ELEMENTS / Math.max(1, T)));
-
-            for (int off = 0; off < tracks.size(); off += maxTraj) {
-                int nb = Math.min(maxTraj, tracks.size() - off);
-
-                float[][][] in = new float[nb][][];
-                for (int j = 0; j < nb; j++) in[j] = tracks.get(off + j).xy;
-
-                Out out = runBatch(in, nb, T);
-
-                for (int j = 0; j < nb; j++) {
-                    Track tr = tracks.get(off + j);
-                    double[] alpha = new double[T], logD = new double[T], cp = new double[T];
-                    int[] state = new int[T];
-                    for (int t = 0; t < T; t++) {
-                        alpha[t] = clamp(out.alpha[j][t], 0.0, ALPHA_MAX);
-                        // logD comes out of the model already as log₁₀(D); store it
-                        // verbatim, mapping anything non-finite to NaN so it is
-                        // neither plotted nor averaged into a segment mean.
-                        double ld = out.logD[j][t];
-                        logD[t]  = Double.isFinite(ld) ? ld : Double.NaN;
-                        cp[t]    = out.cp[j][t];
-                        state[t] = stateClass(out.state[j][t]);
-                    }
-                    outAlpha.put(tr.id, alpha);
-                    outLogD.put(tr.id,  logD);
-                    outSegs.put(tr.id,  buildSegments(cp, alpha, logD, state));
-                    if (listener != null) listener.trackDone();
-                }
-            }
+            TrackOut o = computeTrack(spots);
+            outAlpha.put(id, o.alpha);
+            outLogD.put(id,  o.logD);
+            outState.put(id, o.state);
+            outSegs.put(id,  o.segments != null ? o.segments
+                           : buildSegments(o.cpProb, o.alpha, o.logD, o.state));
+            if (listener != null) listener.trackDone();
         }
 
         exp.stepAlpha = outAlpha;
         exp.stepLogD  = outLogD;
+        exp.stepState = outState;
         exp.segments  = outSegs;
     }
 
-    /** Rounds a raw model state value to a class in [0, STATE_CLASSES−1]. */
-    static int stateClass(double v) {
-        if (Double.isNaN(v)) return 0;
-        return Math.max(0, Math.min(STATE_CLASSES - 1, (int) Math.round(v)));
-    }
-
-    /** Per-frame default-model outputs for a single track. */
+    /** Per-frame model outputs for a single track, plus any model-given segments. */
     public static final class TrackOut {
         public double[] alpha, logD, cpProb;
-        public int[]    state;   // per-frame diffusive-state class (may be null)
+        public int[]    state;
+        /** Segments read from the model's seg_* outputs, or null. */
+        public List<Segment> segments;
     }
 
     /**
-     * Runs the default model on one track and returns its per-frame α, log₁₀(D),
-     * change-point flags and diffusive state. Used by {@link SegmentationRunner}
-     * to fill outputs the user did not supply a custom model for.
+     * Runs the model on one track. Used both by {@link #computeForExperiment}
+     * and by {@link SegmentationRunner} when filling outputs the user did not
+     * supply a custom model for.
      */
     public TrackOut computeTrack(List<double[]> spots) throws OrtException {
         TrackOut o = new TrackOut();
         int T = spots.size();
         if (T < 2) {
-            o.alpha = new double[0]; o.logD = new double[0]; o.cpProb = new double[0];
+            o.alpha = new double[0]; o.logD = new double[0];
+            o.cpProb = new double[0]; o.state = new int[0];
             return o;
         }
 
-        Out out = runBatch(new float[][][]{ positions(spots) }, 1, T);
+        try (OnnxTensor tensor = OnnxTensor.createTensor(env, new float[][][]{ positions(spots) });
+             OrtSession.Result res = session.run(
+                     Collections.singletonMap(inputName, tensor))) {
 
-        double[] alpha = new double[T], logD = new double[T], cp = new double[T];
-        int[] state = new int[T];
-        for (int t = 0; t < T; t++) {
-            alpha[t] = clamp(out.alpha[0][t], 0.0, ALPHA_MAX);
-            double ld = out.logD[0][t];
-            logD[t]  = Double.isFinite(ld) ? ld : Double.NaN;
-            cp[t]    = out.cp[0][t];
-            state[t] = stateClass(out.state[0][t]);
+            double[] alpha = required(res, "alpha", T);
+            double[] logD  = required(res, "logD",  T);
+            double[] cp    = required(res, "cp",    T);
+            int[]    state = requiredState(res, T);
+
+            o.alpha  = new double[T];
+            o.logD   = new double[T];
+            o.cpProb = cp;
+            o.state  = state;
+            for (int t = 0; t < T; t++) {
+                o.alpha[t] = clamp(alpha[t], 0.0, ALPHA_MAX);
+                // logD arrives already as log₁₀(D); keep it verbatim and map
+                // anything non-finite to NaN so it is neither plotted nor
+                // averaged into a segment mean.
+                o.logD[t]  = Double.isFinite(logD[t]) ? logD[t] : Double.NaN;
+            }
+            if (useModelSegments) o.segments = readModelSegments(res, outNames, T);
         }
-        o.alpha = alpha; o.logD = logD; o.cpProb = cp; o.state = state;
         return o;
     }
 
@@ -236,7 +181,146 @@ public class SegPredictor implements Closeable {
     }
 
     // -----------------------------------------------------------------------
-    // Change points → segments
+    // Reading outputs
+    // -----------------------------------------------------------------------
+
+    private static final String REQUIRED_MSG =
+            " It must provide alpha, logD, cp and diffusive_state.";
+
+    /** A required per-frame output; absence is a hard error. */
+    private double[] required(OrtSession.Result res, String name, int T) throws OrtException {
+        OnnxValue v = byName(res, outNames, name);
+        if (v == null)
+            throw new OrtException("Segmentation model is missing the required output '"
+                    + name + "'." + REQUIRED_MSG);
+        return perFrame(v, T, name);
+    }
+
+    /** The required diffusive state, as a class index or per-frame probabilities. */
+    private int[] requiredState(OrtSession.Result res, int T) throws OrtException {
+        OnnxValue v = byName(res, outNames, "diffusive_state");
+        if (v == null)
+            throw new OrtException("Segmentation model is missing the required output "
+                    + "'diffusive_state'." + REQUIRED_MSG);
+        Object val = v.getValue();
+        int[] out = new int[T];
+        if (val instanceof float[][][]) {          // (1, T, K) -> argmax per frame
+            float[][] frames = ((float[][][]) val)[0];
+            for (int t = 0; t < T && t < frames.length; t++) {
+                float[] f = frames[t];
+                int best = 0;
+                for (int k = 1; k < f.length; k++) if (f[k] > f[best]) best = k;
+                out[t] = best;
+            }
+            return out;
+        }
+        double[] flat = perFrame(v, T, "diffusive_state");
+        for (int t = 0; t < T; t++) out[t] = stateClass(flat[t]);
+        return out;
+    }
+
+    /** Reads the optional seg_* outputs into segments, or null when absent. */
+    static List<Segment> readModelSegments(OrtSession.Result res, List<String> outNames, int T)
+            throws OrtException {
+        OnnxValue vs = byName(res, outNames, "seg_start");
+        OnnxValue vl = byName(res, outNames, "seg_length");
+        if (vs == null || vl == null) return null;
+
+        double[] start  = anyLength(vs);
+        double[] length = anyLength(vl);
+        double[] alpha  = optional(res, outNames, "seg_alpha");
+        double[] logD   = optional(res, outNames, "seg_logD");
+        double[] state  = optional(res, outNames, "seg_state");
+
+        int S = Math.min(start.length, length.length);
+        List<Segment> segs = new ArrayList<>();
+        for (int i = 0; i < S; i++) {
+            int st  = (int) Math.round(start[i]);
+            int len = (int) Math.round(length[i]);
+            if (len <= 0 || st < 0 || st >= T) continue;      // skip padding rows
+            len = Math.min(len, T - st);
+            double a = (alpha != null && i < alpha.length)
+                     ? clamp(alpha[i], 0.0, ALPHA_MAX) : Double.NaN;
+            double d = (logD != null && i < logD.length && Double.isFinite(logD[i]))
+                     ? logD[i] : Double.NaN;
+            int s = (state != null && i < state.length) ? stateClass(state[i]) : -1;
+            segs.add(new Segment(st, len, a, d, s));
+        }
+        return segs.isEmpty() ? null : segs;
+    }
+
+    private static double[] optional(OrtSession.Result res, List<String> outNames, String name)
+            throws OrtException {
+        OnnxValue v = byName(res, outNames, name);
+        return v == null ? null : anyLength(v);
+    }
+
+    static OnnxValue byName(OrtSession.Result res, List<String> outNames, String name)
+            throws OrtException {
+        for (String o : outNames)
+            if (o.equalsIgnoreCase(name)) return res.get(o).orElse(null);
+        return null;
+    }
+
+    /** Reads a {@code (1, T)}, {@code (1, T, 1)} or {@code (T,)} output as length T. */
+    private static double[] perFrame(OnnxValue v, int T, String name) throws OrtException {
+        Object val = v.getValue();
+        double[] out = new double[T];
+        if (val instanceof float[][][]) {
+            float[][][] a = (float[][][]) val;
+            for (int t = 0; t < T && t < a[0].length; t++) out[t] = a[0][t][0];
+        } else if (val instanceof float[][]) {
+            float[][] a = (float[][]) val;
+            for (int t = 0; t < T && t < a[0].length; t++) out[t] = a[0][t];
+        } else if (val instanceof float[]) {
+            float[] a = (float[]) val;
+            for (int t = 0; t < T && t < a.length; t++) out[t] = a[t];
+        } else {
+            throw new OrtException("Unexpected type for output '" + name + "': "
+                    + (val == null ? "null" : val.getClass().getName()));
+        }
+        return out;
+    }
+
+    /** Reads a variable-length {@code (1, S)} / {@code (S,)} output of any numeric type. */
+    private static double[] anyLength(OnnxValue v) throws OrtException {
+        Object val = v.getValue();
+        if (val instanceof float[][]) return widen(((float[][]) val)[0]);
+        if (val instanceof float[])   return widen((float[]) val);
+        if (val instanceof long[][])  return widen(((long[][]) val)[0]);
+        if (val instanceof long[])    return widen((long[]) val);
+        if (val instanceof int[][])   return widen(((int[][]) val)[0]);
+        if (val instanceof int[])     return widen((int[]) val);
+        throw new OrtException("Unexpected type for a seg_* output: "
+                + (val == null ? "null" : val.getClass().getName()));
+    }
+
+    private static double[] widen(float[] a) {
+        double[] o = new double[a.length];
+        for (int i = 0; i < a.length; i++) o[i] = a[i];
+        return o;
+    }
+
+    private static double[] widen(long[] a) {
+        double[] o = new double[a.length];
+        for (int i = 0; i < a.length; i++) o[i] = a[i];
+        return o;
+    }
+
+    private static double[] widen(int[] a) {
+        double[] o = new double[a.length];
+        for (int i = 0; i < a.length; i++) o[i] = a[i];
+        return o;
+    }
+
+    /** Rounds a raw model state value to a class in [0, STATE_CLASSES-1]. */
+    static int stateClass(double v) {
+        if (Double.isNaN(v)) return 0;
+        return Math.max(0, Math.min(STATE_CLASSES - 1, (int) Math.round(v)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Change points to segments
     // -----------------------------------------------------------------------
 
     /** Builds segments from the model's 0/1 change-point flags. */
@@ -248,10 +332,6 @@ public class SegPredictor implements Closeable {
      * Change points from a per-frame 0/1 flag signal: every interior frame where
      * {@code cp >= 0.5} starts a new segment. Frame 0 and the last frame are
      * ignored — they are trajectory ends, not motion changes.
-     *
-     * <p>This is the contract every segmentation model follows, bundled or
-     * user-supplied: one flag per boundary, at the first frame of the new
-     * segment.</p>
      */
     static int[] thresholdChangePoints(double[] cp) {
         List<Integer> out = new ArrayList<>();
@@ -269,7 +349,6 @@ public class SegPredictor implements Closeable {
     static List<Segment> segmentsFrom(int[] cps, double[] alpha, double[] logD, int[] state) {
         int T = alpha.length;
 
-        // Boundaries 0, cp1, cp2, …, T  → segments between consecutive pairs.
         int[] bounds = new int[cps.length + 2];
         bounds[0] = 0;
         System.arraycopy(cps, 0, bounds, 1, cps.length);
@@ -303,91 +382,6 @@ public class SegPredictor implements Closeable {
         int best = 0;
         for (int k = 1; k < STATE_CLASSES; k++) if (counts[k] > counts[best]) best = k;
         return best;
-    }
-
-    // -----------------------------------------------------------------------
-    // ONNX Runtime inference
-    // -----------------------------------------------------------------------
-
-    /** One batched forward pass: each field is {@code (rows, T)}. */
-    private static final class Out {
-        float[][] alpha, logD, cp, state;
-    }
-
-    /**
-     * Runs one batched forward pass over {@code (rows, T, 2)} positions and
-     * returns all four per-frame outputs. A single run yields every output.
-     */
-    private Out runBatch(float[][][] input, int rows, int T) throws OrtException {
-        try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
-             OrtSession.Result res = session.run(
-                     Collections.singletonMap(inputName, tensor))) {
-
-            Out o = new Out();
-            o.alpha = as2d(res, alphaName, rows, T);
-            o.logD  = as2d(res, logDName,  rows, T);
-            o.cp    = as2d(res, cpName,    rows, T);
-            o.state = asState(res, stateName, rows, T);
-            return o;
-        }
-    }
-
-    /**
-     * Reads the diffusive-state output. The contract allows either the class
-     * index per frame ({@code (rows, T)}) or class probabilities
-     * ({@code (rows, T, K)}, taken as a per-frame {@code argmax}).
-     */
-    private static float[][] asState(OrtSession.Result res, String name, int rows, int T)
-            throws OrtException {
-        OnnxValue outVal = res.get(name)
-                .orElseThrow(() -> new OrtException(
-                        "Output '" + name + "' not found in the andi-j-seg-latest model"));
-        Object val = outVal.getValue();
-
-        if (val instanceof float[][][]) {
-            float[][][] v = (float[][][]) val;
-            if (v.length > 0 && v[0].length > 0 && v[0][0].length > 1) {
-                float[][] cls = new float[v.length][];
-                for (int r = 0; r < v.length; r++) {
-                    cls[r] = new float[v[r].length];
-                    for (int t = 0; t < v[r].length; t++) {
-                        float[] p = v[r][t];
-                        int best = 0;
-                        for (int k = 1; k < p.length; k++) if (p[k] > p[best]) best = k;
-                        cls[r][t] = best;
-                    }
-                }
-                return cls;
-            }
-        }
-        return as2d(res, name, rows, T);   // (rows, T) or (rows, T, 1)
-    }
-
-    /**
-     * Reads a per-frame output as {@code (rows, T)}. Accepts {@code (rows, T)}
-     * and {@code (rows, T, 1)} layouts.
-     */
-    private static float[][] as2d(OrtSession.Result res, String name, int rows, int T)
-            throws OrtException {
-        OnnxValue outVal = res.get(name)
-                .orElseThrow(() -> new OrtException(
-                        "Output '" + name + "' not found in the andi-j-seg-latest model"));
-        Object val = outVal.getValue();
-
-        if (val instanceof float[][]) return (float[][]) val;
-
-        if (val instanceof float[][][]) {              // (rows, T, 1)
-            float[][][] v = (float[][][]) val;
-            float[][] flat = new float[v.length][];
-            for (int r = 0; r < v.length; r++) {
-                flat[r] = new float[v[r].length];
-                for (int t = 0; t < v[r].length; t++)
-                    flat[r][t] = v[r][t].length > 0 ? v[r][t][0] : Float.NaN;
-            }
-            return flat;
-        }
-        throw new OrtException("Unexpected output type for '" + name
-                + "': " + (val == null ? "null" : val.getClass().getName()));
     }
 
     // -----------------------------------------------------------------------

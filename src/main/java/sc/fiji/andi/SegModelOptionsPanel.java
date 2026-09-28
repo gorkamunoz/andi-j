@@ -19,6 +19,7 @@ public class SegModelOptionsPanel extends JPanel {
 
     private final JRadioButton defaultRadio = new JRadioButton("Default", true);
     private final JRadioButton loadRadio    = new JRadioButton("Load");
+    private final JCheckBox    modelSegsBox = new JCheckBox("Model segments", false);
 
     private final JRadioButton combinedRadio  = new JRadioButton("Combined model", true);
     private final JRadioButton perOutputRadio = new JRadioButton("Per output");
@@ -51,10 +52,20 @@ public class SegModelOptionsPanel extends JPanel {
         ButtonGroup src = new ButtonGroup();
         src.add(defaultRadio); src.add(loadRadio);
 
+        modelSegsBox.setToolTipText("Use the model's own seg_* outputs for segment-level values");
+
         JPanel row1 = leftRow();
         row1.add(new JLabel("Model:"));
         row1.add(defaultRadio);
         row1.add(loadRadio);
+        row1.add(Box.createHorizontalStrut(10));
+        row1.add(modelSegsBox);
+        row1.add(DiffusionCoeffPanel.makeHintLabel(
+            "<html><b>Segment-level predictions</b><br>"
+            + "Off: the plugin derives segments from the change-point<br>"
+            + "output and summarises each one itself.<br>"
+            + "On: the segment values the model reports in its<br>"
+            + "seg_* outputs are used verbatim.</html>"));
         add(row1);
 
         ButtonGroup layout = new ButtonGroup();
@@ -122,8 +133,9 @@ public class SegModelOptionsPanel extends JPanel {
 
     /** The current model selection. */
     public SegModelConfig getConfig() {
-        if (defaultRadio.isSelected()) return SegModelConfig.defaultModel();
-        if (combinedRadio.isSelected()) return SegModelConfig.combined(combinedFile);
+        boolean segs = modelSegsBox.isSelected();
+        if (defaultRadio.isSelected()) return SegModelConfig.defaultModel(segs);
+        if (combinedRadio.isSelected()) return SegModelConfig.combined(combinedFile, segs);
         return SegModelConfig.perOutput(alphaFile, dFile, cpFile, phenomFile);
     }
 

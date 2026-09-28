@@ -38,10 +38,11 @@ public class TrajectorySegmentationCommand implements PlugIn {
     private static final class Cached {
         final Map<Integer, double[]>            stepAlpha;
         final Map<Integer, double[]>            stepLogD;
+        final Map<Integer, int[]>               stepState;
         final Map<Integer, List<Segment>>       segments;
         Cached(Map<Integer, double[]> a, Map<Integer, double[]> d,
-               Map<Integer, List<Segment>> s) {
-            stepAlpha = a; stepLogD = d; segments = s;
+               Map<Integer, int[]> st, Map<Integer, List<Segment>> s) {
+            stepAlpha = a; stepLogD = d; stepState = st; segments = s;
         }
     }
 
@@ -149,6 +150,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
                             if (cached != null) {
                                 exp.stepAlpha = cached.stepAlpha;
                                 exp.stepLogD  = cached.stepLogD;
+                                exp.stepState = cached.stepState;
                                 exp.segments  = cached.segments;
                                 for (int k = 0; k < exp.tracks.size(); k++) tick.trackDone();
                             } else {
@@ -159,7 +161,8 @@ public class TrajectorySegmentationCommand implements PlugIn {
                             SegmentationRunner.run(toCompute, cfg, tick);
                             for (ExperimentData exp : toCompute)
                                 CACHE.put(signature(exp, cfg),
-                                          new Cached(exp.stepAlpha, exp.stepLogD, exp.segments));
+                                          new Cached(exp.stepAlpha, exp.stepLogD,
+                                                     exp.stepState, exp.segments));
                         }
                     } catch (OrtException | java.io.IOException ex) {
                         error = ex;

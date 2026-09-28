@@ -23,7 +23,9 @@ public class CustomSegPredictor implements Closeable {
     /** Per-frame outputs; any field may be null if this model does not provide it. */
     public static final class Out {
         public double[] alpha, logD, cp;
-        public int[]    state;   // per-frame diffusive-state class (null if none)
+        public int[]    state;      // per-frame diffusive-state class (null if none)
+        /** Segments read from the model's seg_* outputs, or null. */
+        public List<Segment> segments;
     }
 
     private final Kind          kind;
@@ -31,13 +33,22 @@ public class CustomSegPredictor implements Closeable {
     private final OrtSession     session;
     private final String         inputName;
     private final List<String>   outNames;
+    /** Use the model's own seg_* outputs when it provides them. */
+    private final boolean        useModelSegments;
 
     public CustomSegPredictor(File modelFile, Kind kind) throws OrtException, IOException {
-        this(readFile(modelFile), kind);
+        this(readFile(modelFile), kind, false);
     }
 
-    public CustomSegPredictor(byte[] modelBytes, Kind kind) throws OrtException {
+    public CustomSegPredictor(File modelFile, Kind kind, boolean useModelSegments)
+            throws OrtException, IOException {
+        this(readFile(modelFile), kind, useModelSegments);
+    }
+
+    public CustomSegPredictor(byte[] modelBytes, Kind kind, boolean useModelSegments)
+            throws OrtException {
         this.kind = kind;
+        this.useModelSegments = useModelSegments;
         env       = OrtEnvironment.getEnvironment();
         session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
         inputName = session.getInputNames().iterator().next();
@@ -64,7 +75,9 @@ public class CustomSegPredictor implements Closeable {
                 out.alpha = read(res, "alpha", 0, T);
                 out.logD  = read(res, "logD",  1, T);
                 out.cp    = read(res, "cp",    2, T);
-                out.state = readStatePerFrame(res, 3, T, "diffusive_state");   // optional
+                out.state = requiredState(res, T);
+                if (useModelSegments)
+                    out.segments = SegPredictor.readModelSegments(res, outNames, T);
             } else if (kind == Kind.MODELTYPE) {
                 out.state = readStatePerFrame(res, 0, T, (String) null);
             } else {
@@ -118,6 +131,15 @@ public class CustomSegPredictor implements Closeable {
                     + (val == null ? "null" : val.getClass().getName()));
         }
         return out;
+    }
+
+    /** The diffusive state, required for a combined model. */
+    private int[] requiredState(OrtSession.Result res, int T) throws OrtException {
+        int[] s = readStatePerFrame(res, 3, T, "diffusive_state");
+        if (s == null)
+            throw new OrtException("Custom combined model is missing the required output "
+                    + "diffusive_state. It must provide alpha, logD, cp and diffusive_state.");
+        return s;
     }
 
     /**

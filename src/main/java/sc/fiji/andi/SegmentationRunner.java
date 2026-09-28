@@ -27,7 +27,7 @@ public final class SegmentationRunner {
             throws OrtException, IOException {
 
         if (cfg.useDefault) {
-            try (SegPredictor def = SegPredictor.fromResources()) {
+            try (SegPredictor def = SegPredictor.fromResources(cfg.useModelSegments)) {
                 for (ExperimentData exp : exps) def.computeForExperiment(exp, tick);
             }
             return;
@@ -36,14 +36,15 @@ public final class SegmentationRunner {
         if (cfg.combined) {
             if (cfg.combinedFile == null)
                 throw new IOException("Load / Combined selected but no model was chosen.");
-            try (CustomSegPredictor m = new CustomSegPredictor(cfg.combinedFile, CustomSegPredictor.Kind.COMBINED)) {
+            try (CustomSegPredictor m = new CustomSegPredictor(
+                    cfg.combinedFile, CustomSegPredictor.Kind.COMBINED, cfg.useModelSegments)) {
                 runMixed(exps, tick, m, null, null, null, null, null);
             }
             return;
         }
 
         // Per-output: default fills any output without a custom model.
-        SegPredictor def = cfg.needsDefault() ? SegPredictor.fromResources() : null;
+        SegPredictor def = cfg.needsDefault() ? SegPredictor.fromResources(false) : null;
         CustomSegPredictor ca  = cfg.alphaFile  != null ? new CustomSegPredictor(cfg.alphaFile,  CustomSegPredictor.Kind.ALPHA)     : null;
         CustomSegPredictor cd  = cfg.dFile      != null ? new CustomSegPredictor(cfg.dFile,      CustomSegPredictor.Kind.LOGD)      : null;
         CustomSegPredictor cc  = cfg.cpFile     != null ? new CustomSegPredictor(cfg.cpFile,     CustomSegPredictor.Kind.CP)        : null;
@@ -70,6 +71,7 @@ public final class SegmentationRunner {
         for (ExperimentData exp : exps) {
             Map<Integer, double[]>      outA = new LinkedHashMap<>();
             Map<Integer, double[]>      outD = new LinkedHashMap<>();
+            Map<Integer, int[]>         outSt = new LinkedHashMap<>();
             Map<Integer, List<Segment>> outS = new LinkedHashMap<>();
 
             for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
@@ -79,6 +81,7 @@ public final class SegmentationRunner {
                 if (T < 2) {
                     outA.put(id, new double[0]);
                     outD.put(id, new double[0]);
+                    outSt.put(id, new int[0]);
                     outS.put(id, Collections.<Segment>emptyList());
                     if (tick != null) tick.trackDone();
                     continue;
@@ -89,15 +92,18 @@ public final class SegmentationRunner {
 
                 double[] a, d, cp;
                 int[] state;
+                List<Segment> modelSegs = null;
                 if (combined != null) {
                     CustomSegPredictor.Out o = combined.run(xy);
                     a = o.alpha; d = o.logD; cp = o.cp; state = o.state;
+                    modelSegs = o.segments;
                 } else {
                     SegPredictor.TrackOut base = (def != null) ? def.computeTrack(spots) : null;
                     a = (ca != null) ? ca.run(xy).alpha : (base != null ? base.alpha  : null);
                     d = (cd != null) ? cd.run(xy).logD  : (base != null ? base.logD   : null);
                     cp = (cc != null) ? cc.run(xy).cp   : (base != null ? base.cpProb : null);
                     state = (cph != null) ? cph.run(xy).state : (base != null ? base.state : null);
+                    if (base != null) modelSegs = base.segments;
                 }
 
                 // Defensive defaults for a mis-shaped custom output.
@@ -112,12 +118,15 @@ public final class SegmentationRunner {
 
                 outA.put(id, a);
                 outD.put(id, d);
-                outS.put(id, SegPredictor.segmentsFrom(cps, a, d, state));
+                outSt.put(id, state != null ? state : new int[n]);
+                outS.put(id, modelSegs != null ? modelSegs
+                                              : SegPredictor.segmentsFrom(cps, a, d, state));
                 if (tick != null) tick.trackDone();
             }
 
             exp.stepAlpha = outA;
             exp.stepLogD  = outD;
+            exp.stepState = outSt;
             exp.segments  = outS;
         }
     }

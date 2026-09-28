@@ -183,7 +183,7 @@ public class DataManagerWindow extends JFrame {
 
     /** The segmentation ML-model selection, or the default when no options panel. */
     public SegModelConfig getSegModelConfig() {
-        return mlOptions != null ? mlOptions.getConfig() : SegModelConfig.defaultModel();
+        return mlOptions != null ? mlOptions.getConfig() : SegModelConfig.defaultModel(false);
     }
 
     // ═════════════════════════════════════════════════════════════════════════

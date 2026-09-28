@@ -16,6 +16,8 @@ import java.io.File;
 public final class SegModelConfig {
 
     public final boolean useDefault;
+    /** Use the model's own seg_* outputs instead of deriving segments from cp. */
+    public final boolean useModelSegments;
     public final boolean combined;     // Load: one file for all outputs vs per-output
     public final File    combinedFile; // combined mode
     public final File    alphaFile;    // per-output mode (any may be null → default)
@@ -23,9 +25,11 @@ public final class SegModelConfig {
     public final File    cpFile;
     public final File    phenomFile;   // per-output diffusive state (optional)
 
-    private SegModelConfig(boolean useDefault, boolean combined, File combinedFile,
-                           File alphaFile, File dFile, File cpFile, File phenomFile) {
-        this.useDefault   = useDefault;
+    private SegModelConfig(boolean useDefault, boolean useModelSegments, boolean combined,
+                           File combinedFile, File alphaFile, File dFile, File cpFile,
+                           File phenomFile) {
+        this.useDefault       = useDefault;
+        this.useModelSegments = useModelSegments;
         this.combined     = combined;
         this.combinedFile = combinedFile;
         this.alphaFile    = alphaFile;
@@ -34,16 +38,16 @@ public final class SegModelConfig {
         this.phenomFile   = phenomFile;
     }
 
-    public static SegModelConfig defaultModel() {
-        return new SegModelConfig(true, false, null, null, null, null, null);
+    public static SegModelConfig defaultModel(boolean useModelSegments) {
+        return new SegModelConfig(true, useModelSegments, false, null, null, null, null, null);
     }
 
-    public static SegModelConfig combined(File file) {
-        return new SegModelConfig(false, true, file, null, null, null, null);
+    public static SegModelConfig combined(File file, boolean useModelSegments) {
+        return new SegModelConfig(false, useModelSegments, true, file, null, null, null, null);
     }
 
     public static SegModelConfig perOutput(File alpha, File d, File cp, File phenom) {
-        return new SegModelConfig(false, false, null, alpha, d, cp, phenom);
+        return new SegModelConfig(false, false, false, null, alpha, d, cp, phenom);
     }
 
     /** True in per-output mode when at least one α/D/CP output falls back to the default. */
@@ -53,8 +57,8 @@ public final class SegModelConfig {
 
     /** Stable descriptor used in the prediction cache key. */
     public String key() {
-        if (useDefault) return "default";
-        if (combined)   return "combined:" + path(combinedFile);
+        if (useDefault) return "default:segs=" + useModelSegments;
+        if (combined)   return "combined:" + path(combinedFile) + ";segs=" + useModelSegments;
         return "perout:a=" + path(alphaFile) + ";d=" + path(dFile) + ";cp=" + path(cpFile)
              + ";ph=" + path(phenomFile);
     }

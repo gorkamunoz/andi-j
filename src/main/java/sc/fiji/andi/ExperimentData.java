@@ -42,6 +42,8 @@ public class ExperimentData {
     public Map<Integer, double[]> stepAlpha;
     /** Per-frame log₁₀(D): trackId → double[T-1]. Null until segmentation runs. */
     public Map<Integer, double[]> stepLogD;
+    /** Per-frame diffusive-state class: trackId → int[T]. Null until segmentation runs. */
+    public Map<Integer, int[]> stepState;
 
     // -- ensemble MSD (null until computeEmsd() is called) --
     /**

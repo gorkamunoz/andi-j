@@ -292,17 +292,6 @@ public class SegVisualizationPanel extends JPanel {
         return (st >= 0 && st < SegPhenomPanel.PHENOM_NAMES.length) ? String.valueOf(st) : "";
     }
 
-    /** Per-frame diffusive state (from the segment covering each frame; -1 if none). */
-    private static int[] perFrameStates(List<Segment> segs, int n) {
-        int[] st = new int[n];
-        Arrays.fill(st, -1);
-        if (segs != null)
-            for (Segment s : segs)
-                for (int t = s.start; t < s.start + s.length && t < n; t++)
-                    if (t >= 0) st[t] = s.state;
-        return st;
-    }
-
     /**
      * Exports the per-frame predictions to CSV with columns
      * {@code experiment, traj_idx, frame, alpha, D, state}. α is the per-frame
@@ -338,14 +327,14 @@ public class SegVisualizationPanel extends JPanel {
                     List<double[]> spots = exp.tracks.get(id);
                     if (a == null) continue;
                     int n = (spots != null) ? Math.min(a.length, spots.size()) : a.length;
-                    int[] states = perFrameStates(exp.segments != null ? exp.segments.get(id) : null, n);
+                    int[] states = (exp.stepState != null) ? exp.stepState.get(id) : null;
                     for (int t = 0; t < n; t++) {
                         long   frame = (spots != null) ? Math.round(spots.get(t)[0]) : t;
                         String dStr  = "";
                         if (ld != null && t < ld.length && Double.isFinite(ld[t]))
                             dStr = String.format("%.6e", Math.pow(10, ld[t]));
-                        pw.printf("%s,%d,%d,%.6f,%s,%s%n",
-                            exp.name, id, frame, a[t], dStr, stateLabel(states[t]));
+                        pw.printf("%s,%d,%d,%.6f,%s,%s%n", exp.name, id, frame, a[t], dStr,
+                            stateLabel(states != null && t < states.length ? states[t] : -1));
                     }
                 }
             }
@@ -421,7 +410,9 @@ public class SegVisualizationPanel extends JPanel {
                 } else {
                     List<Segment> segs = (currentExp.segments != null)
                             ? currentExp.segments.get(id) : null;
-                    plots[i].setData(id, alpha, logD, segs);
+                    int[] st = (currentExp.stepState != null)
+                            ? currentExp.stepState.get(id) : null;
+                    plots[i].setData(id, alpha, logD, segs, st);
                 }
             }
             plots[i].rawOpacity   = rawOpacity;
@@ -460,6 +451,7 @@ public class SegVisualizationPanel extends JPanel {
         private double[] alpha;             // T-1 α  values  (may be null)
         private double[] logD;              // T-1 logD values (may be null)
         private List<Segment> segments;     // change-point segments (may be null)
+        private int[] state;                // per-frame diffusive state (may be null)
         private boolean  notFound  = false; // track ID not in experiment
 
         int     rawOpacity   = 76;    // opacity of the raw α / D lines (0 = hidden; default 30%)
@@ -491,11 +483,12 @@ public class SegVisualizationPanel extends JPanel {
         }
 
         /** Show data for an existing track. */
-        void setData(int id, double[] alpha, double[] logD, List<Segment> segments) {
+        void setData(int id, double[] alpha, double[] logD, List<Segment> segments, int[] state) {
             this.trackId  = id;
             this.alpha    = alpha;
             this.logD     = logD;
             this.segments = segments;
+            this.state    = state;
             this.notFound = false;
             repaint();
         }
@@ -506,6 +499,7 @@ public class SegVisualizationPanel extends JPanel {
             this.alpha    = null;
             this.logD     = null;
             this.segments = null;
+            this.state    = null;
             this.notFound = true;
             repaint();
         }
@@ -516,6 +510,7 @@ public class SegVisualizationPanel extends JPanel {
             this.alpha    = null;
             this.logD     = null;
             this.segments = null;
+            this.state    = null;
             this.notFound = false;
             repaint();
         }
@@ -578,13 +573,14 @@ public class SegVisualizationPanel extends JPanel {
 
             // ── Diffusive-state strip (sits right above the plot, aligned with
             //    the frame axis) ────────────────────────────────────────────
-            if (showState && segments != null && !segments.isEmpty()) {
+            if (showState && state != null && state.length > 0) {
                 int stripY = py - STRIP_H;
-                for (Segment s : segments) {
-                    if (s.state < 0 || s.state >= SegPhenomPanel.STATE_COLORS.length) continue;
-                    int x0 = px + xToPixel(s.start, seqLen, pw);
-                    int x1 = px + xToPixel(Math.min(seqLen, s.start + s.length), seqLen, pw);
-                    g2.setColor(SegPhenomPanel.STATE_COLORS[s.state]);
+                for (int t = 0; t < seqLen && t < state.length; t++) {
+                    int c = state[t];
+                    if (c < 0 || c >= SegPhenomPanel.STATE_COLORS.length) continue;
+                    int x0 = px + xToPixel(t, seqLen, pw);
+                    int x1 = px + xToPixel(Math.min(seqLen, t + 1), seqLen, pw);
+                    g2.setColor(SegPhenomPanel.STATE_COLORS[c]);
                     g2.fillRect(x0, stripY, Math.max(1, x1 - x0), STRIP_H);
                 }
             }

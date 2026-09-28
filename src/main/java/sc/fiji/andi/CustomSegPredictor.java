@@ -64,8 +64,7 @@ public class CustomSegPredictor implements Closeable {
                 out.alpha = read(res, "alpha", 0, T);
                 out.logD  = read(res, "logD",  1, T);
                 out.cp    = read(res, "cp",    2, T);
-                // optional 4th output; "model_type" is its deprecated former name
-                out.state = readStatePerFrame(res, 3, T, "diffusive_state", "model_type");
+                out.state = readStatePerFrame(res, 3, T, "diffusive_state");   // optional
             } else if (kind == Kind.MODELTYPE) {
                 out.state = readStatePerFrame(res, 0, T, (String) null);
             } else {

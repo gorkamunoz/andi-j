@@ -79,8 +79,7 @@ public class SegPredictor implements Closeable {
         alphaName = pickOutput(outs, 0, "alpha");
         logDName  = pickOutput(outs, 1, "logD");
         cpName    = pickOutput(outs, 2, "cp");
-        // "model_type" is the deprecated former name of this output.
-        stateName = pickOutput(outs, 3, "diffusive_state", "model_type");
+        stateName = pickOutput(outs, 3, "diffusive_state");
         printInfo();
     }
 

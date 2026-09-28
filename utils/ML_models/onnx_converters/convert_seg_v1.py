@@ -47,12 +47,10 @@ What the wrapper does internally
     rising edge only keeps exactly one flag per boundary, as the contract
     requires ("Emit 1 at the first frame of each new segment").
 
-Note on the name: this output used to be called "model_type", which was
-misleading — the backbone has a *separate* 5-class model-type softmax head
-(single-state, multi-state, dimerization, confinement, immobile-traps) that is
-deliberately NOT exported. The plugin's diffusive state is the 4-class state
-channel, so the output is now called "diffusive_state". The plugin still accepts
-"model_type" as a deprecated alias.
+Careful: the backbone also has a *separate* 5-class model-type softmax head
+(single-state, multi-state, dimerization, confinement, immobile-traps). That is
+NOT the diffusive state and is deliberately not exported — "diffusive_state"
+comes from the 4-class state channel.
 """
 
 import math

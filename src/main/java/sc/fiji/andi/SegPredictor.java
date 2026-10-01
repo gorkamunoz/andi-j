@@ -36,6 +36,13 @@ public class SegPredictor implements Closeable {
     /** α is clipped to [0, {@value #ALPHA_MAX}]. */
     private static final double ALPHA_MAX = 1.999;
 
+    /**
+     * Frames whose predicted α falls below this are classified as immobile
+     * (state 0) regardless of what the model reports, to compensate for
+     * under-detection of trapping.
+     */
+    static final double IMMOBILE_ALPHA_MAX = 0.1;
+
     /** Number of AnDi diffusive-state classes:
      *  0=immobile, 1=confined, 2=free diffusion, 3=directed. */
     static final int STATE_CLASSES = 4;
@@ -164,6 +171,7 @@ public class SegPredictor implements Closeable {
                 // averaged into a segment mean.
                 o.logD[t]  = Double.isFinite(logD[t]) ? logD[t] : Double.NaN;
             }
+            applyImmobileRule(o.alpha, o.state);
             if (useModelSegments) o.segments = readModelSegments(res, outNames, T);
         }
         return o;
@@ -244,7 +252,7 @@ public class SegPredictor implements Closeable {
             double d = (logD != null && i < logD.length && Double.isFinite(logD[i]))
                      ? logD[i] : Double.NaN;
             int s = (state != null && i < state.length) ? stateClass(state[i]) : -1;
-            segs.add(new Segment(st, len, a, d, s));
+            segs.add(new Segment(st, len, a, d, segmentState(a, s)));
         }
         return segs.isEmpty() ? null : segs;
     }
@@ -313,6 +321,18 @@ public class SegPredictor implements Closeable {
         return o;
     }
 
+    /** Forces state 0 (immobile) on every frame whose α is below the threshold. */
+    static void applyImmobileRule(double[] alpha, int[] state) {
+        if (alpha == null || state == null) return;
+        for (int t = 0; t < state.length && t < alpha.length; t++)
+            if (alpha[t] < IMMOBILE_ALPHA_MAX) state[t] = 0;
+    }
+
+    /** State of a segment, forced to immobile when its α is below the threshold. */
+    static int segmentState(double alpha, int state) {
+        return (alpha < IMMOBILE_ALPHA_MAX) ? 0 : state;
+    }
+
     /** Rounds a raw model state value to a class in [0, STATE_CLASSES-1]. */
     static int stateClass(double v) {
         if (Double.isNaN(v)) return 0;
@@ -364,7 +384,8 @@ public class SegPredictor implements Closeable {
             double s = 0; int cnt = 0;
             for (int t = i; t < j; t++) if (Double.isFinite(logD[t])) { s += logD[t]; cnt++; }
             double dMean = cnt > 0 ? s / cnt : Double.NaN;
-            segs.add(new Segment(i, j - i, aMean, dMean, majorityState(state, i, j)));
+            segs.add(new Segment(i, j - i, aMean, dMean,
+                    segmentState(aMean, majorityState(state, i, j))));
         }
         return segs;
     }

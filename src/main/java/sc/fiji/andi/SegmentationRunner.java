@@ -118,6 +118,7 @@ public final class SegmentationRunner {
 
                 outA.put(id, a);
                 outD.put(id, d);
+                if (state != null) SegPredictor.applyImmobileRule(a, state);
                 outSt.put(id, state != null ? state : new int[n]);
                 outS.put(id, modelSegs != null ? modelSegs
                                               : SegPredictor.segmentsFrom(cps, a, d, state));

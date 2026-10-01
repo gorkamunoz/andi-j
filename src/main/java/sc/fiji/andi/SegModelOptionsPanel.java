@@ -19,7 +19,7 @@ public class SegModelOptionsPanel extends JPanel {
 
     private final JRadioButton defaultRadio = new JRadioButton("Default", true);
     private final JRadioButton loadRadio    = new JRadioButton("Load");
-    private final JCheckBox    modelSegsBox = new JCheckBox("Model segments", false);
+    private final JCheckBox    modelSegsBox = new JCheckBox("Model segments", true);
 
     private final JRadioButton combinedRadio  = new JRadioButton("Combined model", true);
     private final JRadioButton perOutputRadio = new JRadioButton("Per output");

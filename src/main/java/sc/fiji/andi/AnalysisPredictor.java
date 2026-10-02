@@ -9,21 +9,18 @@ import java.util.*;
  * Runs the bundled analysis model <b>andi-j-analysis-latest</b> to estimate,
  * for every trajectory in an {@link ExperimentData}, both:
  * <ul>
- *   <li>the anomalous exponent α (the soft-routed prediction), and</li>
+ *   <li>the anomalous exponent α, and</li>
  *   <li>the diffusion-model class (ATTM / CTRW / FBM / LW / SBM).</li>
  * </ul>
  *
  * <h3>Model contract</h3>
+ * The same input as user-supplied analysis models (see the <i>ML Models</i> wiki
+ * page); any preprocessing lives inside the model.
  * <ul>
- *   <li>Input  {@code "input"}  : {@code (1, T-1, 2)} float32 relative-polar features
- *       ({@code cartesian_to_relative_polar} preprocessing).</li>
- *   <li>Output {@code "output"} : {@code (1, 11)} float32
- *       <ul>
- *         <li>cols 0-4  : per-type α regressions</li>
- *         <li>cols 5-9  : classification logits (one per diffusion model)</li>
- *         <li>col  10   : soft-routed α  → used as the α prediction</li>
- *       </ul>
- *       Diffusion-model class = {@code argmax(output[5..9])}.</li>
+ *   <li>Input {@code (1, T, 2)} float32 — raw x, y positions, one row per frame.</li>
+ *   <li>Output {@code alpha} : {@code (1, 1)} — the anomalous exponent.</li>
+ *   <li>Output {@code model} : {@code (1, 5)} — class scores in the order of
+ *       {@link DiffusionModelPanel#MODEL_NAMES}; the class is their argmax.</li>
  * </ul>
  *
  * <p>Results are stored in {@link ExperimentData#alphaCoeffs}
@@ -35,13 +32,12 @@ public class AnalysisPredictor implements MlPredictor {
     /** Classpath resource path for the bundled andi-j-analysis-latest model. */
     public static final String DEFAULT_RESOURCE = "/models/andi-j-analysis-latest.onnx";
 
-    /** Number of diffusion-model classes (= classification logits). */
+    /** Number of diffusion-model classes. */
     public static final int N_MODELS = 5;
 
     private final OrtEnvironment env;
     private final OrtSession     session;
     private final String         inputName;
-    private final String         outputName;
 
     // -----------------------------------------------------------------------
     // Construction
@@ -63,19 +59,14 @@ public class AnalysisPredictor implements MlPredictor {
     }
 
     public AnalysisPredictor(byte[] modelBytes) throws OrtException {
-        env        = OrtEnvironment.getEnvironment();
-        session    = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
-        inputName  = session.getInputNames().iterator().next();
-        outputName = session.getOutputNames().iterator().next();
+        env       = OrtEnvironment.getEnvironment();
+        session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
+        inputName = session.getInputNames().iterator().next();
     }
 
     // -----------------------------------------------------------------------
     // Inference
     // -----------------------------------------------------------------------
-
-    public void computeForExperiment(ExperimentData exp) throws OrtException {
-        computeForExperiment(exp, null);
-    }
 
     /**
      * Runs inference for every track and stores α in
@@ -98,11 +89,9 @@ public class AnalysisPredictor implements MlPredictor {
                 continue;
             }
 
-            float[][] polar = cartesianToRelativePolar(extractXY(spots));
-            float[]   out   = runSingle(polar);   // length 11
-
-            alpha.put(id, new double[]{out[10], Double.NaN, Double.NaN});
-            models.put(id, argmax(out, 5, 5 + N_MODELS));
+            float[][] out = runSingle(positions(spots));   // {alpha (1), scores (5)}
+            alpha.put(id, new double[]{out[0][0], Double.NaN, Double.NaN});
+            models.put(id, argmax(out[1]));
             if (listener != null) listener.trackDone();
         }
 
@@ -110,51 +99,21 @@ public class AnalysisPredictor implements MlPredictor {
         exp.diffModel   = models;
     }
 
-    /** Index of the largest value in {@code v[from..to)}, offset back to [0, N_MODELS). */
-    private static int argmax(float[] v, int from, int to) {
-        int best = from;
-        for (int i = from + 1; i < to && i < v.length; i++)
-            if (v[i] > v[best]) best = i;
-        return best - from;
+    private static int argmax(float[] v) {
+        int best = 0;
+        for (int i = 1; i < v.length; i++) if (v[i] > v[best]) best = i;
+        return best;
     }
 
-    // -----------------------------------------------------------------------
-    // Preprocessing
-    // -----------------------------------------------------------------------
-
-    private static double[][] extractXY(List<double[]> spots) {
+    /** The {@code (1, T, 2)} input tensor data: raw x, y per frame. */
+    private static float[][][] positions(List<double[]> spots) {
         int T = spots.size();
-        double[][] out = new double[T][2];
-        for (int i = 0; i < T; i++) {
-            out[i][0] = spots.get(i)[1];
-            out[i][1] = spots.get(i)[2];
+        float[][][] xy = new float[1][T][2];
+        for (int t = 0; t < T; t++) {
+            xy[0][t][0] = (float) spots.get(t)[1];
+            xy[0][t][1] = (float) spots.get(t)[2];
         }
-        return out;
-    }
-
-    /**
-     * Mirrors {@code cartesian_to_relative_polar}: (T,2) Cartesian → (T-1,2)
-     * {@code [dr, dθ]} (dθ[0]=0).
-     */
-    static float[][] cartesianToRelativePolar(double[][] cart) {
-        int T = cart.length;
-        int N = T - 1;
-        float[][] out = new float[N][2];
-
-        double[] dx = new double[N];
-        double[] dy = new double[N];
-        for (int i = 0; i < N; i++) {
-            dx[i] = cart[i + 1][0] - cart[i][0];
-            dy[i] = cart[i + 1][1] - cart[i][1];
-        }
-        for (int i = 0; i < N; i++)
-            out[i][0] = (float) Math.hypot(dx[i], dy[i]);
-        for (int i = 1; i < N; i++) {
-            double x1 = dx[i - 1], y1 = dy[i - 1];
-            double x2 = dx[i],     y2 = dy[i];
-            out[i][1] = (float) Math.atan2(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2);
-        }
-        return out;
+        return xy;
     }
 
     // -----------------------------------------------------------------------
@@ -162,35 +121,26 @@ public class AnalysisPredictor implements MlPredictor {
     // -----------------------------------------------------------------------
 
     /**
-     * Runs the model on one trajectory's polar features.
+     * Runs the model on one trajectory.
      *
-     * @param polar (T-1, 2) features
-     * @return the 11-element output row, or all-NaN on unexpected output
+     * @return {@code {alpha (length 1), class scores (length N_MODELS)}}
      */
-    private float[] runSingle(float[][] polar) throws OrtException {
-        int L = polar.length;
-        float[][][] input = new float[1][L][2];
-        for (int t = 0; t < L; t++) {
-            input[0][t][0] = polar[t][0];
-            input[0][t][1] = polar[t][1];
-        }
-
+    private float[][] runSingle(float[][][] input) throws OrtException {
         try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
              OrtSession.Result res = session.run(
                      Collections.singletonMap(inputName, tensor))) {
-
-            OnnxValue outVal = res.get(outputName)
-                    .orElseThrow(() -> new OrtException(
-                            "Output '" + outputName + "' not found"));
-            Object val = outVal.getValue();
-            if (val instanceof float[][]) return ((float[][]) val)[0];   // (1, 11)
-            if (val instanceof float[])   return (float[]) val;          // (11,)
-            AndiLog.warn("AnalysisPredictor: unexpected output type: "
-                    + (val == null ? "null" : val.getClass().getName()));
-            float[] nan = new float[11];
-            Arrays.fill(nan, Float.NaN);
-            return nan;
+            return new float[][]{ row(res, "alpha"), row(res, "model") };
         }
+    }
+
+    /** First row of a named {@code (1, K)} output. */
+    private static float[] row(OrtSession.Result res, String name) throws OrtException {
+        OnnxValue v = res.get(name).orElseThrow(() -> new OrtException(
+                "Output '" + name + "' not found in the andi-j-analysis-latest model"));
+        Object val = v.getValue();
+        if (val instanceof float[][]) return ((float[][]) val)[0];
+        throw new OrtException("Unexpected type for output '" + name + "': "
+                + (val == null ? "null" : val.getClass().getName()));
     }
 
     // -----------------------------------------------------------------------

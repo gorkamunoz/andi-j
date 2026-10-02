@@ -13,7 +13,7 @@
 
     <groupId>sc.fiji</groupId>
     <artifactId>andi-j</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.2</version>
     <packaging>jar</packaging>
 
     <name>AnDi-J</name>

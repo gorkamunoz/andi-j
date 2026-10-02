@@ -31,8 +31,8 @@ import java.util.List;
 public class DiffusionModelPanel extends JPanel {
 
     /**
-     * The five anomalous-diffusion model classes, in the classifier's output
-     * (logit) order.  Must match the training label order of andi-j-analysis-latest.
+     * The five anomalous-diffusion model classes, in the order of the models' class
+     * outputs (bundled andi-j-analysis-latest and custom classifiers).
      */
     public static final String[] MODEL_NAMES = {"ATTM", "CTRW", "FBM", "LW", "SBM"};
 

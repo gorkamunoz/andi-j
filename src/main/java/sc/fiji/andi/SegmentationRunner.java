@@ -7,23 +7,25 @@ import java.util.*;
 
 /**
  * Runs segmentation for a {@link SegModelConfig}, filling each experiment's
- * {@link ExperimentData#stepAlpha}, {@link ExperimentData#stepLogD} and
- * {@link ExperimentData#segments}.
+ * {@link ExperimentData#stepAlpha}, {@link ExperimentData#stepLogD},
+ * {@link ExperimentData#stepState} and {@link ExperimentData#segments}.
  *
  * <ul>
- *   <li><b>Default</b> – the bundled batched {@link SegPredictor}.</li>
- *   <li><b>Combined</b> – one custom ONNX providing α, log₁₀(D) &amp; cp.</li>
- *   <li><b>Per-output</b> – a custom ONNX per output; missing outputs come from
- *       the default model (run per-track). Custom cp is treated as a 0/1 signal;
- *       the default cp as a probability (peak-picked).</li>
+ *   <li><b>Default</b> – the bundled {@link SegPredictor}.</li>
+ *   <li><b>Combined</b> – one custom ONNX providing α, log₁₀(D), cp and the
+ *       diffusive state (plus, optionally, seg_* segments).</li>
+ *   <li><b>Per-output</b> – a custom ONNX per output; α, log₁₀(D) and cp without a
+ *       custom model come from the bundled one.</li>
  * </ul>
+ * Change points are the interior frames where cp ≥ 0.5. Trajectories run in
+ * parallel, {@link SegPredictor#MAX_PARALLEL_RUNS} at a time.
  */
 public final class SegmentationRunner {
 
     private SegmentationRunner() {}
 
     public static void run(List<ExperimentData> exps, SegModelConfig cfg,
-                           SegPredictor.ProgressListener tick)
+                           MlPredictor.ProgressListener tick)
             throws OrtException, IOException {
 
         if (cfg.useDefault) {
@@ -62,67 +64,34 @@ public final class SegmentationRunner {
 
     // -----------------------------------------------------------------------
 
-    private static void runMixed(List<ExperimentData> exps, SegPredictor.ProgressListener tick,
+    /** One track's results. */
+    private static final class TrackResult {
+        double[] alpha, logD;
+        int[] state;
+        List<Segment> segments;
+    }
+
+    private static void runMixed(List<ExperimentData> exps, MlPredictor.ProgressListener tick,
                                  CustomSegPredictor combined, SegPredictor def,
                                  CustomSegPredictor ca, CustomSegPredictor cd, CustomSegPredictor cc,
                                  CustomSegPredictor cph)
             throws OrtException {
 
         for (ExperimentData exp : exps) {
-            Map<Integer, double[]>      outA = new LinkedHashMap<>();
-            Map<Integer, double[]>      outD = new LinkedHashMap<>();
+            Map<Integer, TrackResult> results = ParallelTracks.map(exp.tracks,
+                    spots -> runTrack(spots, combined, def, ca, cd, cc, cph),
+                    tick, SegPredictor.MAX_PARALLEL_RUNS);
+
+            Map<Integer, double[]>      outA  = new LinkedHashMap<>();
+            Map<Integer, double[]>      outD  = new LinkedHashMap<>();
             Map<Integer, int[]>         outSt = new LinkedHashMap<>();
-            Map<Integer, List<Segment>> outS = new LinkedHashMap<>();
-
-            for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
-                int id = e.getKey();
-                List<double[]> spots = e.getValue();
-                int T = spots.size();
-                if (T < 2) {
-                    outA.put(id, new double[0]);
-                    outD.put(id, new double[0]);
-                    outSt.put(id, new int[0]);
-                    outS.put(id, Collections.<Segment>emptyList());
-                    if (tick != null) tick.trackDone();
-                    continue;
-                }
-
-                double[][] xy = new double[T][2];
-                for (int t = 0; t < T; t++) { xy[t][0] = spots.get(t)[1]; xy[t][1] = spots.get(t)[2]; }
-
-                double[] a, d, cp;
-                int[] state;
-                List<Segment> modelSegs = null;
-                if (combined != null) {
-                    CustomSegPredictor.Out o = combined.run(xy);
-                    a = o.alpha; d = o.logD; cp = o.cp; state = o.state;
-                    modelSegs = o.segments;
-                } else {
-                    SegPredictor.TrackOut base = (def != null) ? def.computeTrack(spots) : null;
-                    a = (ca != null) ? ca.run(xy).alpha : (base != null ? base.alpha  : null);
-                    d = (cd != null) ? cd.run(xy).logD  : (base != null ? base.logD   : null);
-                    cp = (cc != null) ? cc.run(xy).cp   : (base != null ? base.cpProb : null);
-                    state = (cph != null) ? cph.run(xy).state : (base != null ? base.state : null);
-                    if (base != null) modelSegs = base.segments;
-                }
-
-                // Defensive defaults for a mis-shaped custom output.
-                if (a == null) { a = new double[T]; }
-                if (d == null) { d = new double[T]; Arrays.fill(d, Double.NaN); }
-                int n = Math.min(T, Math.min(a.length, d.length));
-                a = crop(a, n);
-                d = crop(d, n);
-
-                int[] cps = (cp == null) ? new int[0] : SegPredictor.thresholdChangePoints(cp);
-                cps = interior(cps, n);
-
-                outA.put(id, a);
-                outD.put(id, d);
-                if (state != null) SegPredictor.applyImmobileRule(a, state);
-                outSt.put(id, state != null ? state : new int[n]);
-                outS.put(id, modelSegs != null ? modelSegs
-                                              : SegPredictor.segmentsFrom(cps, a, d, state));
-                if (tick != null) tick.trackDone();
+            Map<Integer, List<Segment>> outS  = new LinkedHashMap<>();
+            for (Map.Entry<Integer, TrackResult> e : results.entrySet()) {
+                TrackResult r = e.getValue();
+                outA.put(e.getKey(), r.alpha);
+                outD.put(e.getKey(), r.logD);
+                outSt.put(e.getKey(), r.state);
+                outS.put(e.getKey(), r.segments);
             }
 
             exp.stepAlpha = outA;
@@ -130,6 +99,58 @@ public final class SegmentationRunner {
             exp.stepState = outSt;
             exp.segments  = outS;
         }
+    }
+
+    /** Runs the configured model(s) on one track. */
+    private static TrackResult runTrack(List<double[]> spots, CustomSegPredictor combined,
+                                        SegPredictor def, CustomSegPredictor ca,
+                                        CustomSegPredictor cd, CustomSegPredictor cc,
+                                        CustomSegPredictor cph) throws OrtException {
+        TrackResult r = new TrackResult();
+        int T = spots.size();
+        if (T < 2) {
+            r.alpha = new double[0];
+            r.logD = new double[0];
+            r.state = new int[0];
+            r.segments = Collections.<Segment>emptyList();
+            return r;
+        }
+
+        double[][] xy = new double[T][2];
+        for (int t = 0; t < T; t++) { xy[t][0] = spots.get(t)[1]; xy[t][1] = spots.get(t)[2]; }
+
+        double[] a, d, cp;
+        int[] state;
+        List<Segment> modelSegs = null;
+        if (combined != null) {
+            CustomSegPredictor.Out o = combined.run(xy);
+            a = o.alpha; d = o.logD; cp = o.cp; state = o.state;
+            modelSegs = o.segments;
+        } else {
+            SegPredictor.TrackOut base = (def != null) ? def.computeTrack(spots) : null;
+            a = (ca != null) ? ca.run(xy).alpha : (base != null ? base.alpha  : null);
+            d = (cd != null) ? cd.run(xy).logD  : (base != null ? base.logD   : null);
+            cp = (cc != null) ? cc.run(xy).cp   : (base != null ? base.cpProb : null);
+            state = (cph != null) ? cph.run(xy).state : (base != null ? base.state : null);
+            if (base != null) modelSegs = base.segments;
+        }
+
+        // Defensive defaults for a mis-shaped custom output.
+        if (a == null) { a = new double[T]; }
+        if (d == null) { d = new double[T]; Arrays.fill(d, Double.NaN); }
+        int n = Math.min(T, Math.min(a.length, d.length));
+        a = crop(a, n);
+        d = crop(d, n);
+
+        int[] cps = (cp == null) ? new int[0] : SegPredictor.thresholdChangePoints(cp);
+        cps = interior(cps, n);
+
+        if (state != null) SegPredictor.applyImmobileRule(a, state);
+        r.alpha = a;
+        r.logD = d;
+        r.state = state != null ? state : new int[n];
+        r.segments = modelSegs != null ? modelSegs : SegPredictor.segmentsFrom(cps, a, d, state);
+        return r;
     }
 
     private static double[] crop(double[] v, int n) {

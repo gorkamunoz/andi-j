@@ -11,8 +11,9 @@ import ai.onnxruntime.OrtSession;
  *
  * <ul>
  *   <li>{@link #gpuIfAvailable()}: one run at a time, using every CPU core.</li>
- *   <li>{@link #forParallelRuns()}: few cores per run, for sessions that
- *       {@link ParallelTracks} runs on many trajectories at once.</li>
+ *   <li>{@link #forParallelRuns(int)}: the cores split between that many
+ *       simultaneous runs, for sessions that {@link ParallelTracks} runs on many
+ *       trajectories at once.</li>
  * </ul>
  */
 final class OnnxSessions {
@@ -21,18 +22,16 @@ final class OnnxSessions {
 
     static final int CORES = Math.max(1, Runtime.getRuntime().availableProcessors());
 
-    /** CPU threads each run uses when runs execute in parallel. */
-    static final int THREADS_PER_PARALLEL_RUN = 1;
-
-    /** Number of runs {@link ParallelTracks} executes at once. */
-    static final int PARALLEL_RUNS = Math.max(1, CORES / THREADS_PER_PARALLEL_RUN);
+    /** Maximum number of runs {@link ParallelTracks} executes at once: one per core. */
+    static final int PARALLEL_RUNS = CORES;
 
     static OrtSession.SessionOptions gpuIfAvailable() {
         return options(CORES);
     }
 
-    static OrtSession.SessionOptions forParallelRuns() {
-        return options(Math.min(CORES, THREADS_PER_PARALLEL_RUN));
+    /** Options for a session run by {@code runs} trajectories at once. */
+    static OrtSession.SessionOptions forParallelRuns(int runs) {
+        return options(Math.max(1, CORES / Math.max(1, runs)));
     }
 
     private static OrtSession.SessionOptions options(int intraOpThreads) {

@@ -6,8 +6,8 @@ import java.io.*;
 import java.util.*;
 
 /**
- * Runs the bundled segmentation model <b>andi-j-seg-latest</b> on one trajectory
- * at a time.
+ * Runs the bundled segmentation model <b>andi-j-seg-latest</b>, one trajectory per
+ * ONNX run, {@link #MAX_PARALLEL_RUNS} trajectories at a time ({@link ParallelTracks}).
  *
  * <h3>Model contract</h3>
  * The bundled model follows the same contract as user-supplied models (see the
@@ -43,6 +43,13 @@ public class SegPredictor implements Closeable {
      */
     static final double IMMOBILE_ALPHA_MAX = 0.1;
 
+    /**
+     * Segmentation runs executed at once. Each run of the bundled model holds its
+     * activations (about 0.3 GB for a 1000-frame trajectory), so the cap bounds
+     * memory; beyond 4 the speed-up is small.
+     */
+    static final int MAX_PARALLEL_RUNS = 4;
+
     /** Number of AnDi diffusive-state classes:
      *  0=immobile, 1=confined, 2=free diffusion, 3=directed. */
     static final int STATE_CLASSES = 4;
@@ -71,7 +78,7 @@ public class SegPredictor implements Closeable {
     public SegPredictor(byte[] modelBytes, boolean useModelSegments) throws OrtException {
         this.useModelSegments = useModelSegments;
         env       = OrtEnvironment.getEnvironment();
-        session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
+        session   = env.createSession(modelBytes, OnnxSessions.forParallelRuns(MAX_PARALLEL_RUNS));
         inputName = session.getInputNames().iterator().next();
         outNames  = new ArrayList<>(session.getOutputNames());
         printInfo();
@@ -81,46 +88,30 @@ public class SegPredictor implements Closeable {
     // Public inference
     // -----------------------------------------------------------------------
 
-    public void computeForExperiment(ExperimentData exp) throws OrtException {
-        computeForExperiment(exp, null);
-    }
-
-    /** Notified once after each track is processed (for progress reporting). */
-    public interface ProgressListener { void trackDone(); }
-
     /**
      * Runs the model on every track of {@code exp} and fills
      * {@link ExperimentData#stepAlpha}, {@link ExperimentData#stepLogD},
      * {@link ExperimentData#stepState} and {@link ExperimentData#segments}.
      * Tracks with fewer than 2 frames get empty arrays and no segments.
      */
-    public void computeForExperiment(ExperimentData exp, ProgressListener listener)
+    public void computeForExperiment(ExperimentData exp, MlPredictor.ProgressListener listener)
             throws OrtException {
+        Map<Integer, TrackOut> outs = ParallelTracks.map(exp.tracks, this::computeTrack,
+                                                         listener, MAX_PARALLEL_RUNS);
+
         Map<Integer, double[]>      outAlpha = new LinkedHashMap<>();
         Map<Integer, double[]>      outLogD  = new LinkedHashMap<>();
         Map<Integer, int[]>         outState = new LinkedHashMap<>();
         Map<Integer, List<Segment>> outSegs  = new LinkedHashMap<>();
-
-        for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
-            int            id    = e.getKey();
-            List<double[]> spots = e.getValue();
-
-            if (spots.size() < 2) {
-                outAlpha.put(id, new double[0]);
-                outLogD.put(id,  new double[0]);
-                outState.put(id, new int[0]);
-                outSegs.put(id,  Collections.<Segment>emptyList());
-                if (listener != null) listener.trackDone();
-                continue;
-            }
-
-            TrackOut o = computeTrack(spots);
+        for (Map.Entry<Integer, TrackOut> e : outs.entrySet()) {
+            int      id = e.getKey();
+            TrackOut o  = e.getValue();
             outAlpha.put(id, o.alpha);
             outLogD.put(id,  o.logD);
             outState.put(id, o.state);
-            outSegs.put(id,  o.segments != null ? o.segments
+            outSegs.put(id,  o.alpha.length == 0 ? Collections.<Segment>emptyList()
+                           : o.segments != null ? o.segments
                            : buildSegments(o.cpProb, o.alpha, o.logD, o.state));
-            if (listener != null) listener.trackDone();
         }
 
         exp.stepAlpha = outAlpha;

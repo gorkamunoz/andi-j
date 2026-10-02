@@ -50,7 +50,8 @@ public class CustomSegPredictor implements Closeable {
         this.kind = kind;
         this.useModelSegments = useModelSegments;
         env       = OrtEnvironment.getEnvironment();
-        session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
+        session   = env.createSession(modelBytes,
+                OnnxSessions.forParallelRuns(SegPredictor.MAX_PARALLEL_RUNS));
         inputName = session.getInputNames().iterator().next();
         outNames  = new ArrayList<>(session.getOutputNames());
     }

@@ -44,7 +44,7 @@ public class CustomAnalysisPredictor implements MlPredictor {
     public CustomAnalysisPredictor(byte[] modelBytes, Mode mode) throws OrtException {
         this.mode  = mode;
         env        = OrtEnvironment.getEnvironment();
-        session    = env.createSession(modelBytes, OnnxSessions.forParallelRuns());
+        session    = env.createSession(modelBytes, OnnxSessions.forParallelRuns(OnnxSessions.PARALLEL_RUNS));
         inputName  = session.getInputNames().iterator().next();
         outputName = session.getOutputNames().iterator().next();
     }

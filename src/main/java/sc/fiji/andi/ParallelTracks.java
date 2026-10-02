@@ -8,11 +8,12 @@ import java.util.concurrent.*;
 /**
  * Runs a per-trajectory model on many trajectories at once.
  *
- * <p>Each trajectory is one ONNX run on a worker thread
- * ({@link OnnxSessions#PARALLEL_RUNS} at a time); an ONNX Runtime session can be
- * run from several threads. Results are collected on the calling thread in track
- * order, and the {@link MlPredictor.ProgressListener} is called there too, once per
- * track: a listener that throws (e.g. to abort) cancels the remaining runs.</p>
+ * <p>Each trajectory is one ONNX run on a worker thread (at most
+ * {@link OnnxSessions#PARALLEL_RUNS}, or a smaller cap, at a time); an ONNX Runtime
+ * session can be run from several threads. Results are collected on the calling
+ * thread in track order, and the {@link MlPredictor.ProgressListener} is called there
+ * too, once per track: a listener that throws (e.g. to abort) cancels the remaining
+ * runs.</p>
  */
 final class ParallelTracks {
 
@@ -37,16 +38,28 @@ final class ParallelTracks {
     /** {@code fn} applied to every track, keyed and ordered like {@code tracks}. */
     static <R> Map<Integer, R> map(Map<Integer, List<double[]>> tracks, TrackFn<R> fn,
                                    MlPredictor.ProgressListener listener) throws OrtException {
-        Map<Integer, Future<R>> futures = new LinkedHashMap<>();
-        for (Map.Entry<Integer, List<double[]>> e : tracks.entrySet()) {
-            List<double[]> spots = e.getValue();
-            futures.put(e.getKey(), pool().submit(() -> fn.apply(spots)));
-        }
+        return map(tracks, fn, listener, OnnxSessions.PARALLEL_RUNS);
+    }
+
+    /**
+     * As {@link #map(Map, TrackFn, MlPredictor.ProgressListener)}, with at most
+     * {@code maxRuns} trajectories in flight (bounds memory for large models).
+     */
+    static <R> Map<Integer, R> map(Map<Integer, List<double[]>> tracks, TrackFn<R> fn,
+                                   MlPredictor.ProgressListener listener, int maxRuns)
+            throws OrtException {
+        List<Integer> ids = new ArrayList<>(tracks.keySet());
+        List<Future<R>> futures = new ArrayList<>();
+        int window = Math.max(1, maxRuns);
 
         Map<Integer, R> results = new LinkedHashMap<>();
         try {
-            for (Map.Entry<Integer, Future<R>> e : futures.entrySet()) {
-                results.put(e.getKey(), e.getValue().get());
+            for (int i = 0; i < ids.size(); i++) {
+                while (futures.size() < ids.size() && futures.size() < i + window) {
+                    List<double[]> spots = tracks.get(ids.get(futures.size()));
+                    futures.add(pool().submit(() -> fn.apply(spots)));
+                }
+                results.put(ids.get(i), futures.get(i).get());
                 if (listener != null) listener.trackDone();
             }
         } catch (ExecutionException ex) {
@@ -58,7 +71,7 @@ final class ParallelTracks {
             Thread.currentThread().interrupt();
             throw new CancellationException("Inference interrupted");
         } finally {
-            for (Future<R> f : futures.values()) f.cancel(false);
+            for (Future<R> f : futures) f.cancel(false);
         }
         return results;
     }

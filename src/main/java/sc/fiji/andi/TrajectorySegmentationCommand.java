@@ -133,7 +133,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
 
                 @Override
                 protected Void doInBackground() {
-                    SegPredictor.ProgressListener tick = () -> {
+                    MlPredictor.ProgressListener tick = () -> {
                         if (aborted[0]) throw new java.util.concurrent.CancellationException();
                         int d = ++done[0];
                         SwingUtilities.invokeLater(() -> {

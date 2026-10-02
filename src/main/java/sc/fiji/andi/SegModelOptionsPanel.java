@@ -11,7 +11,9 @@ import java.io.File;
  * <p>Lets the user run the bundled <b>Default</b> model or <b>Load</b> custom
  * ONNX model(s) — either one <b>Combined</b> file (α, log₁₀(D) &amp; change
  * points) or one file <b>Per output</b>, where any output left unset falls back
- * to the default. See {@code Custom-Segmentation-Models.md} for the I/O contract.</p>
+ * to the default. <b>Model segments</b> (Combined only) selects the model's seg_*
+ * outputs for the segment-level values. See the <i>ML Models</i> wiki page for the
+ * I/O contract.</p>
  */
 public class SegModelOptionsPanel extends JPanel {
 
@@ -58,14 +60,6 @@ public class SegModelOptionsPanel extends JPanel {
         row1.add(new JLabel("Model:"));
         row1.add(defaultRadio);
         row1.add(loadRadio);
-        row1.add(Box.createHorizontalStrut(10));
-        row1.add(modelSegsBox);
-        row1.add(DiffusionCoeffPanel.makeHintLabel(
-            "<html><b>Segment-level predictions</b><br>"
-            + "Off: the plugin derives segments from the change-point<br>"
-            + "output and summarises each one itself.<br>"
-            + "On: the segment values the model reports in its<br>"
-            + "seg_* outputs are used verbatim.</html>"));
         add(row1);
 
         ButtonGroup layout = new ButtonGroup();
@@ -76,9 +70,21 @@ public class SegModelOptionsPanel extends JPanel {
         modeRow.add(combinedRadio);
         modeRow.add(perOutputRadio);
 
-        combinedCard = leftRow();
-        combinedCard.add(chooseCombined);
-        combinedCard.add(combinedLabel);
+        JPanel chooseRow = leftRow();
+        chooseRow.add(chooseCombined);
+        chooseRow.add(combinedLabel);
+        JPanel segsRow = leftRow();
+        segsRow.add(modelSegsBox);
+        segsRow.add(DiffusionCoeffPanel.makeHintLabel(
+            "<html><b>Segment-level predictions</b><br>"
+            + "Off: the plugin derives segments from the change-point<br>"
+            + "output and summarises each one itself.<br>"
+            + "On: the segment values the model reports in its<br>"
+            + "seg_* outputs are used verbatim.</html>"));
+        combinedCard = new JPanel();
+        combinedCard.setLayout(new BoxLayout(combinedCard, BoxLayout.Y_AXIS));
+        combinedCard.add(chooseRow);
+        combinedCard.add(segsRow);
 
         perOutputCard = new JPanel();
         perOutputCard.setLayout(new BoxLayout(perOutputCard, BoxLayout.Y_AXIS));
@@ -133,9 +139,9 @@ public class SegModelOptionsPanel extends JPanel {
 
     /** The current model selection. */
     public SegModelConfig getConfig() {
-        boolean segs = modelSegsBox.isSelected();
-        if (defaultRadio.isSelected()) return SegModelConfig.defaultModel(segs);
-        if (combinedRadio.isSelected()) return SegModelConfig.combined(combinedFile, segs);
+        if (defaultRadio.isSelected()) return SegModelConfig.defaultModel();
+        if (combinedRadio.isSelected())
+            return SegModelConfig.combined(combinedFile, modelSegsBox.isSelected());
         return SegModelConfig.perOutput(alphaFile, dFile, cpFile, phenomFile);
     }
 

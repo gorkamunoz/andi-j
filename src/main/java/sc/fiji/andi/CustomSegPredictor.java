@@ -14,7 +14,8 @@ import java.util.*;
  * per-frame change-point signal — plus an optional {@code diffusive_state} —
  * read by name (falling back to output order 0, 1, 2, 3). A single-output model
  * ({@link Kind#ALPHA}/{@link Kind#LOGD}/{@link Kind#CP}) exposes just that one.
- * See {@code Custom-Segmentation-Models.md} for the contract.</p>
+ * When {@code useModelSegments} is set, the optional seg_* outputs are read
+ * verbatim as the segments. See the <i>ML Models</i> wiki page for the contract.</p>
  */
 public class CustomSegPredictor implements Closeable {
 

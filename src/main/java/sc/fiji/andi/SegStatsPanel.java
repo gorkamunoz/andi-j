@@ -247,9 +247,11 @@ public class SegStatsPanel extends JPanel {
             for (List<Segment> segs : exp.segments.values()) {
                 for (Segment s : segs) {
                     int xi = bin(s.length, lenMin, lenMax, lenBins);
-                    int ai = bin(s.alpha, aMin, aMax, alphaBins);
-                    if (++hA[xi][ai] > maxA) maxA = hA[xi][ai];
-                    totA++; aVals.add(s.alpha);
+                    if (Double.isFinite(s.alpha)) {
+                        int ai = bin(s.alpha, aMin, aMax, alphaBins);
+                        if (++hA[xi][ai] > maxA) maxA = hA[xi][ai];
+                        totA++; aVals.add(s.alpha);
+                    }
                     if (Double.isFinite(s.logD)) {
                         int li = bin(s.logD, ldMin, ldMax, dBins);
                         if (++hD[xi][li] > maxD) maxD = hD[xi][li];

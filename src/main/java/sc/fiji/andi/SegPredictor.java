@@ -11,8 +11,10 @@ import java.util.*;
  *
  * <h3>Model contract</h3>
  * The bundled model follows the same contract as user-supplied models (see the
- * <i>ML Models</i> wiki page): the raw trajectory goes in and per-frame results
- * come out verbatim, with no pre- or post-processing of the signal.
+ * <i>ML Models</i> wiki page): the raw trajectory goes in, with no preprocessing.
+ * Two rules apply to its outputs only, never to custom models: α is clipped to
+ * [0, {@value #ALPHA_MAX}] (NaN → 0), and frames and segments with
+ * α &lt; {@value #IMMOBILE_ALPHA_MAX} are classified as immobile.
  *
  * <p><b>Required</b> outputs, each {@code (1, T)} — the input is {@code (1, T, 2)}
  * raw x,y positions:</p>
@@ -25,8 +27,8 @@ import java.util.*;
  *
  * <p><b>Optional</b> segment-level outputs, each {@code (1, S)}:
  * {@code seg_start}, {@code seg_length}, {@code seg_alpha}, {@code seg_logD},
- * {@code seg_state}. When the model provides them and they are enabled, they are
- * used verbatim instead of the segments the plugin derives from {@code cp}.</p>
+ * {@code seg_state}. When the model provides them and they are enabled, they
+ * replace the segments the plugin derives from {@code cp}.</p>
  */
 public class SegPredictor implements Closeable {
 
@@ -111,7 +113,7 @@ public class SegPredictor implements Closeable {
             outState.put(id, o.state);
             outSegs.put(id,  o.alpha.length == 0 ? Collections.<Segment>emptyList()
                            : o.segments != null ? o.segments
-                           : buildSegments(o.cpProb, o.alpha, o.logD, o.state));
+                           : withBundledRules(buildSegments(o.cpProb, o.alpha, o.logD, o.state)));
         }
 
         exp.stepAlpha = outAlpha;
@@ -163,9 +165,22 @@ public class SegPredictor implements Closeable {
                 o.logD[t]  = Double.isFinite(logD[t]) ? logD[t] : Double.NaN;
             }
             applyImmobileRule(o.alpha, o.state);
-            if (useModelSegments) o.segments = readModelSegments(res, outNames, T);
+            if (useModelSegments) {
+                List<Segment> segs = readModelSegments(res, outNames, T);
+                o.segments = segs == null ? null : withBundledRules(segs);
+            }
         }
         return o;
+    }
+
+    /** Segments with α clipped and the immobile rule applied (bundled model only). */
+    private static List<Segment> withBundledRules(List<Segment> segs) {
+        List<Segment> out = new ArrayList<>(segs.size());
+        for (Segment g : segs) {
+            double a = clamp(g.alpha, 0.0, ALPHA_MAX);
+            out.add(new Segment(g.start, g.length, a, g.logD, segmentState(a, g.state)));
+        }
+        return out;
     }
 
     /** Extracts the (T, 2) position matrix from a track's spot list. */
@@ -218,7 +233,7 @@ public class SegPredictor implements Closeable {
         return out;
     }
 
-    /** Reads the optional seg_* outputs into segments, or null when absent. */
+    /** Reads the optional seg_* outputs verbatim into segments, or null when absent. */
     static List<Segment> readModelSegments(OrtSession.Result res, List<String> outNames, int T)
             throws OrtException {
         OnnxValue vs = byName(res, outNames, "seg_start");
@@ -238,12 +253,11 @@ public class SegPredictor implements Closeable {
             int len = (int) Math.round(length[i]);
             if (len <= 0 || st < 0 || st >= T) continue;      // skip padding rows
             len = Math.min(len, T - st);
-            double a = (alpha != null && i < alpha.length)
-                     ? clamp(alpha[i], 0.0, ALPHA_MAX) : Double.NaN;
+            double a = (alpha != null && i < alpha.length) ? alpha[i] : Double.NaN;
             double d = (logD != null && i < logD.length && Double.isFinite(logD[i]))
                      ? logD[i] : Double.NaN;
             int s = (state != null && i < state.length) ? stateClass(state[i]) : -1;
-            segs.add(new Segment(st, len, a, d, segmentState(a, s)));
+            segs.add(new Segment(st, len, a, d, s));
         }
         return segs.isEmpty() ? null : segs;
     }
@@ -313,14 +327,14 @@ public class SegPredictor implements Closeable {
     }
 
     /** Forces state 0 (immobile) on every frame whose α is below the threshold. */
-    static void applyImmobileRule(double[] alpha, int[] state) {
+    private static void applyImmobileRule(double[] alpha, int[] state) {
         if (alpha == null || state == null) return;
         for (int t = 0; t < state.length && t < alpha.length; t++)
             if (alpha[t] < IMMOBILE_ALPHA_MAX) state[t] = 0;
     }
 
     /** State of a segment, forced to immobile when its α is below the threshold. */
-    static int segmentState(double alpha, int state) {
+    private static int segmentState(double alpha, int state) {
         return (alpha < IMMOBILE_ALPHA_MAX) ? 0 : state;
     }
 
@@ -375,8 +389,7 @@ public class SegPredictor implements Closeable {
             double s = 0; int cnt = 0;
             for (int t = i; t < j; t++) if (Double.isFinite(logD[t])) { s += logD[t]; cnt++; }
             double dMean = cnt > 0 ? s / cnt : Double.NaN;
-            segs.add(new Segment(i, j - i, aMean, dMean,
-                    segmentState(aMean, majorityState(state, i, j))));
+            segs.add(new Segment(i, j - i, aMean, dMean, majorityState(state, i, j)));
         }
         return segs;
     }

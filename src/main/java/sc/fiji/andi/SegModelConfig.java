@@ -7,8 +7,10 @@ import java.io.File;
  * {@link SegModelOptionsPanel} and consumed by {@link SegmentationRunner}.
  *
  * <ul>
- *   <li>{@code useDefault} – run the bundled andi-j-seg-latest model.</li>
- *   <li>Load / combined – one custom ONNX providing α, log₁₀(D) and CP.</li>
+ *   <li>{@code useDefault} – run the bundled andi-j-seg-latest model; segments
+ *       come from its seg_* outputs.</li>
+ *   <li>Load / combined – one custom ONNX providing α, log₁₀(D), CP and the
+ *       diffusive state; {@code useModelSegments} selects its seg_* outputs.</li>
  *   <li>Load / per-output – a custom ONNX per output; any {@code null} file is
  *       filled from the default model.</li>
  * </ul>
@@ -38,8 +40,8 @@ public final class SegModelConfig {
         this.phenomFile   = phenomFile;
     }
 
-    public static SegModelConfig defaultModel(boolean useModelSegments) {
-        return new SegModelConfig(true, useModelSegments, false, null, null, null, null, null);
+    public static SegModelConfig defaultModel() {
+        return new SegModelConfig(true, true, false, null, null, null, null, null);
     }
 
     public static SegModelConfig combined(File file, boolean useModelSegments) {
@@ -57,7 +59,7 @@ public final class SegModelConfig {
 
     /** Stable descriptor used in the prediction cache key. */
     public String key() {
-        if (useDefault) return "default:segs=" + useModelSegments;
+        if (useDefault) return "default";
         if (combined)   return "combined:" + path(combinedFile) + ";segs=" + useModelSegments;
         return "perout:a=" + path(alphaFile) + ";d=" + path(dFile) + ";cp=" + path(cpFile)
              + ";ph=" + path(phenomFile);

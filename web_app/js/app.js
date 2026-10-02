@@ -21,9 +21,13 @@ const state = {
   view: 'overview',
   dim: 1,
   f: DEFAULT_F(),        // filters shared by all views
-  sel: { overview: null, task1: null, task2: null },
+  sel: { overview: null, task1: null, task2: null, segmentation: null },
+  seg: { x: 'mae_alpha', y: 'msle_k',   // metric explorer: metric on each axis
+    pick: { overall: null, perexp: null, cp: null, single: null, clf: null }, max: null },
+
   sort: {},
   upload: { 1: {}, 2: {} }, // upload[task][dim] -> predictions shaped like a team's data
+  segUpload: null,          // a scored Trajectory segmentation submission, in memory only
   uploadInfo: {},                  // uploadInfo[task] -> { filename, dims, skipped }
 };
 
@@ -207,6 +211,7 @@ const VIEWS = {
   'trajectory/model': viewTask2,
   'trajectory/submit': viewSubmit,
   segmentation: viewSegmentation,
+  'segmentation/submit': viewSegSubmit,
 };
 const ALIASES = { task1: 'trajectory/alpha', task2: 'trajectory/model', submit: 'trajectory/submit' }; // old links
 let renderToken = 0;
@@ -216,7 +221,9 @@ async function renderView() {
   const main = $('#main');
   const section = state.view.split('/')[0];
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.view === section));
-  $('#subnav').hidden = section !== 'trajectory';
+  // Each section with sub pages has its own row of links; only the active section's row shows.
+  $('#subnav').hidden = !['trajectory', 'segmentation'].includes(section);
+  document.querySelectorAll('#subnav .subnav-inner').forEach(n => (n.hidden = n.dataset.for !== section));
   document.querySelectorAll('#subnav a').forEach(a => a.classList.toggle('active', a.dataset.view === state.view));
   main.innerHTML = loadingHTML;
   try {
@@ -446,11 +453,473 @@ async function viewTask2() {
   return page;
 }
 
-// ----- Placeholder pages -----
+// ----- Home -----
 
-// Overview and Segmentation Analysis are left blank for now.
-function viewHome() { return h('<div class="blank"></div>'); }
-function viewSegmentation() { return h('<div class="blank"></div>'); }
+const EXT = 'target="_blank" rel="noopener"';
+const ANDI1 = 'https://doi.org/10.1038/s41467-021-26320-w';
+const ANDI2 = 'https://doi.org/10.1038/s41467-025-61949-x';
+const REPO = 'https://github.com/gorkamunoz/andi-j';
+const WIKI = 'https://github.com/gorkamunoz/andi-j/wiki';
+
+function viewHome() {
+  const page = h('<div class="home"></div>');
+  page.append(pageHead('AnDi-J Benchmark', 'Benchmark methods for anomalous diffusion',
+    `This tool allows to benchmark methods on the analysis of diffusive single-particle trajectories of many different types.
+    The benchmarks are based on the datasets and metrics of the two Anomalous Diffusion (AnDi) Challenges
+     (<a href="${ANDI1}" ${EXT}>1st</a>, <a href="${ANDI2}" ${EXT}>2nd</a>). It also include comparisons to the bundled methods of the <a href="${REPO}" ${EXT}>AnDi-J Fiji plugin</a>.`));
+
+  page.append(h(`<div class="grid grid-2">
+    <section class="card home-card">
+      <h2><a href="#/trajectory">Trajectory Analysis →</a></h2>
+      <p>One label per trajectory: either the anomalous exponent α or the diffusion model among
+         ATTM, CTRW, FBM, LW and SBM, as predicted by AnDi-J's Trajectory Analysis tab.
+         <br> Datasets and methods available from the <a href="${ANDI1}" ${EXT}>1st AnDi Challenge</a>.</p>
+    </section>
+    <section class="card home-card">
+      <h2><a href="#/segmentation">Trajectory segmentation →</a></h2>
+      <p>Trajectories that switch between diffusive states. The goal is to predict the changepoints and, for every
+         segment, the exponent α, the diffusion coefficient, and the diffusive state, as done in AnDi-J's
+         Trajectory Segmentation tab.
+         <br> Datasets and methods available from the <a href="${ANDI2}" ${EXT}>2nd AnDi Challenge</a>.</p>
+    </section>
+  </div>`));
+
+  page.append(h(`<section class="card card-body home-refs">
+    <h2>Learn more</h2>
+      Find all the details on the benchmarks, datasets and methods in the AnDi-j plugin's wiki: <a href="${WIKI}" ${EXT}>${WIKI}</a>.
+  </section>`));
+  return page;
+}
+// The submission is kept in memory only, like the Trajectory Analysis uploads.
+const UPLOAD_SEG = 'Your submission';
+
+async function viewSegSubmit() {
+  const page = h('<div></div>');
+  page.append(pageHead('Trajectory segmentation', 'Submit a model',
+    `Run your method on the <a href="https://codalab.lisn.upsaclay.fr/competitions/10618" target="_blank" rel="noopener">2nd AnDi Challenge</a>
+     trajectory dataset and upload the predictions as a single .zip. Scoring happens in your browser with the
+     challenge's own scorer: the archive is never sent anywhere. Your results appear as
+     ${swatch('upload')}<b>“${UPLOAD_SEG}”</b> on the Analysis page until you reload.`));
+  const grid = h('<div class="grid grid-main"></div>'); page.append(grid);
+
+  const left = h('<div class="stack"></div>');
+  const drop = h(`<label class="drop"><div class="drop-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div>
+    <b>Drop your submission .zip here</b><div class="muted small" style="margin-top:4px">or click to choose it · nothing leaves your computer</div>
+    <input type="file" accept=".zip" hidden></label>`);
+  const status = h('<div></div>');
+  const fmtCard = card('Archive format', 'The same layout and file format as the challenge submission, zipped.');
+  body(fmtCard).innerHTML = `
+    <div class="format">track_2/
+  exp_0/   fov_0.txt … fov_29.txt
+  exp_1/   fov_0.txt … fov_29.txt
+  …
+  exp_11/  fov_0.txt … fov_29.txt</div>
+    <p class="muted small" style="margin:10px 0 0">All twelve experiments and thirty fields of view are needed: the overall score is
+    the average over every experiment weighted by its number of trajectories, which is how the leaderboard was built.
+    A <code>track_2</code> folder at the root of the zip, or the experiment folders directly, both work.</p>
+    <p class="muted small" style="margin:10px 0 0">One line per trajectory, comma separated, the challenge's single trajectory format:</p>
+    <div class="format">traj_idx, D, α, state, cp, D, α, state, cp, …</div>
+    <p class="muted small" style="margin:10px 0 0">One group of four per segment; the last changepoint of a trajectory is its length.</p>`;
+  left.append(drop, status, fmtCard);
+
+  const right = card('Your submission', 'Scored with the challenge scorer, over all twelve experiments.');
+  grid.append(left, right);
+
+  const metrics = [
+    { key: 'rmse_cp', label: 'RMSE (CP)', lower: true }, { key: 'jsc_cp', label: 'JSC (CP)', lower: false },
+    { key: 'mae_alpha', label: 'MAE (α)', lower: true }, { key: 'msle_k', label: 'MSLE (K)', lower: true },
+    { key: 'f1_state', label: 'F1 (diff. type)', lower: false },
+  ];
+
+  async function drawResult() {
+    const b = body(right), up = state.segUpload;
+    if (!up) { b.innerHTML = '<div class="empty">Nothing uploaded yet.</div>'; return; }
+    const lb = await loadSeg('leaderboard');
+    const rows = segRowsWithUpload(lb, up);
+    const mine = rows.find(r => r.team === UPLOAD_SEG);
+    b.innerHTML = `<div class="sub-item seg-sub"><div><b>${esc(up.name)}</b>
+      <span class="muted small">${up.trajectories.toLocaleString()} trajectories · global rank ${mine.rank} of ${rows.length}</span></div>
+      <div class="chips">${metrics.map(m =>
+        `<span class="chip">${m.label} <b>${f3(mine[m.key])}</b> · rank ${mine[m.key + '_rank']}</span>`).join('')}</div>
+      <div class="sub-actions"><a class="btn primary" href="#/segmentation">View on the benchmark</a><button class="btn" id="seg-rm">Remove</button></div></div>`;
+    $('#seg-rm', b).addEventListener('click', () => { state.segUpload = null; status.innerHTML = ''; drawResult(); });
+  }
+
+  const say = (ok, html) => { status.innerHTML = `<div class="status ${ok ? 'ok' : 'err'}">${ok ? ICON_OK : ICON_ERR}<div>${html}</div></div>`; };
+
+  async function handle(file) {
+    if (!file) return;
+    say(true, `Reading <b>${esc(file.name)}</b>…`);
+    try {
+      const files = await S.unzip(await file.arrayBuffer());
+      const exps = S.collect(files);
+      if (!exps.size) throw new Error('No exp_<n>/fov_<m>.txt files found in the archive.');
+      say(true, `Scoring ${exps.size} experiments…`);
+      // Let the browser paint the message before the scoring blocks it.
+      await new Promise(r => setTimeout(r, 20));
+      const truth = await loadSeg('truth');
+      const res = S.scoreSubmission(truth, exps);
+      state.segUpload = { name: file.name, ...res };
+      say(true, `Scored <b>${esc(file.name)}</b>: ${res.trajectories.toLocaleString()} trajectories over ${res.perExp.length} experiments.`);
+    } catch (e) {
+      state.segUpload = null;
+      say(false, `Could not score this archive. ${esc(e.message)}`);
+    }
+    drawResult();
+  }
+
+  $('input', drop).addEventListener('change', e => handle(e.target.files[0]));
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); handle(e.dataTransfer.files[0]); });
+  drawResult();
+  return page;
+}
+
+// The leaderboard rows plus the upload, with every rank and the MRR recomputed over the lot, the
+// way the challenge does it (so uploading shifts the published ranks, as on the Trajectory pages).
+function segRowsWithUpload(lb, up) {
+  if (!up) return lb.rows;
+  const rows = lb.rows.map(r => ({ ...r }));
+  rows.push({ team: UPLOAD_SEG, group: 'upload', ...up.overall });
+  const mrr = new Array(rows.length).fill(0);
+  for (const m of lb.metrics) {
+    const order = rows.map((r, i) => i).sort((a, b) =>
+      m.lower ? rows[a][m.key] - rows[b][m.key] : rows[b][m.key] - rows[a][m.key]);
+    let rank = 0;
+    order.forEach((i, pos) => {
+      // Competition ranking: ties share the best rank.
+      if (pos === 0 || rows[i][m.key] !== rows[order[pos - 1]][m.key]) rank = pos + 1;
+      rows[i][m.key + '_rank'] = rank;
+      mrr[i] += 1 / rank;
+    });
+  }
+  rows.forEach((r, i) => (r.mrr = mrr[i] / lb.metrics.length));
+  const byMrr = rows.map((r, i) => i).sort((a, b) => rows[b].mrr - rows[a].mrr);
+  let g = 0;
+  byMrr.forEach((i, pos) => {
+    if (pos === 0 || rows[i].mrr !== rows[byMrr[pos - 1]].mrr) g = pos + 1;
+    rows[i].rank = g;
+  });
+  return rows.sort((a, b) => a.rank - b.rank || a.team.localeCompare(b.team));
+}
+
+// ----- Segmentation Analysis -----
+
+// Everything on this page comes from data/segmentation/*.json, built by build_segmentation_data.py
+// out of the 2nd AnDi Challenge results (single trajectory task, trajectory track), which is the
+// task of AnDi-J's Segmentation Analysis tab. The AnDi-J default model is one more entry there and
+// is ranked together with the challenge teams.
+const ANDIJ_SEG = 'AnDi-J default';
+const segCache = {};
+const loadSeg = (name) => (segCache[name] ??= fetch(`data/segmentation/${name}.json`)
+  .then(r => { if (!r.ok) throw new Error(`Could not load data/segmentation/${name}.json (${r.status})`); return r.json(); })
+  .catch(e => { delete segCache[name]; throw e; }));
+
+// Panel order of the paper figures, so the same metric always sits in the same column.
+const SEG_ORDER = ['jsc_cp', 'rmse_cp', 'msle_k', 'mae_alpha', 'f1_state'];
+const SEG_LOG = { msle_k: true };
+const SEG_STATES = ['imm.', 'conf.', 'free', 'dir.'];
+// The three metrics of the explorer panel, with the short names used on its axes and readout.
+const SEG_EXPLORE = [
+  { key: 'mae_alpha', short: 'MAE', lower: true },
+  { key: 'msle_k', short: 'MSLE', lower: true, log: true },
+  { key: 'f1_state', short: 'F1', lower: false },
+];
+const segAxis = (m) => `${m.label} ${m.lower ? '↓' : '↑'}`;
+const med = (v) => { const s = [...v].sort((a, b) => a - b), h = s.length / 2; return s.length % 2 ? s[h | 0] : (s[h - 1] + s[h]) / 2; };
+
+async function viewSegmentation() {
+  const [lb, perExp, vsCp, single, clf] = await Promise.all(
+    ['leaderboard', 'per_experiment', 'metrics_vs_cp', 'single_state', 'classification'].map(loadSeg));
+
+  const metrics = Object.fromEntries(lb.metrics.map(m => [m.key, m]));
+  const order = SEG_ORDER.map(k => metrics[k]);
+  const best = vsCp.teams.filter(t => t !== ANDIJ_SEG); // the five best challenge teams
+  const grey = () => C.css('--neutral-mark');
+  const groupColor = (g) => (g === 'andij' ? C.andijColor()
+    : g === 'upload' ? C.css(GROUPS.upload.color) : grey());
+  const teamColor = (t) => (t === ANDIJ_SEG ? C.andijColor() : C.segSeries()[best.indexOf(t)] ?? grey());
+  const singleStateExp = perExp.experiments.find(e => e.single_state).exp;
+
+  const page = h('<div class="seg-page"></div>');
+  page.append(pageHead('', 'Trajectory segmentation benchmark',
+    `The Trajectory segmentation tab of AnDi-J predicts the changepoints at which diffusive changes happen in an input trajectory and gives every segment an anomalous
+     exponent α, a diffusion coefficient K and a diffusion type. This page compares <b>the AnDi-J default model</b> (${swatch('andij')})
+     with other methods available for AnDi-J (${swatch('model')}), the methods of the
+     <a href="https://doi.org/10.1038/s41467-025-61949-x" target="_blank" rel="noopener">2nd AnDi Challenge</a>
+     and your submissions (${swatch('upload')}). See Submission tab for information on how to submit your predictions.`));
+
+  // A card with one or more rows of equally sized chart panels.
+  const panelCard = (title, sub, layout, legend, note, readout) => {
+    const c = card(title, sub, 'card-body');
+    if (legend) body(c).append(h('<div class="legend"></div>'));
+    const out = [];
+    for (const { grid, n, titles } of layout) {
+      const wrap = h(`<div class="panels ${grid}"></div>`);
+      for (let i = 0; i < n; i++) {
+        const p = h(`<div class="panel">${titles ? `<div class="panel-head">${titles[i]}</div>` : ''}<div class="chart"></div></div>`);
+        wrap.append(p); out.push($('.chart', p));
+      }
+      body(c).append(wrap);
+    }
+    if (readout) body(c).append(h('<div class="pick-readout"></div>'));
+    if (note) body(c).append(h(`<p class="small muted" style="margin:12px 0 0">${note}</p>`));
+    page.append(c);
+    return out;
+  };
+
+  const dot = (col, txt) => `<span><i class="dot" style="background:${col}"></i>${txt}</span>`;
+  const hollow = (txt) => `<span><i class="ring"></i>${txt}</span>`;
+  const andijLegend = () => dot(C.andijColor(), ANDIJ_SEG);
+
+  // Row 1: the two overall scatters. The last ranked method is left out of them, as in the paper
+  // figures: its errors are an order of magnitude above the rest and would flatten the whole field.
+  const outlier = lb.rows[lb.rows.length - 1].team;
+  // The leaderboard, plus a scored submission when there is one (ranks recomputed over the lot).
+  const allRows = () => segRowsWithUpload(lb, state.segUpload);
+  const scatters = panelCard('Overall performance',
+    `Average scores over all experiments in the benchmark dataset experiments. Select the desired metrics in the leftmost plot for visualization.`,
+    [{ grid: 'grid-2', n: 2 }], true);
+
+  // The left panel is a metric explorer: one row of buttons per axis picks what it plots. It reads
+  // out on click rather than on hover, so only the AnDi-J default model carries a label.
+  const explorer = scatters[0].parentElement;
+  const axisRow = (ax) => `<div class="metric-toggle"><span class="field-label">${ax.toUpperCase()} axis</span><div class="seg" data-ax="${ax}">${
+    SEG_EXPLORE.map(m => `<button data-k="${m.key}" class="${state.seg[ax] === m.key ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>`;
+  const toggles = h(`<div class="axis-pick">${axisRow('y')}${axisRow('x')}</div>`);
+  const readout = h('<div class="pick-readout"></div>');
+  explorer.prepend(toggles);
+  explorer.append(readout);
+  // Keep the two charts of the row on the same baseline despite the extra controls on the left.
+  scatters[1].parentElement.prepend(h('<div class="axis-pick" aria-hidden="true"><span class="field-label">&nbsp;</span></div>'));
+  toggles.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    const ax = b.parentElement.dataset.ax, other = ax === 'x' ? 'y' : 'x', k = b.dataset.k;
+    if (state.seg[ax] === k) return;
+    // Picking the metric the other axis already shows swaps them, rather than plotting it twice.
+    if (state.seg[other] === k) state.seg[other] = state.seg[ax];
+    state.seg[ax] = k;
+    toggles.querySelectorAll('.seg').forEach(g => g.querySelectorAll('button')
+      .forEach(x => x.classList.toggle('on', state.seg[g.dataset.ax] === x.dataset.k)));
+    drawOverall();
+  }));
+  // Row 2: one panel per metric, across the experiments.
+  const perExpPanels = panelCard('Performance per experiment',
+    'Every method on each experiment, with the median of the five best challenge teams as a reference.',
+    [{ grid: 'grid-5', n: 5 }], true,
+    `Experiments 3–5 and 6–7 each share the same underlying physical model. The changepoint metrics are undefined on
+     experiment ${singleStateExp}, where trajectories have a single state and therefore no changepoint (dashed line).
+     ${esc(outlier)} is left out here too, as in the overall performance panels.`, true);
+  // Each panel of row 2 can be blown up to a 2x2 block, with the other four kept beside it.
+  const perExpWrap = perExpPanels[0].closest('.panels');
+  const layoutPanels = () => {
+    const max = state.seg.max;
+    perExpWrap.classList.toggle('grid-max', max != null);
+    perExpWrap.classList.toggle('grid-5', max == null);
+    perExpPanels.forEach((chart, i) => {
+      chart.parentElement.classList.toggle('big', i === max);
+      $('.panel-max', chart.parentElement).textContent = i === max ? '\u2715' : '\u2921';
+    });
+  };
+  perExpPanels.forEach((chart, i) => {
+    const b = h(`<button class="panel-max" title="Enlarge this plot">\u2921</button>`);
+    b.addEventListener('click', () => { state.seg.max = state.seg.max === i ? null : i; drawPerExp(); });
+    chart.parentElement.prepend(b);
+  });
+
+  // Row 3: the same metrics against how many changepoints a trajectory has.
+  const cpPanels = panelCard('Performance vs. number of changepoints',
+    'Scores restricted to the trajectories with a given number of changepoints, averaged over the experiments and weighted by their number of trajectories. Click a line to see which method it is.',
+    [{ grid: 'grid-5', n: 5 }], false, null, true);
+  // Row 4: the single state experiment.
+  const ssPanels = panelCard('Single state experiment',
+    `One of the benchmark's experiments contains trajectories with no changepoints, so every predicted changepoint is a false positive.
+     This can be used to compare the accuracy of the method against non-segmentation methods of the Trajectory Analysis module.`,
+    [{ grid: 'grid-2', n: 2 }], true, null, true);
+  // Row 5: the diffusion type populations, experiment by experiment.
+  const clfTitles = clf.experiments.map(e => `Experiment ${e.exp}`);
+  const clfPanels = panelCard('Diffusion type classification',
+    'Distribution of predicted diffusive state by the five best challenge teams and the AnDi-J default model, against the ground truth.',
+    [{ grid: 'grid-5', n: 5, titles: clfTitles.slice(0, 5) }, { grid: 'grid-5', n: 4, titles: clfTitles.slice(5) }], true, null, true);
+
+  // Ranking table.
+  const cRank = card('Ranking', `Overall scoring over the benchmark dataset following the challenge's rankings:
+    the mean reciprocal rank (MRR) over the five metrics.`, 'card-body');
+  page.append(cRank);
+  const PIN = { andij: ['var(--series-1)', 'AnDi-J default model'], upload: ['var(--series-2)', 'Your submission'],
+    challenge: ['var(--neutral-mark)', '2nd AnDi Challenge participant'] };
+  const segTeam = (r) => { const [c, t] = PIN[r.group] || PIN.challenge;
+    return `<span class="mname"><i class="pin" style="background:${c}" title="${t}"></i>${esc(r.team)}${
+      r.group === 'upload' ? '<span class="you">You</span>' : ''}</span>`; };
+  const rankCell = (r, m) => `<span class="rankcell">${f3(r[m.key])}<span class="rk">(${r[m.key + '_rank']})</span></span>`;
+  const drawTable = () => table(body(cRank), {
+    id: 'segmentation', rows: allRows(), selected: state.sel.segmentation, defaultSort: { key: 'rank', dir: 1 },
+    cols: [
+      { key: 'rank', label: 'Rank', cls: 'rank', html: r => rankBadge(r.rank), sort: r => r.rank, dir: 1 },
+      { key: 'team', label: 'Method', cls: 'team', html: segTeam },
+      ...order.map(m => ({ key: m.key, label: segAxis(m), cls: 'num', html: r => rankCell(r, m), sort: r => r[m.key + '_rank'], dir: 1 })),
+      { key: 'mrr', label: 'MRR ↑', cls: 'num', html: r => f3(r.mrr), sort: r => -r.mrr, dir: 1 },
+    ],
+    onClick: (team) => { state.sel.segmentation = state.sel.segmentation === team ? null : team; drawTable(); },
+  });
+  drawTable();
+
+  const explorerRows = () => allRows().filter(r => r.team !== outlier).map(r => ({ ...r, color: groupColor(r.group) }));
+
+  // Each section keeps its own selected method. Nothing reads out on hover any more: you click a
+  // point, a line or a bar and the line under the section spells out what it is.
+  const picked = (card) => state.seg.pick[card];
+  const picker = (card, redraw) => (d) => {
+    const team = d && (d.team ?? d.name ?? d);
+    state.seg.pick[card] = team === picked(card) ? null : (team || null);
+    redraw();
+  };
+  const say = (el, parts) => { el.innerHTML = parts || '<span class="muted">Click a method to read its scores.</span>'; };
+  const readoutOf = (el) => $('.pick-readout', el.closest('.card'));
+
+  // ----- Row 1: overall performance -----
+  function drawOverall() {
+    const rows = explorerRows();
+    const by = (k) => SEG_EXPLORE.find(m => m.key === k);
+    const ax = by(state.seg.x), ay = by(state.seg.y);
+    const dir = (m) => (m.lower ? 'lower is better' : 'higher is better');
+    const sel = picked('overall'), pick = picker('overall', drawOverall);
+    // Both axes point so that better is right and up, which keeps the best methods in one corner.
+    C.segScatter(scatters[0], rows, {
+      x: ax.key, y: ay.key, xreverse: ax.lower, yreverse: ay.lower, xlog: ax.log, ylog: ay.log,
+      xlabel: `${ax.short} (${dir(ax)}) →`, ylabel: `↑ ${ay.short} (${dir(ay)})`,
+      hover: false, labels: 'emph', selected: sel, onPick: pick });
+    C.segScatter(scatters[1], rows, { x: 'rmse_cp', y: 'jsc_cp', xreverse: true,
+      xlabel: `${metrics.rmse_cp.label} (lower is better) →`, ylabel: `↑ ${metrics.jsc_cp.label} (higher is better)`,
+      hover: false, labels: 'emph', selected: sel, onPick: pick });
+
+    const hit = sel && rows.find(r => r.team === sel);
+    $('.legend', scatters[0].closest('.card')).innerHTML = andijLegend()
+      + hollow('2nd AnDi Challenge participant')
+      + (state.segUpload ? dot(C.css(GROUPS.upload.color), UPLOAD_SEG) : '');
+    say(readout, hit && `<b>${esc(hit.team)}</b>${order.map(m =>
+      `<span>${C.plain(m.label)} = ${f3(hit[m.key])}</span>`).join('')}`);
+  }
+
+  // ----- Row 2: one panel per metric, across the experiments -----
+  function drawPerExp() {
+    const sel = picked('perexp'), pick = picker('perexp', drawPerExp);
+    const exps = perExp.experiments.map(e => e.exp);
+    $('.legend', perExpPanels[0].closest('.card')).innerHTML =
+      andijLegend() + hollow('Median of the 5 best teams') + '<span><i class="faint"></i>Other participants</span>';
+    layoutPanels();
+    order.forEach((m, i) => {
+      // A changepoint RMSE of exactly 0 means the method predicted no changepoint at all, which is
+      // not a score; those entries are left out, as in the paper figures.
+      const drop = (v) => m.key === 'rmse_cp' && v === 0;
+      const cloud = [], middle = [], andij = [];
+      for (const e of perExp.experiments) {
+        const top = [];
+        for (const [team, v] of Object.entries(e.values)) {
+          if (team === outlier || drop(v[m.key])) continue;
+          if (team === ANDIJ_SEG) { andij.push({ exp: e.exp, v: v[m.key], team }); continue; }
+          cloud.push({ exp: e.exp, v: v[m.key], team });
+          if (best.includes(team)) top.push(v[m.key]);
+        }
+        if (top.length) middle.push({ exp: e.exp, v: med(top) });
+      }
+      const mineRows = (state.segUpload?.perExp || []).filter(r => r.exp)
+        .map(r => ({ exp: r.exp, v: r[m.key], team: UPLOAD_SEG }))
+        .filter(r => !drop(r.v));
+      C.segPerExp(perExpPanels[i], { rows: cloud, median: middle, andij, mine: mineRows, exps, label: segAxis(m),
+        log: !!SEG_LOG[m.key], skip: m.key === 'rmse_cp' ? [singleStateExp] : [],
+        height: state.seg.max === i ? 430 : 210, selected: sel, onPick: pick });
+    });
+    const hit = sel && allRows().find(r => r.team === sel);
+    say(readoutOf(perExpPanels[0]), hit && `<b>${esc(hit.team)}</b>${order.map(m =>
+      `<span>${C.plain(m.label)} = ${f3(hit[m.key])}</span>`).join('')}`);
+  }
+
+  // ----- Row 3: the same metrics against how many changepoints a trajectory has -----
+  function drawCp() {
+    const sel = picked('cp'), pick = picker('cp', drawCp);
+    let shown = null;
+    order.forEach((m, i) => {
+      const mi = vsCp.metrics.findIndex(x => x.key === m.key);
+      const from = m.key === 'rmse_cp' ? 1 : 0; // with no changepoint the changepoint RMSE is always 0
+      const series = vsCp.teams.map((team, ti) => ({
+        name: team, color: team === ANDIJ_SEG ? C.andijColor() : C.css('--neutral-mark'),
+        emph: team === ANDIJ_SEG,
+        rows: vsCp.changepoints.slice(from).map((k, ki) => ({ k, v: vsCp.values[ki + from][mi][ti] })),
+      }));
+      if (state.segUpload) series.push({
+        name: UPLOAD_SEG, color: C.css(GROUPS.upload.color), emph: true,
+        rows: state.segUpload.vsCp.filter(r => r.k >= from).map(r => ({ k: r.k, v: r[m.key] })),
+      });
+      if (sel) { const s = series.find(x => x.name === sel); if (s) shown = shown ?? s; }
+      C.segLines(cpPanels[i], series, { label: segAxis(m), xlabel: 'Changepoints per trajectory',
+        domain: [vsCp.changepoints[from], vsCp.changepoints[vsCp.changepoints.length - 1]],
+        log: !!SEG_LOG[m.key], selected: sel, onPick: pick });
+    });
+    const hit = sel && allRows().find(r => r.team === sel);
+    say(readoutOf(cpPanels[0]), hit && `<b>${esc(hit.team)}</b>${order.map(m =>
+      `<span>${C.plain(m.label)} = ${f3(hit[m.key])}</span>`).join('')}`);
+  }
+
+  // ----- Row 4: the single state experiment -----
+  function drawSingle() {
+    const sel = picked('single'), pick = picker('single', drawSingle);
+    const msd = single.rows.find(r => r.group === 'reference');
+    const ssRows = single.rows.filter(r => r.fpr != null).map(r => ({ ...r, color: groupColor(r.group) }));
+    const mine = state.segUpload?.perExp.find(r => r.fpr !== undefined);
+    if (mine) ssRows.push({ team: UPLOAD_SEG, group: 'upload', color: groupColor('upload'),
+      fpr: mine.fpr, msle_k: mine.msle_k, mae_alpha: mine.mae_alpha });
+    $('.legend', ssPanels[0].closest('.card')).innerHTML =
+      andijLegend() + hollow('2nd AnDi Challenge participant')
+      + (mine ? dot(C.css(GROUPS.upload.color), UPLOAD_SEG) : '')
+      + '<span><i class="dash"></i>MSD fit</span>';
+    // Both metrics and the false positive rate are lower-is-better, so both axes run backwards and
+    // the best methods end up in the top right corner, as in the overall performance panels.
+    const fpr = 'False positive rate (lower is better) →';
+    C.segScatter(ssPanels[0], ssRows, { x: 'fpr', y: 'msle_k', ylog: true, digits: 4,
+      xreverse: true, yreverse: true,
+      xlabel: fpr, ylabel: `↑ ${metrics.msle_k.label} (lower is better)`,
+      rules: [{ v: msd.msle_k, name: msd.team }], hover: false, labels: 'emph', selected: sel, onPick: pick });
+    C.segScatter(ssPanels[1], ssRows, { x: 'fpr', y: 'mae_alpha', ylog: true,
+      xreverse: true, yreverse: true,
+      xlabel: fpr, ylabel: `↑ ${metrics.mae_alpha.label} (lower is better)`,
+      rules: [{ v: msd.mae_alpha, name: msd.team }], hover: false, labels: 'emph', selected: sel, onPick: pick });
+
+    const hit = sel && ssRows.find(r => r.team === sel);
+    say(readoutOf(ssPanels[0]), hit && `<b>${esc(hit.team)}</b>`
+      + `<span>False positive rate = ${f3(hit.fpr)}</span>`
+      + `<span>${C.plain(metrics.msle_k.label)} = ${f3(hit.msle_k, 4)}</span>`
+      + `<span>${C.plain(metrics.mae_alpha.label)} = ${f3(hit.mae_alpha)}</span>`);
+  }
+
+  // ----- Row 5: the diffusion type populations, experiment by experiment -----
+  function drawClf() {
+    const sel = picked('clf'), pick = picker('clf', drawClf);
+    $('.legend', clfPanels[0].closest('.card')).innerHTML =
+      andijLegend() + hollow('2nd AnDi Challenge participant')
+      + (state.segUpload ? dot(C.css(GROUPS.upload.color), UPLOAD_SEG) : '')
+      + '<span><i class="dash"></i>Ground truth</span>';
+    const teams = clf.teams.map(t => ({ name: t, color: t === ANDIJ_SEG ? C.andijColor() : C.css('--neutral-mark') }));
+    if (state.segUpload) teams.push({ name: UPLOAD_SEG, color: C.css(GROUPS.upload.color) });
+    clf.experiments.forEach((e, i) => {
+      const bars = [];
+      for (const team of clf.teams) clf.states.forEach((s, si) => bars.push({ team, state: s, v: e.values[team][si] }));
+      const up = state.segUpload?.states.find(x => x.exp === e.exp);
+      if (up) clf.states.forEach((s, si) => bars.push({ team: UPLOAD_SEG, state: s, v: up.values[si] }));
+      C.segBars(clfPanels[i], { rows: bars, truth: clf.states.map((s, si) => ({ state: s, v: e.truth[si] })),
+        states: clf.states, short: SEG_STATES, teams, ylabel: i % 5 === 0 ? 'Share of time points' : null,
+        selected: sel, onPick: pick });
+    });
+    const hit = sel && clf.teams.includes(sel);
+    say(readoutOf(clfPanels[0]), hit && `<b>${esc(sel)}</b>` + clf.experiments.map((e, i) =>
+      `<span>Exp ${e.exp}: ${clf.states.map((s, si) => `${SEG_STATES[si]} ${(e.values[sel][si] * 100).toFixed(0)}%`).join(' / ')}</span>`).slice(0, 3).join(''));
+  }
+
+  function draw() { drawOverall(); drawPerExp(); drawCp(); drawSingle(); drawClf(); }
+
+  onLayout(page, draw);
+  return page;
+}
 
 // ----- Submit -----
 

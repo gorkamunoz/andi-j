@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260923c">
+  <link rel="stylesheet" href="css/style.css?v=20261001c">
   <script>
     // Apply the saved theme before first paint
     try { const t = localStorage.getItem('andij-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -22,7 +22,7 @@
       <nav class="nav" id="nav">
         <a href="#/overview" data-view="overview">Overview</a>
         <a href="#/trajectory" data-view="trajectory">Trajectory Analysis</a>
-        <a href="#/segmentation" data-view="segmentation">Segmentation Analysis</a>
+        <a href="#/segmentation" data-view="segmentation">Trajectory segmentation</a>
       </nav>
       <div class="topbar-right">
         <a class="pill-link" href="https://github.com/gorkamunoz/andi-j/wiki" target="_blank" rel="noopener">AnDi-J Documentation</a>
@@ -32,11 +32,15 @@
       </div>
     </div>
     <nav class="subnav" id="subnav" hidden>
-      <div class="subnav-inner">
+      <div class="subnav-inner" data-for="trajectory">
         <a href="#/trajectory" data-view="trajectory">Overview</a>
         <a href="#/trajectory/alpha" data-view="trajectory/alpha">Anomalous exponent</a>
         <a href="#/trajectory/model" data-view="trajectory/model">Diffusion model</a>
         <a href="#/trajectory/submit" data-view="trajectory/submit">Submit</a>
+      </div>
+      <div class="subnav-inner" data-for="segmentation" hidden>
+        <a href="#/segmentation" data-view="segmentation">Analysis</a>
+        <a href="#/segmentation/submit" data-view="segmentation/submit">Submission</a>
       </div>
     </nav>
   </header>
@@ -53,10 +57,11 @@
     </span>
   </footer>
 
-  <script src="vendor/d3.min.js?v=20260923c"></script>
-  <script src="vendor/plot.umd.min.js?v=20260923c"></script>
-  <script src="js/metrics.js?v=20260923c"></script>
-  <script src="js/charts.js?v=20260923c"></script>
-  <script src="js/app.js?v=20260923c"></script>
+  <script src="vendor/d3.min.js?v=20261001c"></script>
+  <script src="vendor/plot.umd.min.js?v=20261001c"></script>
+  <script src="js/metrics.js?v=20261001c"></script>
+  <script src="js/seg_score.js?v=20261001c"></script>
+  <script src="js/charts.js?v=20261001c"></script>
+  <script src="js/app.js?v=20261001c"></script>
 </body>
 </html>

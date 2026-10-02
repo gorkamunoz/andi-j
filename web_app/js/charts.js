@@ -275,3 +275,204 @@ C.scatter = (el, input, { selected, onPick } = {}) => {
   render();
   return { reset };
 };
+
+// ---------- Segmentation ----------
+// The five best challenge teams keep one series color each; the AnDi-J default model always keeps
+// the blue of its method group, so it reads the same here as in the Trajectory Analysis tab.
+
+// 1, 2, 5 per decade: d3's default log ticks put an unlabelled mark at every unit, which reads as noise.
+C.logTicks = (scale) => {
+  const [a, b] = d3.extent(scale.domain), out = [];
+  for (let e = Math.floor(Math.log10(a)); e <= Math.ceil(Math.log10(b)); e++)
+    for (const m of [1, 2]) { const v = m * 10 ** e; if (v >= a && v <= b) out.push(v); }
+  return out;
+};
+
+C.logFormat = (d) => (d >= 0.01 ? String(+d.toPrecision(3)) : d.toExponential(0).replace('e-', 'e−'));
+
+// Tooltips name the metric and give the value, nothing else: the direction hints belong on the axes.
+C.plain = (s) => String(s).replace(/\s*\((?:lower|higher) is better\)/, '').replace(/[\u2190\u2191\u2192\u2193]/g, '').trim();
+
+// Click support for a Plot chart: picks the nearest datum in pixel space, null when you miss.
+C.clickPoints = (plot, data, ax, ay, onPick, radius = 15) => {
+  const sx = plot.scale('x'), sy = plot.scale('y');
+  const W = +plot.getAttribute('width'), H = +plot.getAttribute('height');
+  plot.style.cursor = 'pointer';
+  plot.addEventListener('click', (e) => {
+    const b = plot.getBoundingClientRect();
+    const mx = (e.clientX - b.left) * (W / b.width), my = (e.clientY - b.top) * (H / b.height);
+    let best = null, bd = radius;
+    for (const d of data) {
+      const dist = Math.hypot(sx.apply(ax(d)) - mx, sy.apply(ay(d)) - my);
+      if (dist < bd) { bd = dist; best = d; }
+    }
+    onPick(best);
+  });
+};
+
+C.segSeries = () => [2, 3, 4, 5, 6].map(i => C.css(`--series-${i}`));
+C.andijColor = () => C.css('--series-1');
+
+// Greedy label placement around points, in pixel space. Labels that find no free slot are dropped
+// (their point keeps its tooltip); `keep` rows are placed first so they are never the ones dropped.
+// Returns the rows grouped by candidate offset, since Plot takes dx/dy per mark, not per datum.
+C.placeAround = (rows, px, py, bounds, keep = () => false, subset = null) => {
+  const cands = [[10, 0, 'start'], [-10, 0, 'end'], [0, -12, 'middle'], [0, 13, 'middle'],
+    [8, -10, 'start'], [8, 10, 'start'], [-8, -10, 'end'], [-8, 10, 'end'],
+    // a second, wider ring, for the crowded corner where the best methods sit
+    [0, -25, 'middle'], [0, 26, 'middle'], [22, 0, 'start'], [-22, 0, 'end'],
+    [18, -20, 'start'], [18, 20, 'start'], [-18, -20, 'end'], [-18, 20, 'end']];
+  const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const taken = rows.map(r => ({ x: px(r) - 7, y: py(r) - 7, w: 14, h: 14 }));
+  const groups = cands.map(() => []);
+  const wanted = subset ? rows.filter(subset) : rows;
+  for (const r of [...wanted].sort((a, b) => keep(b) - keep(a) || (a.rank ?? 99) - (b.rank ?? 99))) {
+    const x = px(r), y = py(r), w = C.textWidth(r.team, keep(r) ? 650 : 500) + 6, h = 14;
+    for (let i = 0; i < cands.length; i++) {
+      const [dx, dy, anchor] = cands[i];
+      const x0 = anchor === 'start' ? x + dx : anchor === 'end' ? x + dx - w : x + dx - w / 2;
+      const box = { x: x0, y: y + dy - h / 2, w, h };
+      if (box.x < bounds.l || box.x + box.w > bounds.r || box.y < bounds.t || box.y + box.h > bounds.b) continue;
+      if (taken.some(b => hit(box, b))) continue;
+      taken.push(box); groups[i].push(r); break;
+    }
+  }
+  return cands.map(([dx, dy, anchor], i) => ({ dx, dy, anchor, rows: groups[i] })).filter(g => g.rows.length);
+};
+
+// Scatter of two overall metrics, one dot per method. Axes are oriented so that the best methods
+// sit in the top right corner, as in the paper figures.
+C.segScatter = (el, rows, { x, y, xlabel, ylabel, xlog, ylog, xreverse, yreverse, digits = 3, rules = [],
+  hover = true, labels = true, selected, onPick }) => {
+  const W = C.width(el, 560), H = Math.max(280, Math.round(W * 0.72));
+  const m = { l: 56, r: 18, t: 24, b: 44 };
+  const data = rows.map(r => ({ ...r, x: r[x], y: r[y] })).filter(r => r.x != null && r.y != null);
+  const emph = (r) => r.group !== 'challenge';
+  const fill = (r) => (emph(r) ? r.color : C.css('--surface'));
+  const opts = (mark, ticks = {}) => ({
+    style: { fontFamily: 'inherit', fontSize: '12px', color: C.css('--text-2'), background: 'transparent' },
+    width: W, height: H, marginLeft: m.l, marginRight: m.r, marginTop: m.t, marginBottom: m.b,
+    x: { label: xlabel, grid: true, type: xlog ? 'log' : 'linear', reverse: xreverse, nice: !xlog, inset: 10, ticks: ticks.x, tickFormat: xlog ? C.logFormat : undefined },
+    y: { label: ylabel, grid: true, type: ylog ? 'log' : 'linear', reverse: yreverse, nice: !ylog, inset: 10, ticks: ticks.y, tickFormat: ylog ? C.logFormat : undefined },
+    marks: [
+      Plot.ruleY(rules, { y: 'v', stroke: C.css('--text-3'), strokeWidth: 1.5, strokeDasharray: '5 4',
+        tip: true, title: r => `${r.name}\n${C.plain(ylabel)}: ${fmt(r.v, digits)}` }),
+      Plot.dot(data.filter(r => !emph(r)), { x: 'x', y: 'y', r: 5, strokeWidth: 2, fill, stroke: r => r.color }),
+      Plot.dot(data.filter(emph), { x: 'x', y: 'y', r: 6.5, strokeWidth: 2, fill, stroke: C.css('--surface') }),
+      ...(selected ? [Plot.dot(data.filter(r => r.team === selected), { x: 'x', y: 'y', r: 8.5, fill,
+        stroke: C.css('--text'), strokeWidth: 2.5 })] : []),
+      ...mark,
+      ...(hover ? [Plot.tip(data, Plot.pointer({ x: 'x', y: 'y', maxRadius: 28,
+        title: r => `${r.team}\n${C.plain(xlabel)}: ${fmt(r.x, digits)}\n${C.plain(ylabel)}: ${fmt(r.y, digits)}` }))] : []),
+    ],
+  });
+  // First pass gives the scales, so labels can be placed without overlapping.
+  const probe = Plot.plot(opts([]));
+  const sx = probe.scale('x'), sy = probe.scale('y');
+  const groups = labels ? C.placeAround(data, r => sx.apply(r.x), r => sy.apply(r.y),
+    { l: m.l, r: W - m.r, t: m.t - 6, b: H - m.b }, emph, labels === 'emph' ? emph : null) : [];
+  const tks = { x: xlog ? C.logTicks(sx) : undefined, y: ylog ? C.logTicks(sy) : undefined };
+  const texts = groups.map(g => Plot.text(g.rows, { x: 'x', y: 'y', text: 'team', dx: g.dx, dy: g.dy,
+    textAnchor: g.anchor, lineAnchor: 'middle', fontSize: 11.5,
+    fill: r => (emph(r) ? C.css('--text') : C.css('--text-2')), fontWeight: r => (emph(r) ? 650 : 500) }));
+  const plot = C.mount(el, Plot.plot(opts(texts, tks)));
+  if (onPick) {
+    plot.style.cursor = 'pointer';
+    plot.addEventListener('click', (e) => {
+      const b = plot.getBoundingClientRect();
+      const mx = (e.clientX - b.left) * (W / b.width), my = (e.clientY - b.top) * (H / b.height);
+      let best = null, bd = 16;
+      for (const r of data) { const d = Math.hypot(sx.apply(r.x) - mx, sy.apply(r.y) - my); if (d < bd) { bd = d; best = r; } }
+      onPick(best ? best.team : null);
+    });
+  }
+  return plot;
+};
+
+// One metric across the nine experiments: every method as a faint dot, the median of the five best
+// challenge teams as a hollow marker, and the AnDi-J default model highlighted.
+C.segPerExp = (el, { rows, median, andij, mine = [], label, exps, skip = [], log, height = 210, selected, onPick }) => {
+  const grey = C.css('--neutral-mark'), blue = C.andijColor(), surface = C.css('--surface');
+  const shown = rows.filter(r => !skip.includes(r.exp));
+  const mid = median.filter(r => !skip.includes(r.exp));
+  const mineA = andij.filter(r => !skip.includes(r.exp));
+  const mineU = mine.filter(r => !skip.includes(r.exp));
+  const hit = (r) => selected && r.team === selected;
+  const plot = C.mount(el, Plot.plot(C.base({
+    width: C.width(el, height > 260 ? 900 : 420), height, marginLeft: 52, marginBottom: 36, marginTop: 24,
+    x: { type: 'point', domain: exps, label: 'Experiment', padding: 0.5 },
+    y: { label, grid: true, nice: !log, type: log ? 'log' : 'linear', tickFormat: log ? C.logFormat : undefined },
+    marks: [
+      Plot.ruleX(exps, { stroke: C.css('--border'), strokeWidth: 1 }),
+      ...skip.map(e => Plot.ruleX([e], { stroke: C.css('--border-strong'), strokeDasharray: '3 3' })),
+      Plot.dot(shown, { x: 'exp', y: 'v', r: r => (hit(r) ? 5 : 3.2), fill: grey,
+        fillOpacity: r => (hit(r) ? 1 : 0.35), stroke: null }),
+      Plot.dot(mid, { x: 'exp', y: 'v', r: 5, fill: surface, stroke: grey, strokeWidth: 2 }),
+      Plot.dot(mineA, { x: 'exp', y: 'v', r: 5, fill: blue, stroke: surface, strokeWidth: 1.5 }),
+      Plot.dot(mineU, { x: 'exp', y: 'v', r: 5, fill: C.css('--series-2'), stroke: surface, strokeWidth: 1.5 }),
+      ...(selected ? [Plot.dot(shown.concat(mineA, mineU).filter(hit), { x: 'exp', y: 'v', r: 7,
+        fill: 'none', stroke: C.css('--text'), strokeWidth: 2 })] : []),
+    ],
+  })));
+  if (onPick) C.clickPoints(plot, shown.concat(mineA, mineU), r => r.exp, r => r.v, onPick);
+  return plot;
+};
+
+// One metric against the number of changepoints per trajectory, one line per method. Every
+// participant is drawn the same grey: clicking a line is what tells you which method it is.
+C.segLines = (el, series, { label, xlabel, domain, log, selected, onPick }) => {
+  const marks = [], pts = [];
+  series.forEach(s => {
+    const rows = s.rows.filter(r => r.v != null && !Number.isNaN(r.v));
+    const on = selected && s.name === selected;
+    marks.push(Plot.line(rows, { x: 'k', y: 'v', stroke: s.color,
+      strokeWidth: on ? 3 : s.emph ? 2.4 : 1.5, strokeOpacity: on || s.emph ? 1 : 0.55 }));
+    if (on) marks.push(Plot.dot(rows, { x: 'k', y: 'v', r: 3.4, fill: s.color }));
+    rows.forEach(r => pts.push({ ...r, name: s.name }));
+  });
+  const plot = C.mount(el, Plot.plot(C.base({
+    width: C.width(el, 420), height: 210, marginLeft: 52, marginBottom: 36, marginTop: 24,
+    x: { domain, label: xlabel, ticks: domain[1] - domain[0] + 1, tickFormat: d => d },
+    y: { label, grid: true, nice: !log, type: log ? 'log' : 'linear', tickFormat: log ? C.logFormat : undefined },
+    marks,
+  })));
+  if (onPick) C.clickPoints(plot, pts, r => r.k, r => r.v, onPick, 18);
+  return plot;
+};
+
+// Predicted share of each diffusion type in one experiment, with the ground truth as a dashed rule.
+C.segBars = (el, { rows, truth, states, short, teams, ylabel, selected, onPick }) => {
+  const plot = C.mount(el, Plot.plot(C.base({
+    width: C.width(el, 300), height: 200, marginLeft: 46, marginBottom: 34, marginTop: 24, marginRight: 6,
+    fx: { domain: states, label: null, axis: 'bottom', tickFormat: s => short[states.indexOf(s)], padding: 0.18 },
+    x: { domain: teams.map(t => t.name), axis: null, padding: 0.12 },
+    y: { label: ylabel, grid: true, domain: [0, 1], tickFormat: '.0%' },
+    color: { domain: teams.map(t => t.name), range: teams.map(t => t.color) },
+    marks: [
+      Plot.barY(rows, { fx: 'state', x: 'team', y: 'v', fill: 'team', rx: 1.5,
+        stroke: r => (r.team === selected ? C.css('--text') : 'none'), strokeWidth: 1.5,
+        fillOpacity: r => (!selected || r.team === selected ? 1 : 0.5) }),
+      Plot.ruleY(truth, { fx: 'state', y: 'v', stroke: C.css('--text'), strokeWidth: 1.5, strokeDasharray: '4 3' }),
+      Plot.ruleY([0], { stroke: C.css('--border-strong') }),
+    ],
+  })));
+  // Bars live in a band inside a facet band, so hit testing goes through both scales.
+  if (onPick) {
+    const fx = plot.scale('fx'), sx = plot.scale('x'), sy = plot.scale('y');
+    const W = +plot.getAttribute('width'), H = +plot.getAttribute('height');
+    plot.style.cursor = 'pointer';
+    plot.addEventListener('click', (e) => {
+      const b = plot.getBoundingClientRect();
+      const mx = (e.clientX - b.left) * (W / b.width), my = (e.clientY - b.top) * (H / b.height);
+      let best = null;
+      for (const r of rows) {
+        const x0 = fx.apply(r.state) + sx.apply(r.team), x1 = x0 + sx.bandwidth;
+        if (mx < x0 - 1 || mx > x1 + 1) continue;
+        if (my < Math.min(sy.apply(r.v), sy.apply(0)) - 6 || my > sy.apply(0) + 6) continue;
+        best = r;
+      }
+      onPick(best);
+    });
+  }
+  return plot;
+};

@@ -192,13 +192,13 @@ def concat_fovs(dfs, keep):
 
 # ---------- 4. Single state experiment ----------
 
-def build_single_state(source, mapping, seg_plots):
+def build_single_state(source, mapping, assets):
     """MAE (α) and MSLE (K) against the false positive rate on the single-state experiment.
 
     On that experiment no trajectory has a changepoint, so every predicted changepoint is a false
     positive: FPR = FP / (FP + number of trajectories).
     """
-    df = pd.read_csv(seg_plots / 'df_single_state.csv', index_col=0)
+    df = pd.read_csv(assets / 'df_single_state.csv', index_col=0)
     rows = []
     for _, r in df.iterrows():
         team = r['Team']
@@ -297,7 +297,7 @@ def main():
     ap.add_argument('--source', type=pathlib.Path, default=SOURCE, help='challenge_phase folder')
     ap.add_argument('--only', nargs='*', help='only rebuild these files (without .json)')
     args = ap.parse_args()
-    source, seg_plots = args.source, pathlib.Path(__file__).parent / 'segmentation_plots'
+    source, assets = args.source, pathlib.Path(__file__).parent / 'assets'
     OUT.mkdir(parents=True, exist_ok=True)
 
     def wanted(name):
@@ -318,7 +318,7 @@ def main():
     teams = top + [(ANDIJ_NAME, ANDIJ)]
 
     if wanted('single_state'):
-        write('single_state', build_single_state(source, mapping, seg_plots))
+        write('single_state', build_single_state(source, mapping, assets))
     if wanted('classification'):
         print('classification…')
         write('classification', build_classification(source, teams))

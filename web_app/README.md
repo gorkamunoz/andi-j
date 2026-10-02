@@ -43,7 +43,7 @@ the visitor's browser and never leave their computer.
   per number of changepoints, single state experiment, diffusion type populations) and `truth.json`,
   the challenge ground truth, loaded only by the Submission page.
 * `js/seg_score.js`: the challenge scorer ported to JavaScript, plus a small zip reader.
-* `assets/`: AnDi-J logo and favicon.
+* `assets/`: AnDi-J logo, favicon and `df_single_state.csv` (input of `build_segmentation_data.py`).
 * `vendor/`: local copies of d3 7.9 and Observable Plot 0.6.17 (no CDN needed).
 
 ## Adding models
@@ -88,8 +88,7 @@ experiment scores and references of the challenge phase) with `andi_datasets` in
     conda run -n andi python build_segmentation_data.py --source /path/to/challenge_phase/
 
 `--only truth` rebuilds just the ground truth the Submission page needs.
-It also reads `segmentation_plots/df_single_state.csv` (the single state experiment table from the
-analysis notebooks) and takes about five minutes, most of it rescoring the submissions by number of
+It also reads `assets/df_single_state.csv` (per-team scores on the single state experiment) and takes about five minutes, most of it rescoring the submissions by number of
 changepoints. `--only leaderboard per_experiment single_state` rebuilds just the light files.
 The AnDi-J default model is the `model_v2.2` submission and is ranked together with the
 participants; the five best challenge teams are the ones shown in the panels that only keep the top

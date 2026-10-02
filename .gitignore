@@ -6,3 +6,6 @@ target/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Small build input of the benchmark website
+!web_app/assets/df_single_state.csv

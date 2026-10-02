@@ -11,7 +11,7 @@ const GROUPS = {
   upload: { label: 'New submission', color: '--series-2' },
 };
 let METHODS = {};
-const methodsReady = fetch('data/methods.json').then(r => (r.ok ? r.json() : {})).catch(() => ({})).then(m => (METHODS = m || {}));
+const methodsReady = fetch('data/methods.json', { cache: 'no-cache' }).then(r => (r.ok ? r.json() : {})).catch(() => ({})).then(m => (METHODS = m || {}));
 const groupOf = (t) => (t === UPLOAD ? 'upload' : METHODS[t]?.group in GROUPS ? METHODS[t].group : 'challenge');
 const DIM_N = {}; // number of test trajectories per task and dimension, filled when data loads
 
@@ -19,7 +19,7 @@ const DEFAULT_F = () => ({ model: 'All', snr: 'All', alpha: [0, 2], length: [10,
 
 const state = {
   view: 'overview',
-  dim: 1,
+  dim: 2,
   f: DEFAULT_F(),        // filters shared by all views
   sel: { overview: null, task1: null, task2: null, segmentation: null },
   seg: { x: 'mae_alpha', y: 'msle_k',   // metric explorer: metric on each axis
@@ -37,7 +37,7 @@ const cache = {};
 function load(task, dim) {
   const key = `${task}_${dim}`;
   if (!cache[key]) {
-    cache[key] = fetch(`data/task${task}_${dim}d.json`)
+    cache[key] = fetch(`data/task${task}_${dim}d.json`, { cache: 'no-cache' })
       .then(r => { if (!r.ok) throw new Error(`Could not load data/task${task}_${dim}d.json (${r.status})`); return r.json(); })
       .then(d => { DIM_N[key] = (d.alpha || d.alpha1).length; return d; })
       .catch(e => { delete cache[key]; throw e; });
@@ -267,7 +267,7 @@ async function viewOverview() {
 
   const sCard = h(`<section class="card"><div class="card-head"><div><h2>AnDi-J Trajectory Analysis Benchmark</h2>
     <div class="card-sub">Scroll or pinch to zoom, drag to move, double click to reset. Hover a dot for details, click it to highlight the method. Best models sit in the top left; models without one of the two predictions sit on the dashed lines.</div></div>
-    <div class="scatter-tools"><span class="legend" id="sc-legend"></span><button class="btn small" id="sc-reset">Reset view</button></div></div>
+    <div class="scatter-tools wide"><span class="legend" id="sc-legend"></span><button class="btn small" id="sc-reset">Reset view</button><span class="dim-note" id="sc-dim"></span></div></div>
     <div class="card-body"></div></section>`);
   page.append(sCard);
   const bar = await fFields(1, () => { delete body(sCard).__zt; draw(); });
@@ -286,6 +286,8 @@ async function viewOverview() {
     const b1 = by(l1), b2 = by(l2);
     const rows = teams.map(team => ({ team, t1: b1[team], t2: b2[team] }));
     if (!teams.includes(state.sel.overview)) state.sel.overview = null;
+    const hasAndij = teams.some(t => groupOf(t) === 'andij');
+    $('#sc-dim', sCard).textContent = hasAndij ? `${dim}D` : `${dim}D (not included in AnDi-J; only AnDi challenge results)`;
     $('.card-sub', tCard).textContent = `Rank of each method under the current filters (${dim}D, ${i1.length.toLocaleString()} trajectories for α, ${i2.length.toLocaleString()} for the model). Click a column to sort, a row to highlight.`;
 
     const pick = team => { state.sel.overview = state.sel.overview === team ? null : team; drawTable(); drawScatter(); };
@@ -612,7 +614,7 @@ function segRowsWithUpload(lb, up) {
 // is ranked together with the challenge teams.
 const ANDIJ_SEG = 'AnDi-J default';
 const segCache = {};
-const loadSeg = (name) => (segCache[name] ??= fetch(`data/segmentation/${name}.json`)
+const loadSeg = (name) => (segCache[name] ??= fetch(`data/segmentation/${name}.json`, { cache: 'no-cache' })
   .then(r => { if (!r.ok) throw new Error(`Could not load data/segmentation/${name}.json (${r.status})`); return r.json(); })
   .catch(e => { delete segCache[name]; throw e; }));
 

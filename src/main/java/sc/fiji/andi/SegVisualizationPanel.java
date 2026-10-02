@@ -296,7 +296,7 @@ public class SegVisualizationPanel extends JPanel {
      * Exports the per-frame predictions to CSV with columns
      * {@code experiment, traj_idx, frame, alpha, D, state}. α is the per-frame
      * anomalous exponent; D = 10^log₁₀(D) (blank where D is undefined); state is
-     * the diffusive state of the segment covering the frame.
+     * the per-frame diffusive state.
      */
     private void saveRawPredictions() {
         if (experiments.stream().noneMatch(ExperimentData::hasStepPredictions)) {

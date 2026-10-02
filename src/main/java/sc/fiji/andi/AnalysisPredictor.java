@@ -25,7 +25,8 @@ import java.util.*;
  *
  * <p>Results are stored in {@link ExperimentData#alphaCoeffs}
  * ({@code {α, NaN, NaN}}) and {@link ExperimentData#diffModel} (class index).
- * Tracks with fewer than 2 frames get {@code NaN} α and no model entry.</p>
+ * Tracks with fewer than 2 frames get {@code NaN} α and no model entry.
+ * Trajectories run in parallel ({@link ParallelTracks}).</p>
  */
 public class AnalysisPredictor implements MlPredictor {
 
@@ -60,7 +61,7 @@ public class AnalysisPredictor implements MlPredictor {
 
     public AnalysisPredictor(byte[] modelBytes) throws OrtException {
         env       = OrtEnvironment.getEnvironment();
-        session   = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
+        session   = env.createSession(modelBytes, OnnxSessions.forParallelRuns());
         inputName = session.getInputNames().iterator().next();
     }
 
@@ -76,23 +77,20 @@ public class AnalysisPredictor implements MlPredictor {
     @Override
     public void computeForExperiment(ExperimentData exp, MlPredictor.ProgressListener listener)
             throws OrtException {
+        // {alpha (1), scores (5)} per track; null for tracks too short to run
+        Map<Integer, float[][]> outs = ParallelTracks.map(exp.tracks,
+                spots -> spots.size() < 2 ? null : runSingle(positions(spots)), listener);
+
         Map<Integer, double[]> alpha  = new LinkedHashMap<>();
         Map<Integer, Integer>  models = new LinkedHashMap<>();
-
-        for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
-            int            id    = e.getKey();
-            List<double[]> spots = e.getValue();
-
-            if (spots.size() < 2) {
-                alpha.put(id, new double[]{Double.NaN, Double.NaN, Double.NaN});
-                if (listener != null) listener.trackDone();
+        for (Map.Entry<Integer, float[][]> e : outs.entrySet()) {
+            float[][] out = e.getValue();
+            if (out == null) {
+                alpha.put(e.getKey(), new double[]{Double.NaN, Double.NaN, Double.NaN});
                 continue;
             }
-
-            float[][] out = runSingle(positions(spots));   // {alpha (1), scores (5)}
-            alpha.put(id, new double[]{out[0][0], Double.NaN, Double.NaN});
-            models.put(id, argmax(out[1]));
-            if (listener != null) listener.trackDone();
+            alpha.put(e.getKey(), new double[]{out[0][0], Double.NaN, Double.NaN});
+            models.put(e.getKey(), argmax(out[1]));
         }
 
         exp.alphaCoeffs = alpha;

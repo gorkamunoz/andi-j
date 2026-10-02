@@ -22,6 +22,8 @@ BLOCK_KERNELS = (2, 3, 4, 10, 20)   # receptive fields 16, 31, 46, 136, 286
 DILATIONS = (1, 2, 4, 8)
 N_FILTERS = 64
 BN_EPS, BN_MOMENTUM = 1e-3, 0.01
+# Steps of input one block output depends on (kernel 20 over dilations 1+2+4+8).
+RECEPTIVE_FIELD = (max(BLOCK_KERNELS) - 1) * sum(DILATIONS) + 1   # 286
 
 
 class CausalConv1d(nn.Module):

@@ -28,9 +28,12 @@ What the graph does
   1. Keeps the last MAX_T - 1 = 1000 positions and shifts the trajectory so that its
      first kept position is the origin (the networks were trained on trajectories that
      start at (0, 0)).
-  2. Zero-pads the positions at the front to MAX_T = 1001 points, takes the 1000
-     displacements and divides them by the mean step size (the padding is part of the
-     input, as in training).
+  2. Zero-pads the positions at the front, takes the displacements and divides them by
+     the mean step size. The networks were trained with padding to MAX_T = 1001 points;
+     the graph pads with only RECEPTIVE_FIELD + 1 zeros (capped at MAX_T points), which
+     gives the same outputs: past one receptive field of zeros every activation is a
+     constant, so the global max over time does not depend on how many such steps there
+     are. Short trajectories therefore cost proportionally less.
   3. Runs each network on the 8 symmetric views of the displacements (sign flips of x
      and y, times swapping x and y) and averages the softmax probabilities.
   4. alpha = median of the exponent distribution over the 40-value grid, interpolated
@@ -50,10 +53,10 @@ import torch.nn as nn
 
 try:  # run as a module from the repository root
     from utils.ML_models.onnx_converters.model_analysis_v1 import (
-        ALPHA_GRID, MAX_T, MODELS, load_model)
+        ALPHA_GRID, MAX_T, MODELS, RECEPTIVE_FIELD, load_model)
 except ImportError:  # run directly from this folder
     sys.path.insert(0, str(Path(__file__).parent))
-    from model_analysis_v1 import ALPHA_GRID, MAX_T, MODELS, load_model
+    from model_analysis_v1 import ALPHA_GRID, MAX_T, MODELS, RECEPTIVE_FIELD, load_model
 
 SCRIPT_DIR = Path(__file__).parent
 WEIGHTS = SCRIPT_DIR / '../model_weights'
@@ -77,11 +80,11 @@ class ContractAnalysisModel(nn.Module):
         signs = [[sx, sy] for sx in (1., -1.) for sy in (1., -1.)]
         self.register_buffer('signs', torch.tensor(signs).view(4, 1, 1, 2))
 
-    def displacements(self, positions):                   # (B, T, 2) -> (B, MAX_T - 1, 2)
+    def displacements(self, positions):                   # (B, T, 2) -> (B, L, 2)
         positions = positions[:, -(MAX_T - 1):, :]
         origin = positions[:, 0, :].unsqueeze(1)          # (B, 1, 2)
         positions = positions - origin
-        zeros = torch.zeros_like(origin).repeat(1, MAX_T, 1)
+        zeros = torch.zeros_like(origin).repeat(1, RECEPTIVE_FIELD + 1, 1)
         xy = torch.cat([zeros, positions], dim=1)[:, -MAX_T:, :]
         d = xy[:, 1:, :] - xy[:, :-1, :]
         # mean step: summed step lengths over the number of non-zero x positions
@@ -127,8 +130,23 @@ def export(model, out_path):
                           dynamic_shapes={'positions': dims}, opset_version=OPSET)
 
 
+def full_padding_reference(model, positions):
+    """The outputs with the training-time padding to MAX_T points."""
+    positions = positions[:, -(MAX_T - 1):, :]
+    positions = positions - positions[:, 0, :].unsqueeze(1)
+    xy = torch.cat([torch.zeros(positions.shape[0], MAX_T, 2), positions], dim=1)[:, -MAX_T:]
+    d = xy[:, 1:] - xy[:, :-1]
+    n = (xy[:, :, 0] != 0).sum(dim=1).clamp(min=1).float()
+    x = d / (torch.sqrt((d ** 2).sum(-1)).sum(dim=1) / n).clamp(min=1e-12)[:, None, None]
+    original, model.displacements = model.displacements, lambda _: x
+    try:
+        return [r.numpy() for r in model(positions)]
+    finally:
+        model.displacements = original
+
+
 def verify(model, session):
-    """Contract checks: ONNX = PyTorch at many lengths, shift invariance, batching."""
+    """Contract checks: ONNX = PyTorch = full padding, shift invariance, batching."""
     failures = []
     for length in (2, 10, 37, 200, 999, 1000, 1001, 1500):
         positions = torch.randn(1, length, 2).cumsum(dim=1)
@@ -141,7 +159,12 @@ def verify(model, session):
         worst = max(float(np.abs(r - o).max()) for r, o in zip(reference, outputs))
         if worst > 1e-4:
             failures.append(f'T={length}: ONNX differs from PyTorch by {worst:.2e}')
-        print(f'   T={length:4d}  max|Δ| = {worst:.1e}   alpha = {outputs[0][0, 0]:.3f}   '
+        with torch.no_grad():
+            padded = full_padding_reference(model, positions)
+        gap = max(float(np.abs(r - o).max()) for r, o in zip(padded, outputs))
+        if gap > 1e-4:
+            failures.append(f'T={length}: differs from full padding by {gap:.2e}')
+        print(f'   T={length:4d}  max|Δ| = {worst:.1e}  vs full padding {gap:.1e}   alpha = {outputs[0][0, 0]:.3f}   '
               f'model = {MODELS[int(outputs[1].argmax())]}')
 
     # Absolute positions (e.g. µm in a TrackMate file) must give the same answer.
@@ -161,11 +184,17 @@ def verify(model, session):
         if drift > 1e-4:
             failures.append(f'batch row {row} differs from a single run by {drift:.2e}')
 
-    started = time.perf_counter()
-    for _ in range(20):
-        session.run(None, {'input': positions})
-    per_track = (time.perf_counter() - started) / 20
-    print(f'   CPU time per trajectory (batch 1): {per_track * 1000:.0f} ms')
+    print('   CPU time per trajectory:')
+    for length in (20, 100, 300, 1000):
+        cells = []
+        for batch in (1, 32):
+            x = np.cumsum(np.random.randn(batch, length, 2), axis=1).astype('float32')
+            session.run(None, {'input': x})
+            started = time.perf_counter()
+            for _ in range(5):
+                session.run(None, {'input': x})
+            cells.append(f'batch {batch}: {(time.perf_counter() - started) / 5 / batch * 1000:4.0f} ms')
+        print(f'     T={length:4d}   ' + '   '.join(cells))
     return failures
 
 

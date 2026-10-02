@@ -24,7 +24,8 @@ import java.util.*;
  * </ul>
  *
  * Only the relevant {@link ExperimentData} map is written:
- * {@code alphaCoeffs} for ALPHA, {@code diffModel} for MODEL.
+ * {@code alphaCoeffs} for ALPHA, {@code diffModel} for MODEL. Trajectories run in
+ * parallel ({@link ParallelTracks}).
  */
 public class CustomAnalysisPredictor implements MlPredictor {
 
@@ -43,7 +44,7 @@ public class CustomAnalysisPredictor implements MlPredictor {
     public CustomAnalysisPredictor(byte[] modelBytes, Mode mode) throws OrtException {
         this.mode  = mode;
         env        = OrtEnvironment.getEnvironment();
-        session    = env.createSession(modelBytes, OnnxSessions.gpuIfAvailable());
+        session    = env.createSession(modelBytes, OnnxSessions.forParallelRuns());
         inputName  = session.getInputNames().iterator().next();
         outputName = session.getOutputNames().iterator().next();
     }
@@ -57,29 +58,21 @@ public class CustomAnalysisPredictor implements MlPredictor {
     @Override
     public void computeForExperiment(ExperimentData exp, MlPredictor.ProgressListener listener)
             throws OrtException {
+        // raw model output per track; null for tracks too short to run
+        Map<Integer, float[]> outs = ParallelTracks.map(exp.tracks,
+                spots -> spots.size() < 2 ? null : runSingle(extractXY(spots)), listener);
+
         Map<Integer, double[]> alpha  = (mode == Mode.ALPHA) ? new LinkedHashMap<>() : null;
         Map<Integer, Integer>  models = (mode == Mode.MODEL) ? new LinkedHashMap<>() : null;
-
-        for (Map.Entry<Integer, List<double[]>> e : exp.tracks.entrySet()) {
-            int            id    = e.getKey();
-            List<double[]> spots = e.getValue();
-
-            if (spots.size() < 2) {
-                if (mode == Mode.ALPHA)
-                    alpha.put(id, new double[]{Double.NaN, Double.NaN, Double.NaN});
-                if (listener != null) listener.trackDone();
-                continue;
-            }
-
-            float[] out = runSingle(extractXY(spots));   // raw (x, y) positions
-
+        for (Map.Entry<Integer, float[]> e : outs.entrySet()) {
+            int     id  = e.getKey();
+            float[] out = e.getValue();
             if (mode == Mode.ALPHA) {
-                alpha.put(id, new double[]{out.length > 0 ? out[0] : Float.NaN,
+                alpha.put(id, new double[]{out != null && out.length > 0 ? out[0] : Double.NaN,
                                            Double.NaN, Double.NaN});
-            } else {
+            } else if (out != null) {
                 models.put(id, out.length > 1 ? argmax(out) : Math.round(out.length > 0 ? out[0] : 0));
             }
-            if (listener != null) listener.trackDone();
         }
 
         if (mode == Mode.ALPHA) exp.alphaCoeffs = alpha;

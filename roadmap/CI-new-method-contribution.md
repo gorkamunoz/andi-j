@@ -44,7 +44,8 @@ For `"module": "segmentation"`, `tasks` holds a single entry:
   "segmentation": {
     "url": "https://zenodo.org/records/.../seg.onnx",
     "sha256": "...",
-    "outputs": ["alpha", "logD", "cp", "model_type"]
+    "outputs": ["alpha", "logD", "cp", "diffusive_state", "seg_start", "seg_length",
+                "seg_alpha", "seg_logD", "seg_state"]
   }
 }
 ```
@@ -66,7 +67,7 @@ For `"module": "segmentation"`, `tasks` holds a single entry:
 | `tasks` | yes | Analysis: `alpha` and/or `model` (one ONNX file each). Segmentation: `segmentation`. |
 | `tasks.*.url` | yes | Direct download link to the ONNX file. Must be immutable (see below). |
 | `tasks.*.sha256` | yes | Pins the exact file that was benchmarked. |
-| `tasks.segmentation.outputs` | yes (seg.) | Which outputs the model provides, as read by `CustomSegPredictor`. |
+| `tasks.segmentation.outputs` | yes (seg.) | Which outputs the model provides, as read by `CustomSegPredictor`: the required `alpha`, `logD`, `cp`, `diffusive_state`, plus the optional `seg_*` segment outputs if the model has them. |
 | `min_plugin_version` | no | In case the model contract changes. |
 
 ### Hosting rules

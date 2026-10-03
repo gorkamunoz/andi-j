@@ -56,7 +56,7 @@ The easiest way to install AnDi-J, and to keep it up to date, is to [follow](htt
 
 The plugin is then available under **Plugins › AnDi-J**.
 
-> The update site installs AnDi-J together with the **CPU** build of ONNX Runtime. For GPU (CUDA) acceleration, replace `onnxruntime-1.26.0.jar` with `onnxruntime_gpu-1.26.0.jar` ([link](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar)) in the `Fiji.app/jars/` folder (see the requirements below).
+> The update site installs AnDi-J together with the **CPU** build of ONNX Runtime. For GPU (CUDA) acceleration, available only on Windows and Linux, replace `onnxruntime-1.26.0.jar` with `onnxruntime_gpu-1.26.0.jar` ([link](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar)) in the `Fiji.app/jars/` folder (see the requirements below).
 
 ### Manual installation
 
@@ -64,7 +64,7 @@ The plugin is then available under **Plugins › AnDi-J**.
 2. Under the latest plugin release, download the file **`andi-j-X.Y.Z.jar`**. It already contains the two default ML models.
 3. AnDi-J uses **ONNX Runtime** for its machine-learning predictions, on **CPU** or **GPU** (CUDA). The GPU is much faster, and needs CUDA Toolkit 12.x and cuDNN 9.x for CUDA 12 (see [Other CUDA versions](#other-cuda-versions) otherwise). Download **one** of the two ONNX Runtime jars from Maven Central:
    - CPU: [`onnxruntime-1.26.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.26.0/onnxruntime-1.26.0.jar)
-   - GPU/CUDA: [`onnxruntime_gpu-1.26.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar)
+   - GPU/CUDA (Windows and Linux only): [`onnxruntime_gpu-1.26.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar)
 4. Copy the `andi-j` jar and the ONNX Runtime jar into the **`Fiji.app/jars/`** folder. Keep a single ONNX Runtime jar in that folder.
 5. **Restart Fiji.**
 6. The plugin is now available under **Plugins › AnDi-J**.
@@ -90,7 +90,7 @@ mvn clean package
 cp target/andi-j-X.Y.Z.jar Fiji.app/jars/   # not the -sources.jar
 ```
 
-The build downloads the **GPU** build of ONNX Runtime into your local Maven cache, so you can copy it from there:
+The build downloads the **GPU** build of ONNX Runtime (Windows and Linux only) into your local Maven cache, so you can copy it from there:
 
 ```bash
 cp ~/.m2/repository/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar Fiji.app/jars/

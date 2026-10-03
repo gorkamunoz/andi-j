@@ -36,46 +36,67 @@ AnDi-J is organised around two menu commands under **`Plugins ▸ AnDi-J`**:
 
 | Command | Purpose |
 |---|---|
-| [**Trajectory Analysis**](https://github.com/gorkamunoz/andi-j/wiki/Trajectory-Analysis) | Per-trajectory observables: MSD analysis, diffusion coefficient *D*, anomalous exponent *α*, diffusion-model classification, turning angles and power-spectral density..
-| [**Trajectory Segmentation**](https://github.com/gorkamunoz/andi-j/wiki/Trajectory-Segmentation) | Per-frame predictions of *α*, *D* and diffusive state (immobile, confined, free diffusion, or directed)along each trajectory, as well as  diffusion change-point detection. |
+| [**Trajectory Analysis**](https://github.com/gorkamunoz/andi-j/wiki/Trajectory-Analysis) | Per-trajectory observables: MSD analysis, diffusion coefficient *D*, anomalous exponent *α*, diffusion-model classification, turning angles and power spectral density (PSD). |
+| [**Trajectory Segmentation**](https://github.com/gorkamunoz/andi-j/wiki/Trajectory-Segmentation) | Per-frame predictions of *α*, *D* and diffusive state (immobile, confined, free diffusion, or directed) along each trajectory, as well as diffusion change-point detection. |
 
 ---
 
 ## Installation
 
-### Recommended
+### From the update site
+
+The easiest way to install AnDi-J, and to keep it up to date, is to [follow](https://imagej.net/update-sites/following) the **AnDi-J** [update site](https://imagej.net/list-of-update-sites/):
+
+1. Start **Fiji** (or [download and install it](https://imagej.net/software/fiji/downloads) first).
+2. Select **Help › Update...** from the menu bar.
+3. Click on the **Manage update sites** button.
+4. Scroll down the list and tick the checkbox for the **AnDi-J** update site, then click **Close**. If **AnDi-J** is missing from the list, click **Update URLs** to refresh it.
+5. Click **Apply changes** to install the plugin.
+6. Restart Fiji.
+
+The plugin is then available under **Plugins › AnDi-J**.
+
+> The update site installs AnDi-J together with the **CPU** build of ONNX Runtime. For GPU (CUDA) acceleration, replace `onnxruntime-1.26.0.jar` with `onnxruntime_gpu-1.26.0.jar` ([link](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar)) in the `Fiji.app/jars/` folder (see the requirements below).
+
+### Manual installation
 
 1. Go to the [**Releases**](https://github.com/gorkamunoz/andi-j/releases) page of this repository.
-2. Under the latest plugin release, download the file **`andi-j-X.Y.Z.jar`**.
-3. This plugin uses **ONNX Runtime** for its machine-learning predictions. It provides support both **CPU** and **GPU** (CUDA) support. The latter allows for much faster computations. The current release requires CUDA Toolkit 12.x and cuDNN 9.x for CUDA 12 (see below for other CUDA versions). You can download the corresponding file directly from Maven Central:
-   - CPU:
-   [`onnxruntime-1.26.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.26.0/onnxruntime-1.26.0.jar)
-   - GPU/CUDA: [`onnxruntime_gpu-1.26.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar) 
-   
-4. Copy **both** `andi-j` and `onnxruntime` jars into the
-   **`Fiji.app/jars/`** folder. 
+2. Under the latest plugin release, download the file **`andi-j-X.Y.Z.jar`**. It already contains the two default ML models.
+3. AnDi-J uses **ONNX Runtime** for its machine-learning predictions, on **CPU** or **GPU** (CUDA). The GPU is much faster, and needs CUDA Toolkit 12.x and cuDNN 9.x for CUDA 12 (see [Other CUDA versions](#other-cuda-versions) otherwise). Download **one** of the two ONNX Runtime jars from Maven Central:
+   - CPU: [`onnxruntime-1.26.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime/1.26.0/onnxruntime-1.26.0.jar)
+   - GPU/CUDA: [`onnxruntime_gpu-1.26.0.jar`](https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar)
+4. Copy the `andi-j` jar and the ONNX Runtime jar into the **`Fiji.app/jars/`** folder. Keep a single ONNX Runtime jar in that folder.
 5. **Restart Fiji.**
 6. The plugin is now available under **Plugins › AnDi-J**.
 
-### Build from scratch
+With the GPU jar, AnDi-J runs the models on the GPU when CUDA is available and on the CPU otherwise.
+
+### Build from source
 
 ```bash
 git clone https://github.com/gorkamunoz/andi-j.git
 ```
-You will then need to download the two default ML models (see [Releases](https://github.com/gorkamunoz/andi-j/releases), look for the latest model release). Place these models in `andi-j/src/main/resources/models/`. Then:
+
+Download the two default ML models from the latest model release on the [Releases](https://github.com/gorkamunoz/andi-j/releases) page and place them in `andi-j/src/main/resources/models/`. The plugin loads them by name, so rename the files, if needed, to exactly:
+
+- `andi-j-analysis-latest.onnx` (Trajectory Analysis model)
+- `andi-j-seg-latest.onnx` (Trajectory Segmentation model)
+
+Then:
 
 ```bash
 cd andi-j
 mvn clean package
-# then copy target/andi-j-*.jar into Fiji.app/jars/
+cp target/andi-j-X.Y.Z.jar Fiji.app/jars/   # not the -sources.jar
 ```
 
-`mvn clean package` also resolves `onnxruntime-1.26.0.jar` into your local
-Maven cache, so you can copy it from there instead of downloading it again:
+The build downloads the **GPU** build of ONNX Runtime into your local Maven cache, so you can copy it from there:
 
 ```bash
-cp ~/.m2/repository/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime-1.26.0.jar Fiji.app/jars/
+cp ~/.m2/repository/com/microsoft/onnxruntime/onnxruntime_gpu/1.26.0/onnxruntime_gpu-1.26.0.jar Fiji.app/jars/
 ```
+
+For the CPU build, download `onnxruntime-1.26.0.jar` as in [Manual installation](#manual-installation).
 
 Requires Java 8+ and Maven. The build uses the [pom-scijava](https://github.com/scijava/pom-scijava) parent POM.
 
@@ -85,24 +106,19 @@ Requires Java 8+ and Maven. The build uses the [pom-scijava](https://github.com/
 
 and open **`Window ▸ Console`**. With debug mode on, the plugin prints information about the ML-models (ONNX model input/output tensor shapes and CPU/GPU usage). Genuine anomalies (e.g. a custom model returning an unexpected output type) are always reported, debug mode or not.
 
-#### Custom CUDA installation
+### Other CUDA versions
 
-If your machine has a different CUDA toolkit installed than the recommended one, you must find the matching `onnxruntime_gpu` release: 
+If your machine has a different CUDA toolkit than the one ONNX Runtime 1.26.0 needs, use the matching `onnxruntime_gpu` release instead:
 
-1. Check your installed CUDA version: `nvcc --version` .
+1. Check your installed CUDA version: `nvcc --version`.
 2. Look up which `onnxruntime_gpu` release supports that CUDA version in the
    [ONNX Runtime CUDA Execution Provider compatibility table](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html).
 3. Download the matching jar from Maven Central:
    `https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime_gpu/<version>/onnxruntime_gpu-<version>.jar`
-4. Place that file in `Fiji.app/jars/`.
-5. Update the `andi-j` `pom.xml` file with the downloaded version: 
-```xml
-<artifactId>onnxruntime_gpu</artifactId>
-<version>1.xx.0</version>
-```
-6. Build the plugin from scratch. 
+4. Put it in `Fiji.app/jars/` in place of the ONNX Runtime jar that is there.
 5. Restart Fiji.
 
+The plugin uses whichever ONNX Runtime jar is in `Fiji.app/jars/`, so no rebuild is needed. AnDi-J is tested with ONNX Runtime 1.26.0.
 
 
 ---

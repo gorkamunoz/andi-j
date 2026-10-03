@@ -495,10 +495,22 @@ function viewHome() {
 // The submission is kept in memory only, like the Trajectory Analysis uploads.
 const UPLOAD_SEG = 'Your submission';
 
+// Benchmark datasets of both submission pages (Zenodo record).
+const DATASET_DOI = '10.5281/zenodo.23126182';
+const DATASET_URL = `https://doi.org/${DATASET_DOI}`;
+const datasetLink = (text) => `<a href="${DATASET_URL}" target="_blank" rel="noopener">${text}</a>`;
+function datasetCard(what) {
+  const c = card('Benchmark dataset', `Download the trajectories to run your method on.`);
+  body(c).innerHTML = `<p class="small" style="margin:0">${what} is on Zenodo:
+    ${datasetLink(`doi:${DATASET_DOI}`)}. Run your method on it, export the predictions in the format below
+    and drop them here.</p>`;
+  return c;
+}
+
 async function viewSegSubmit() {
   const page = h('<div></div>');
   page.append(pageHead('Trajectory segmentation', 'Submit a model',
-    `Run your method on the <a href="https://codalab.lisn.upsaclay.fr/competitions/10618" target="_blank" rel="noopener">2nd AnDi Challenge</a>
+    `Run your method on the ${datasetLink('2nd AnDi Challenge')}
      trajectory dataset and upload the predictions as a single .zip. Scoring happens in your browser with the
      challenge's own scorer: the archive is never sent anywhere. Your results appear as
      ${swatch('upload')}<b>“${UPLOAD_SEG}”</b> on the Analysis page until you reload.`));
@@ -522,7 +534,8 @@ async function viewSegSubmit() {
     <p class="muted small" style="margin:10px 0 0">One line per trajectory, comma separated, the challenge's single trajectory format:</p>
     <div class="format">traj_idx, D, α, state, cp, D, α, state, cp, …</div>
     <p class="muted small" style="margin:10px 0 0">One group of four per segment; the last changepoint of a trajectory is its length.</p>`;
-  left.append(drop, status, fmtCard);
+  left.append(datasetCard('The single trajectory dataset of the 2nd AnDi Challenge (<code>track_2</code>, twelve experiments of thirty fields of view)'),
+    drop, status, fmtCard);
 
   const right = card('Your submission', 'Scored with the challenge scorer, over all twelve experiments.');
   grid.append(left, right);
@@ -990,7 +1003,7 @@ async function scoreSummary(task) {
 async function viewSubmit() {
   const page = h('<div></div>');
   page.append(pageHead('Trajectory Analysis', 'Submit a model',
-    'Run AnDi-J (or any other method) on the <a href="https://drive.google.com/drive/folders/1h2cg1RNoKbhTiiPSNCHyav2NaRA6TGdR?usp=sharing" target="_blank" rel="noopener">AnDi test dataset</a> and upload the predictions. Scoring happens in your browser: the file is never sent anywhere. Your results appear as “Your submission” in every table until you reload the page.'));
+    `Run AnDi-J (or any other method) on the ${datasetLink('AnDi test dataset')} and upload the predictions. Scoring happens in your browser: the file is never sent anywhere. Your results appear as “Your submission” in every table until you reload the page.`));
   const grid = h('<div class="grid grid-main"></div>'); page.append(grid);
 
   const left = h('<div class="stack"></div>');
@@ -1008,7 +1021,8 @@ async function viewSubmit() {
     <div class="format">1;0.734\n1;1.215\n2;0.402\n…</div>
     <p class="muted small" style="margin:10px 0 0">Lines must follow the order of the test set. Dimensions you did not attempt can be left out.</p>`;
   const opts = h('<div class="card filters" style="margin:0"></div>'); opts.append(taskSel);
-  left.append(drop, opts, status, fmtCard);
+  left.append(datasetCard('The test set of the 1st AnDi Challenge (Tasks 1 and 2, 1D, 2D and 3D)'),
+    drop, opts, status, fmtCard);
 
   const right = card('Your submissions', 'Scored on the full test set of each dimension.');
   grid.append(left, right);

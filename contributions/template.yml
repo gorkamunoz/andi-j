@@ -1,0 +1,69 @@
+# AnDi-J model contribution.
+#
+# Copy this file to contributions/<id>.yml, fill it in and open a pull request that adds it.
+# The maintainers download the model, check it in the plugin, benchmark it and, once approved,
+# add it to contributions/list.md, the wiki and the benchmark website.
+# See https://github.com/gorkamunoz/andi-j/wiki/ML-Models#contributing-a-model
+
+# Name of the method, as shown in the benchmarks. For a new version of a method that is already
+# listed in contributions/list.md, keep its id and increase `version`.
+id: my-method
+version: 1
+
+# One or two sentences for the wiki and the benchmark website.
+description: >
+  Short description of the method.
+
+authors:
+  - name: Jane Doe
+    affiliation: University X
+    orcid: 0000-0000-0000-0000        # optional
+contact: jane.doe@example.org         # who to reach about this model
+
+# License of the model weights (plugin users download and run them).
+license: MIT
+
+# Public repository of the method (training code and details). The method must be open source.
+code: https://github.com/jane-doe/my-method
+
+# Publication describing the method (optional).
+reference:
+  doi: 10.xxxx/xxxxx
+
+# Which AnDi-J module the model is for: analysis or segmentation.
+module: analysis
+
+# The ONNX file(s), each in a public record with a DOI (Zenodo or another archive), following the
+# I/O contract in https://github.com/gorkamunoz/andi-j/wiki/ML-Models.
+#   analysis:     `alpha` (anomalous exponent) and/or `model` (diffusion model), one file each.
+#   segmentation: `segmentation`, one combined model; list the outputs it provides.
+tasks:
+  alpha:
+    doi: 10.5281/zenodo.xxxxxxx
+    file: my-method-alpha.onnx
+  model:
+    doi: 10.5281/zenodo.xxxxxxx
+    file: my-method-model.onnx
+  # segmentation:
+  #   doi: 10.5281/zenodo.xxxxxxx
+  #   file: my-method-seg.onnx
+  #   outputs: [alpha, logD, cp, diffusive_state]   # add seg_start, seg_length, seg_alpha,
+  #                                                  # seg_logD, seg_state if the model has them
+
+# AnDi-J version the model was tested with.
+plugin_version: 0.1.2
+
+# Scores from the Submit pages of the benchmark website (https://gorkamunoz.github.io/andi-j/).
+# Fill in the metrics of the tasks the model does and delete the others.
+#   Trajectory Analysis (2D test set):
+#     TA.alpha_mae  anomalous exponent, mean absolute error
+#     TA.model_f1   diffusion model, F1 score
+#   Trajectory Segmentation:
+#     TS.cp_ji      change points, Jaccard index (JI)
+#     TS.cp_rmse    change points, root mean square error (RMSE)
+#     TS.alpha_mae  segment anomalous exponent, mean absolute error
+#     TS.D_msle     segment diffusion coefficient, mean squared logarithmic error
+#     TS.state_f1   segment diffusive state, F1 score
+scores:
+  TA.alpha_mae: 0.000
+  TA.model_f1: 0.000

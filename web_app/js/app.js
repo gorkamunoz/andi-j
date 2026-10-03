@@ -2,6 +2,8 @@
 // Reference methods are the participants of the 1st AnDi Challenge (Tasks 1 and 2).
 
 const UPLOAD = 'Your submission';
+// Models available for AnDi-J, with their scores and downloads.
+const MODELS_LIST = 'https://github.com/gorkamunoz/andi-j/blob/main/contributions/list.md';
 // Method groups: color in the plot and pin in the tables. The group of each method comes from
 // data/methods.json ({"name": {"group": "andij" | "model"}}); anything not listed is a challenge entry.
 const GROUPS = {
@@ -262,7 +264,7 @@ async function viewOverview() {
   const page = h('<div></div>');
   page.append(pageHead('', 'Trajectory Analysis benchmark',
     `The Trajectory Analysis tab of AnDi-J predicts, among other things, the anomalous exponent α and the diffusion model of each trajectory. Use this page to benchmark new models and compare them with the existing ones.
-    In ${swatch('andij')}<b>blue</b> you find the AnDi-J default model, in ${swatch('model')}<b>green</b> other available models (see the list <a href="#" title="List coming soon">here</a>)
+    In ${swatch('andij')}<b>blue</b> you find the AnDi-J default model, in ${swatch('model')}<b>green</b> other available models (see <a href="${MODELS_LIST}" target="_blank" rel="noopener">contributions/list.md</a>)
     and in ${swatch('challenge')}<b>grey</b> the methods of the <a href="https://doi.org/10.1038/s41467-021-26320-w" target="_blank" rel="noopener">1st AnDi Challenge</a>. New submissions are marked in ${swatch('upload')}<b>orange</b>.`));
 
   const sCard = h(`<section class="card"><div class="card-head"><div><h2>AnDi-J Trajectory Analysis Benchmark</h2>
@@ -661,7 +663,7 @@ async function viewSegmentation() {
   page.append(pageHead('', 'Trajectory segmentation benchmark',
     `The Trajectory segmentation tab of AnDi-J predicts the changepoints at which diffusive changes happen in an input trajectory and gives every segment an anomalous
      exponent α, a diffusion coefficient D and a diffusive state. This page compares <b>the AnDi-J default model</b> (${swatch('andij')})
-     with other methods available for AnDi-J (${swatch('model')}), the methods of the
+     with other methods available for AnDi-J (${swatch('model')}, see <a href="${MODELS_LIST}" target="_blank" rel="noopener">contributions/list.md</a>), the methods of the
      <a href="https://doi.org/10.1038/s41467-025-61949-x" target="_blank" rel="noopener">2nd AnDi Challenge</a>
      and your submissions (${swatch('upload')}). See the Submit tab for information on how to submit your predictions.`));
 

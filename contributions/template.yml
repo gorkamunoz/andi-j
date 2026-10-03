@@ -15,10 +15,9 @@ description: >
   Short description of the method.
 
 authors:
-  - name: Jane Doe
+  - name: Maria Lopez
     affiliation: University X
-    orcid: 0000-0000-0000-0000        # optional
-contact: jane.doe@example.org         # who to reach about this model
+contact: maria.lopez@example.org         # who to reach about this model
 
 # License of the model weights (plugin users download and run them).
 license: MIT

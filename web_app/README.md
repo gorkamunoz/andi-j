@@ -13,8 +13,8 @@ predictions of AnDi-J's Trajectory Analysis tab:
 
 The Trajectory segmentation page benchmarks AnDi-J's Trajectory segmentation tab against the single
 trajectory task of the [2nd AnDi Challenge](https://doi.org/10.1038/s41467-025-61949-x): the
-changepoints of a trajectory (RMSE and Jaccard similarity) and, for every segment, its anomalous
-exponent (MAE), diffusion coefficient (MSLE) and diffusion type (F1). Unlike the Trajectory
+changepoints of a trajectory (RMSE and Jaccard index, JI) and, for every segment, its anomalous
+exponent (MAE), diffusion coefficient D (MSLE) and diffusive state (F1). Unlike the Trajectory
 Analysis pages it is a read only summary of the challenge results, plus a Submission page that
 scores an uploaded archive in the browser.
 
@@ -40,7 +40,7 @@ the visitor's browser and never leave their computer.
 * `data/task{1,2}_{1,2,3}d.json`: ground truth and every method's predictions per task and dimension.
 * `data/methods.json`: group (color) of each added model.
 * `data/segmentation/*.json`: the Trajectory segmentation results (leaderboard, per experiment,
-  per number of changepoints, single state experiment, diffusion type populations) and `truth.json`,
+  per number of changepoints, single state experiment, diffusive state populations) and `truth.json`,
   the challenge ground truth, loaded only by the Submission page.
 * `js/seg_score.js`: the challenge scorer ported to JavaScript, plus a small zip reader.
 * `assets/`: AnDi-J logo, favicon and `df_single_state.csv` (input of `build_segmentation_data.py`).

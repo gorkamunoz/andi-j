@@ -528,9 +528,9 @@ async function viewSegSubmit() {
   grid.append(left, right);
 
   const metrics = [
-    { key: 'rmse_cp', label: 'RMSE (CP)', lower: true }, { key: 'jsc_cp', label: 'JSC (CP)', lower: false },
-    { key: 'mae_alpha', label: 'MAE (α)', lower: true }, { key: 'msle_k', label: 'MSLE (K)', lower: true },
-    { key: 'f1_state', label: 'F1 (diff. type)', lower: false },
+    { key: 'rmse_cp', label: 'RMSE (CP)', lower: true }, { key: 'jsc_cp', label: 'JI (CP)', lower: false },
+    { key: 'mae_alpha', label: 'MAE (α)', lower: true }, { key: 'msle_k', label: 'MSLE (D)', lower: true },
+    { key: 'f1_state', label: 'F1 (diffusive state)', lower: false },
   ];
 
   async function drawResult() {
@@ -647,7 +647,7 @@ async function viewSegmentation() {
   const page = h('<div class="seg-page"></div>');
   page.append(pageHead('', 'Trajectory segmentation benchmark',
     `The Trajectory segmentation tab of AnDi-J predicts the changepoints at which diffusive changes happen in an input trajectory and gives every segment an anomalous
-     exponent α, a diffusion coefficient K and a diffusion type. This page compares <b>the AnDi-J default model</b> (${swatch('andij')})
+     exponent α, a diffusion coefficient D and a diffusive state. This page compares <b>the AnDi-J default model</b> (${swatch('andij')})
      with other methods available for AnDi-J (${swatch('model')}), the methods of the
      <a href="https://doi.org/10.1038/s41467-025-61949-x" target="_blank" rel="noopener">2nd AnDi Challenge</a>
      and your submissions (${swatch('upload')}). See Submission tab for information on how to submit your predictions.`));
@@ -738,9 +738,9 @@ async function viewSegmentation() {
     `One of the benchmark's experiments contains trajectories with no changepoints, so every predicted changepoint is a false positive.
      This can be used to compare the accuracy of the method against non-segmentation methods of the Trajectory Analysis module.`,
     [{ grid: 'grid-2', n: 2 }], true, null, true);
-  // Row 5: the diffusion type populations, experiment by experiment.
+  // Row 5: the diffusive state populations, experiment by experiment.
   const clfTitles = clf.experiments.map(e => `Experiment ${e.exp}`);
-  const clfPanels = panelCard('Diffusion type classification',
+  const clfPanels = panelCard('Diffusive state classification',
     'Distribution of predicted diffusive state by the five best challenge teams and the AnDi-J default model, against the ground truth.',
     [{ grid: 'grid-5', n: 5, titles: clfTitles.slice(0, 5) }, { grid: 'grid-5', n: 4, titles: clfTitles.slice(5) }], true, null, true);
 
@@ -894,7 +894,7 @@ async function viewSegmentation() {
       + `<span>${C.plain(metrics.mae_alpha.label)} = ${f3(hit.mae_alpha)}</span>`);
   }
 
-  // ----- Row 5: the diffusion type populations, experiment by experiment -----
+  // ----- Row 5: the diffusive state populations, experiment by experiment -----
   function drawClf() {
     const sel = picked('clf'), pick = picker('clf', drawClf);
     $('.legend', clfPanels[0].closest('.card')).innerHTML =

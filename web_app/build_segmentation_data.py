@@ -39,10 +39,10 @@ EXP_GROUPS = [[2, 3, 4], [5, 6]]            # display indices sharing a physical
 # Metric keys as they appear in scores_*.txt / df_track_*.csv, and how the site names them.
 METRICS = [
     {'key': 'rmse_cp', 'txt': 'cp', 'csv': 'RMSE CP', 'label': 'RMSE (CP)', 'lower': True},
-    {'key': 'jsc_cp', 'txt': 'JI', 'csv': 'JSC CP', 'label': 'JSC (CP)', 'lower': False},
+    {'key': 'jsc_cp', 'txt': 'JI', 'csv': 'JSC CP', 'label': 'JI (CP)', 'lower': False},
     {'key': 'mae_alpha', 'txt': 'alpha', 'csv': 'alpha', 'label': 'MAE (α)', 'lower': True},
-    {'key': 'msle_k', 'txt': 'D', 'csv': 'K', 'label': 'MSLE (K)', 'lower': True},
-    {'key': 'f1_state', 'txt': 'state', 'csv': 'state', 'label': 'F1 (diff. type)', 'lower': False},
+    {'key': 'msle_k', 'txt': 'D', 'csv': 'K', 'label': 'MSLE (D)', 'lower': True},
+    {'key': 'f1_state', 'txt': 'state', 'csv': 'state', 'label': 'F1 (diffusive state)', 'lower': False},
 ]
 STATE_LABELS = ['Immobile', 'Confined', 'Free', 'Directed']
 
@@ -193,7 +193,7 @@ def concat_fovs(dfs, keep):
 # ---------- 4. Single state experiment ----------
 
 def build_single_state(source, mapping, assets):
-    """MAE (α) and MSLE (K) against the false positive rate on the single-state experiment.
+    """MAE (α) and MSLE (D) against the false positive rate on the single-state experiment.
 
     On that experiment no trajectory has a changepoint, so every predicted changepoint is a false
     positive: FPR = FP / (FP + number of trajectories).
@@ -227,10 +227,10 @@ def andij_fpr(source):
     return float(fp / (fp + num_trajs))
 
 
-# ---------- 5. Diffusion type classification ----------
+# ---------- 5. Diffusive state classification ----------
 
 def build_classification(source, teams):
-    """Fraction of time points assigned to each diffusion type, per experiment and entry."""
+    """Fraction of time points assigned to each diffusive state, per experiment and entry."""
     exps = []
     for display, exp in enumerate(EXP_ORDER):
         true_pops = np.zeros(len(STATE_LABELS))
@@ -253,7 +253,7 @@ def build_classification(source, teams):
 
 
 def accumulate(df, pops):
-    """Adds the length of every segment of `df` to the population of its diffusion type."""
+    """Adds the length of every segment of `df` to the population of its diffusive state."""
     for idx in range(df.shape[0]):
         cps = np.append(0, df.changepoints.loc[idx])
         for length, state in zip(cps[1:] - cps[:-1], df.states.loc[idx]):

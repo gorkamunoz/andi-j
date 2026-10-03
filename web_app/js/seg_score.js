@@ -338,7 +338,7 @@ S.scoreSubmission = (truth, exps, onStep) => {
       }
     }
 
-    // Share of time points given to each diffusion type, for the classification panels.
+    // Share of time points given to each diffusive state, for the classification panels.
     if (e.exp) {
       const pops = new Array(4).fill(0);
       for (const p of pred) {

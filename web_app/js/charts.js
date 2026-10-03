@@ -440,7 +440,7 @@ C.segLines = (el, series, { label, xlabel, domain, log, selected, onPick }) => {
   return plot;
 };
 
-// Predicted share of each diffusion type in one experiment, with the ground truth as a dashed rule.
+// Predicted share of each diffusive state in one experiment, with the ground truth as a dashed rule.
 C.segBars = (el, { rows, truth, states, short, teams, ylabel, selected, onPick }) => {
   const plot = C.mount(el, Plot.plot(C.base({
     width: C.width(el, 300), height: 200, marginLeft: 46, marginBottom: 34, marginTop: 24, marginRight: 6,

@@ -663,7 +663,7 @@ async function viewSegmentation() {
      exponent α, a diffusion coefficient D and a diffusive state. This page compares <b>the AnDi-J default model</b> (${swatch('andij')})
      with other methods available for AnDi-J (${swatch('model')}), the methods of the
      <a href="https://doi.org/10.1038/s41467-025-61949-x" target="_blank" rel="noopener">2nd AnDi Challenge</a>
-     and your submissions (${swatch('upload')}). See Submission tab for information on how to submit your predictions.`));
+     and your submissions (${swatch('upload')}). See the Submit tab for information on how to submit your predictions.`));
 
   // A card with one or more rows of equally sized chart panels.
   const panelCard = (title, sub, layout, legend, note, readout) => {
@@ -1019,7 +1019,7 @@ async function viewSubmit() {
       <li><b>task2.txt</b>, model: <code>dim; p(attm); p(ctrw); p(fbm); p(lw); p(sbm)</code></li>
     </ol>
     <div class="format">1;0.734\n1;1.215\n2;0.402\n…</div>
-    <p class="muted small" style="margin:10px 0 0">Lines must follow the order of the test set. Dimensions you did not attempt can be left out.</p>`;
+    <p class="muted small" style="margin:10px 0 0">Lines must follow the order of the test set. You can submit predictions for any of the dimensions (1D, 2D, 3D); the results are shown for the dimensions you include, and the others can be left out. The AnDi-J default model is only available for 2D at the moment.</p>`;
   const opts = h('<div class="card filters" style="margin:0"></div>'); opts.append(taskSel);
   left.append(datasetCard('The test set of the 1st AnDi Challenge (Tasks 1 and 2, 1D, 2D and 3D)'),
     drop, opts, status, fmtCard);

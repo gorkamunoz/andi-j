@@ -5,7 +5,7 @@ AnDi-J default model, other available models and, for completeness, the methods 
 1st Anomalous Diffusion (AnDi) Challenge (Muñoz-Gil et al., Nat. Commun. 12, 6253, 2021).
 
 Pages: Overview (placeholder), Trajectory Analysis (benchmark, anomalous exponent, diffusion model,
-submit) and Trajectory segmentation (analysis, submission). The Trajectory Analysis benchmark covers the two
+submit) and Trajectory segmentation (analysis, submit). The Trajectory Analysis benchmark covers the two
 predictions of AnDi-J's Trajectory Analysis tab:
 
 * **Anomalous exponent α** (Task 1 of the challenge), scored by mean absolute error (MAE).
@@ -15,7 +15,7 @@ The Trajectory segmentation page benchmarks AnDi-J's Trajectory segmentation tab
 trajectory task of the [2nd AnDi Challenge](https://doi.org/10.1038/s41467-025-61949-x): the
 changepoints of a trajectory (RMSE and Jaccard index, JI) and, for every segment, its anomalous
 exponent (MAE), diffusion coefficient D (MSLE) and diffusive state (F1). Unlike the Trajectory
-Analysis pages it is a read only summary of the challenge results, plus a Submission page that
+Analysis pages it is a read only summary of the challenge results, plus a Submit page that
 scores an uploaded archive in the browser.
 
 The left hand panel of its "Overall performance" card is a metric explorer: one row of buttons per
@@ -41,7 +41,7 @@ the visitor's browser and never leave their computer.
 * `data/methods.json`: group (color) of each added model.
 * `data/segmentation/*.json`: the Trajectory segmentation results (leaderboard, per experiment,
   per number of changepoints, single state experiment, diffusive state populations) and `truth.json`,
-  the challenge ground truth, loaded only by the Submission page.
+  the challenge ground truth, loaded only by the Submit page.
 * `js/seg_score.js`: the challenge scorer ported to JavaScript, plus a small zip reader.
 * `assets/`: AnDi-J logo, favicon and `df_single_state.csv` (input of `build_segmentation_data.py`).
 * `vendor/`: local copies of d3 7.9 and Observable Plot 0.6.17 (no CDN needed).
@@ -64,7 +64,7 @@ Adding models does not need them.
 
 ## Submitting a segmentation model
 
-The Submission page takes one `.zip` laid out like the challenge submission folder
+The Submit page takes one `.zip` laid out like the challenge submission folder
 (`track_2/exp_<0-11>/fov_<0-29>.txt`, or the `exp_` folders at the root) and scores it in the
 visitor's browser; the archive is never uploaded. `js/seg_score.js` is a port of
 `andi_datasets.utils_challenge.error_SingleTraj_dataset`, including scipy's
@@ -87,7 +87,7 @@ experiment scores and references of the challenge phase) with `andi_datasets` in
     cd web_app
     conda run -n andi python build_segmentation_data.py --source /path/to/challenge_phase/
 
-`--only truth` rebuilds just the ground truth the Submission page needs.
+`--only truth` rebuilds just the ground truth the Submit page needs.
 It also reads `assets/df_single_state.csv` (per-team scores on the single state experiment) and takes about five minutes, most of it rescoring the submissions by number of
 changepoints. `--only leaderboard per_experiment single_state` rebuilds just the light files.
 The AnDi-J default model is the `model_v2.2` submission and is ranked together with the

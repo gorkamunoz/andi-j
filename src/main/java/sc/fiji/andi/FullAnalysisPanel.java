@@ -8,9 +8,11 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Path2D;
+import java.io.*;
 import java.util.*;
 import java.util.List;
 import java.util.function.Consumer;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 /**
  * "D vs α" tab.
@@ -28,7 +30,9 @@ import java.util.function.Consumer;
  * "Save population with tag:" row at the bottom.  Tagged points are recoloured
  * to a lighter shade of their parent experiment's colour, get their own
  * marginal-KDE curve, and are pushed to the Turning Angles and Diffusion Model
- * tabs as a new dataset.
+ * tabs as a new dataset. The <b>Save</b> column of the population table writes a
+ * population's trajectories to a CSV that the Data Manager can load again
+ * ({@link #savePopulationCsv}).
  *
  * <p>Marginal KDE strips along the top (α) and right (D) edges track zoom/pan
  * and are recomputed every repaint, so tagged populations appear automatically.</p>
@@ -197,13 +201,17 @@ public class FullAnalysisPanel extends JPanel {
         table.getColumnModel().getColumn(1).setPreferredWidth(220); // Datasets
         table.getColumnModel().getColumn(2).setMaxWidth(60);        // Color
         table.getColumnModel().getColumn(2).setCellRenderer(new ColorSwatchRenderer());
+        table.getColumnModel().getColumn(3).setMaxWidth(70);        // Save
+        table.getColumnModel().getColumn(3).setCellRenderer(new SaveCellRenderer());
 
         table.addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) {
                 int row = table.rowAtPoint(e.getPoint());
                 int col = table.columnAtPoint(e.getPoint());
-                if (row < 0 || col != 2 || row >= populations.size()) return;
+                if (row < 0 || row >= populations.size()) return;
                 Population p = populations.get(row);
+                if (col == 3) { savePopulationCsv(p); return; }
+                if (col != 2) return;
                 Color c = chooseSwatchColor(p.color, "Population colour for \"" + p.tag + "\"");
                 if (c != null) {
                     p.color = c;
@@ -239,7 +247,7 @@ public class FullAnalysisPanel extends JPanel {
 
     /** Table model backed by the live {@link #populations} list. */
     private class PopulationTableModel extends AbstractTableModel {
-        private final String[] COLS = {"Tag", "Datasets", "Colour"};
+        private final String[] COLS = {"Tag", "Datasets", "Colour", "Save"};
         @Override public int    getRowCount()        { return populations.size(); }
         @Override public int    getColumnCount()     { return COLS.length; }
         @Override public String getColumnName(int c) { return COLS[c]; }
@@ -251,6 +259,7 @@ public class FullAnalysisPanel extends JPanel {
                 case 0:  return p.tag;
                 case 1:  return p.datasetsLabel();
                 case 2:  return p.color;
+                case 3:  return "Save…";
                 default: return null;
             }
         }
@@ -268,6 +277,80 @@ public class FullAnalysisPanel extends JPanel {
                 lbl.setToolTipText("Click to change colour");
             }
             return lbl;
+        }
+    }
+
+    /** Renders the Save cell as a link-like label. */
+    private static class SaveCellRenderer extends DefaultTableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable t, Object value,
+                boolean sel, boolean focus, int row, int col) {
+            JLabel lbl = (JLabel) super.getTableCellRendererComponent(t, value, sel, focus, row, col);
+            lbl.setHorizontalAlignment(SwingConstants.CENTER);
+            if (!sel) lbl.setForeground(new Color(0, 90, 200));
+            lbl.setToolTipText("Save this population's trajectories as a CSV");
+            return lbl;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Population export
+    // -----------------------------------------------------------------------
+
+    private static File lastSaveDir = null;
+
+    /**
+     * Writes the population's trajectories as a TrackMate-style CSV that the Data
+     * Manager loads again: a header row ({@code TRACK_ID, POSITION_X, POSITION_Y,
+     * POSITION_T, FRAME, EXPERIMENT}), two label rows and a units row, then one row
+     * per spot. {@code POSITION_T} is the frame times the experiment's frame
+     * interval. {@code TRACK_ID} keeps the experiment's id when the population comes
+     * from one experiment and is renumbered from 0 otherwise, so ids stay unique.
+     * Commas in experiment names are written as semicolons.
+     */
+    private void savePopulationCsv(Population pop) {
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
+        fc.setDialogTitle("Save population \"" + pop.tag + "\"");
+        if (lastSaveDir != null && lastSaveDir.isDirectory()) fc.setCurrentDirectory(lastSaveDir);
+        fc.setSelectedFile(new File(pop.tag.replaceAll("[^A-Za-z0-9._-]+", "_") + ".csv"));
+        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File f = fc.getSelectedFile();
+        lastSaveDir = f.getParentFile();
+        if (!f.getName().toLowerCase().endsWith(".csv"))
+            f = new File(f.getParent(), f.getName() + ".csv");
+
+        try {
+            writePopulationCsv(pop, f);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "Could not save: " + ex.getMessage(),
+                "Save population", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /** Writes {@code pop} to {@code f} in the format of {@link #savePopulationCsv}. */
+    static void writePopulationCsv(Population pop, File f) throws IOException {
+        boolean single = pop.members.size() == 1;
+        int nextId = 0;
+        try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
+            pw.println("TRACK_ID,POSITION_X,POSITION_Y,POSITION_T,FRAME,EXPERIMENT");
+            pw.println("Track ID,X,Y,T,Frame,Experiment");
+            pw.println("Track ID,X,Y,T,Frame,Experiment");
+            pw.println(",,,,,");
+            for (Map.Entry<ExperimentData, Set<Integer>> e : pop.members.entrySet()) {
+                ExperimentData exp = e.getKey();
+                String expName = exp.name.replace(',', ';');
+                for (Integer id : e.getValue()) {
+                    List<double[]> tr = exp.tracks.get(id);
+                    if (tr == null) continue;
+                    int outId = single ? id : nextId++;
+                    for (double[] s : tr) {
+                        long frame = Math.round(s[0]);
+                        pw.println(outId + "," + s[1] + "," + s[2] + ","
+                                 + (frame * exp.estimatedInterval) + "," + frame + "," + expName);
+                    }
+                }
+            }
         }
     }
 

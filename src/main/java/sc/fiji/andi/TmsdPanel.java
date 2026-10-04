@@ -48,9 +48,13 @@ public class TmsdPanel extends JPanel {
     private final JTextField minLagField, maxLagField, intervalField, unitField;
     private final JCheckBox  logSpacedBox;
 
-    TmsdPanel(List<ExperimentData> experiments, int initMaxLag) {
+    /** Unit of the x, y positions, for the MSD axis label. */
+    private final String spaceUnit;
+
+    TmsdPanel(List<ExperimentData> experiments, int initMaxLag, String spaceUnit) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
+        this.spaceUnit   = spaceUnit;
         setBorder(new EmptyBorder(6, 6, 6, 6));
 
         // Default: only Avg-2D on, everything else off
@@ -862,7 +866,7 @@ public class TmsdPanel extends JPanel {
                 px + (pw - fm.stringWidth(xTitle)) / 2,
                 py + ph + MB - 8);
 
-            String yTitle = "MSD (μm²)";
+            String yTitle = "MSD (" + spaceUnit + "²)";
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph / 2.0);
             g2.rotate(-Math.PI / 2);

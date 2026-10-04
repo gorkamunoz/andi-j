@@ -46,7 +46,7 @@ public class DiffusionCoeffPanel extends JPanel {
     /** Initial value of the Time lags field. */
     static final String DEFAULT_LAGS = "[1,2]";
 
-    DiffusionCoeffPanel(List<ExperimentData> experiments) {
+    DiffusionCoeffPanel(List<ExperimentData> experiments, String spaceUnit) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
         setBorder(new EmptyBorder(6, 6, 6, 6));
@@ -80,7 +80,7 @@ public class DiffusionCoeffPanel extends JPanel {
         add(Toolbars.makeScrollable(paramBar), BorderLayout.NORTH);
 
         // ── histogram panel ──────────────────────────────────────────────
-        histPanel = new HistogramPanel(experiments, componentSelection);
+        histPanel = new HistogramPanel(experiments, componentSelection, spaceUnit);
 
         // ── zoom / pan toolbar ───────────────────────────────────────────
         JToggleButton zoomBtn    = new JToggleButton("⊕ Zoom", true);
@@ -452,10 +452,14 @@ public class DiffusionCoeffPanel extends JPanel {
             return base;
         }
 
+        /** Unit of the x, y positions, for the D axis label. */
+        private final String spaceUnit;
+
         HistogramPanel(List<ExperimentData> exps,
-                       Map<ExperimentData, Set<Integer>> sel) {
+                       Map<ExperimentData, Set<Integer>> sel, String spaceUnit) {
             this.experiments  = exps;
             this.componentSel = sel;
+            this.spaceUnit    = spaceUnit;
             setBackground(new Color(240, 240, 240));
             setPreferredSize(new Dimension(500, 300));
             setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
@@ -824,7 +828,7 @@ public class DiffusionCoeffPanel extends JPanel {
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             FontMetrics fm = g2.getFontMetrics();
 
-            String xTitle = "D  (μm² / " + timeUnit + ")";
+            String xTitle = "D  (" + spaceUnit + "² / " + timeUnit + ")";
             g2.drawString(xTitle,
                 px + (pw - fm.stringWidth(xTitle)) / 2,
                 py + ph + MB - 8);

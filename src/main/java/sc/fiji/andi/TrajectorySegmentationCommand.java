@@ -83,7 +83,7 @@ public class TrajectorySegmentationCommand implements PlugIn {
     // -----------------------------------------------------------------------
 
     private static DataManagerWindow.AnalysisLauncher createLauncher() {
-        return (exps, maxLag, dm) -> {
+        return (exps, maxLag, spaceUnit, dm) -> {
 
             final SegModelConfig cfg = dm.getSegModelConfig();
 

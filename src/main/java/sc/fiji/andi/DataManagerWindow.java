@@ -55,12 +55,16 @@ public class DataManagerWindow extends JFrame {
     public interface AnalysisLauncher {
         void launch(List<ExperimentData> experiments,
                     int                  defaultMaxLag,
+                    String               spaceUnit,
                     DataManagerWindow    dataManager);
     }
 
     // ── UI ───────────────────────────────────────────────────────────────────
     private final JRadioButton  separateBtn, mergeBtn;
     private final JTextField    tagField, cutField;
+    /** Unit of the x, y positions, shown in the Trajectory Analysis plot labels. */
+    private final JTextField    spaceUnitField = new JTextField(DEFAULT_SPACE_UNIT, 5);
+    static final String         DEFAULT_SPACE_UNIT = "μm";
     private final FileRowModel  model;
     private final JTable        table;
     private final JLabel        chosenLabel;
@@ -107,6 +111,8 @@ public class DataManagerWindow extends JFrame {
             "Merge: leave blank for auto \"Exp N\"; provide a name to use it.");
         cutField = new JTextField(5);
         cutField.setToolTipText("Blank = no filtering");
+        spaceUnitField.setToolTipText("Unit of the x, y positions, used in the plot labels "
+                + "(applies at Perform Analysis)");
 
         JButton chooseBtn = new JButton("Choose Files…");
         chooseBtn.setToolTipText("Pick the CSV files; then set Tag / Cut length and click Load Data");
@@ -131,6 +137,9 @@ public class DataManagerWindow extends JFrame {
         loadBar.add(Box.createHorizontalStrut(4));
         loadBar.add(new JLabel("Cut length:"));
         loadBar.add(cutField);
+        loadBar.add(Box.createHorizontalStrut(4));
+        loadBar.add(new JLabel("Spatial unit:"));
+        loadBar.add(spaceUnitField);
         loadBar.add(Box.createHorizontalStrut(8));
         loadBar.add(loadBtn);
 
@@ -371,7 +380,9 @@ public class DataManagerWindow extends JFrame {
         int defaultMaxLag = Math.max(1, maxLen / 4);
 
         // ── delegate to injected launcher ────────────────────────────────
-        launcher.launch(experiments, defaultMaxLag, this);
+        String spaceUnit = spaceUnitField.getText().trim();
+        if (spaceUnit.isEmpty()) spaceUnit = DEFAULT_SPACE_UNIT;
+        launcher.launch(experiments, defaultMaxLag, spaceUnit, this);
     }
 
     // ═════════════════════════════════════════════════════════════════════════

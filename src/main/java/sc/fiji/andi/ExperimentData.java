@@ -217,7 +217,7 @@ public class ExperimentData {
      *   D = slope / (2 * ndim * frameInterval)
      *
      * Stores results in {@link #dCoeffs}: trackId → {D_2D, D_X, D_Y}
-     * Units: μm² / (real time unit given by frameInterval).
+     * Units: (position unit)² / (time unit given by frameInterval).
      *
      * @param lagSpec       frame lags to use, fixed or a fraction of each track's length
      * @param frameInterval real time per frame

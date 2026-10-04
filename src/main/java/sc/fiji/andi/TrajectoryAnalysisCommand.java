@@ -45,7 +45,7 @@ public class TrajectoryAnalysisCommand implements PlugIn {
     // -----------------------------------------------------------------------
 
     private static DataManagerWindow.AnalysisLauncher createLauncher() {
-        return (exps, maxLag, dm) -> {
+        return (exps, maxLag, spaceUnit, dm) -> {
             // Pre-compute tMSD, D and α with the tabs' initial field values
             // (min lag 1, max lag maxLag, linear lags, frame interval 1).
             TmsdPanel.compute(exps, 1, maxLag, false, 1.0);
@@ -61,7 +61,7 @@ public class TrajectoryAnalysisCommand implements PlugIn {
             SwingUtilities.invokeLater(() -> {
                 if (analysisWindow != null && analysisWindow.isDisplayable())
                     analysisWindow.dispose();
-                analysisWindow = new AnalysisWindow(finalExps, maxLag, dm);
+                analysisWindow = new AnalysisWindow(finalExps, maxLag, spaceUnit, dm);
                 analysisWindow.setVisible(true);
             });
         };

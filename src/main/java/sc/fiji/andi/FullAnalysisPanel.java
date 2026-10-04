@@ -60,7 +60,7 @@ public class FullAnalysisPanel extends JPanel {
 
     // -----------------------------------------------------------------------
 
-    FullAnalysisPanel(List<ExperimentData> experiments,
+    FullAnalysisPanel(List<ExperimentData> experiments, String spaceUnit,
                       Consumer<ExperimentData> populationSink) {
         super(new BorderLayout(0, 4));
         this.experiments    = experiments;
@@ -83,7 +83,7 @@ public class FullAnalysisPanel extends JPanel {
         add(infoLabel, BorderLayout.NORTH);
 
         // ── scatter canvas ───────────────────────────────────────────────
-        scatterPanel = new ScatterPanel(experiments, componentSelection, populations);
+        scatterPanel = new ScatterPanel(experiments, componentSelection, populations, spaceUnit);
         scatterPanel.setSelectionListener(this::updateSelStatus);
 
         // ── view toolbar ─────────────────────────────────────────────────
@@ -617,10 +617,14 @@ public class FullAnalysisPanel extends JPanel {
 
         // ────────────────────────────────────────────────────────────────
 
+        /** Unit of the x, y positions, for the D axis label. */
+        private final String spaceUnit;
+
         ScatterPanel(List<ExperimentData> exps,
                      Map<ExperimentData, Set<Integer>> sel,
-                     List<Population> populations) {
+                     List<Population> populations, String spaceUnit) {
             this.experiments = exps;
+            this.spaceUnit   = spaceUnit;
             this.componentSel = sel;
             this.populations  = populations;
             setBackground(new Color(240, 240, 240));
@@ -1213,13 +1217,13 @@ public class FullAnalysisPanel extends JPanel {
 
         // ── Axis titles ───────────────────────────────────────────────────
 
-        private static void drawAxisTitles(Graphics2D g2, int px, int py, int pw, int ph) {
+        private void drawAxisTitles(Graphics2D g2, int px, int py, int pw, int ph) {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             FontMetrics fm = g2.getFontMetrics();
             String xTitle = "α (anomalous exponent)";
             g2.drawString(xTitle, px + (pw - fm.stringWidth(xTitle))/2, py+ph+MB-8);
-            String yTitle = "D  (μm²)";
+            String yTitle = "D  (" + spaceUnit + "²)";
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph/2.0);
             g2.rotate(-Math.PI/2);

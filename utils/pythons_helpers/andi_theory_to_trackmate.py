@@ -4,7 +4,8 @@ Generate TrackMate-format CSV files from andi_datasets simulated trajectories.
 
 The output format matches what AnDi-J's TrajectoryIO expects:
   Row 1:   column headers
-  Rows 2-4: empty filler rows (TrackMate metadata, skipped by the plugin)
+  Rows 2-4: label and units rows, left empty (the plugin then reads positions in
+            pixels and time in frames)
   Row 5+:  data
 
 Requirements:
@@ -12,11 +13,11 @@ Requirements:
 
 Usage examples
 --------------
-  # 1-D (X only, Y=0): FBM, 100 trajs per exponent, T=30
+  # 2-D (independent X and Y realisations): FBM, 100 trajs per exponent, T=30
   python andi_theory_to_trackmate.py
 
-  # Proper 2-D trajectories (independent X and Y realisations):
-  python andi_theory_to_trackmate.py --2d
+  # 1-D trajectories (X only, Y=0):
+  python andi_theory_to_trackmate.py --1d
 
   # CTRW model, 50 trajs, custom exponents, save to a specific path
   python andi_theory_to_trackmate.py --model 1 --N 50 --alpha 0.3 0.5 0.7 --output my_data.csv
@@ -154,10 +155,10 @@ def main():
         help="Frame interval in seconds used for POSITION_T (default: 1.0)",
     )
     parser.add_argument(
-        "--2d", dest="two_d", action="store_true",
+        "--1d", dest="one_d", action="store_true",
         help=(
-            "Generate proper 2-D trajectories by running the model independently "
-            "for X and Y (default: 1-D, Y=0)"
+            "Generate 1-D trajectories (X only, Y=0) instead of the default 2-D ones, "
+            "where the model runs independently for X and Y"
         ),
     )
     parser.add_argument(
@@ -170,7 +171,7 @@ def main():
     args = parser.parse_args()
 
     model_name = MODEL_NAMES.get(args.model, f"model{args.model}")
-    mode_str   = "2d" if args.two_d else "1d"
+    mode_str   = "1d" if args.one_d else "2d"
     default_name = f"andi_{model_name}_N{args.N}_T{args.T}_a{args.alpha[0]}_{mode_str}.csv"
     output_path  = Path(args.output) if args.output else Path(__file__).parent / default_name
 
@@ -180,20 +181,20 @@ def main():
         f"{args.N * len(args.alpha)} trajectories total\n"
         f"T     : {args.T} frames\n"
         f"α     : {args.alpha}\n"
-        f"Mode  : {'2-D (X and Y independent)' if args.two_d else '1-D (Y=0)'}\n"
+        f"Mode  : {'1-D (Y=0)' if args.one_d else '2-D (X and Y independent)'}\n"
         f"Output: {output_path}\n"
     )
 
-    if args.two_d:
-        spot_rows, n_trajs = generate_2d(
+    if args.one_d:
+        spot_rows, n_trajs = generate_1d(
             args.model, args.N, args.T, args.alpha, args.interval)
     else:
-        spot_rows, n_trajs = generate_1d(
+        spot_rows, n_trajs = generate_2d(
             args.model, args.N, args.T, args.alpha, args.interval)
 
     write_trackmate_csv(output_path, spot_rows)
     print(f"✓  Written {n_trajs} trajectories ({len(spot_rows)} spots)  →  {output_path}")
-    print("   Load this file from AnDi-J  →  Manage Data  →  Load CSV.")
+    print("   Load this file in the AnDi-J Data Manager: Choose Files…, then Load Data.")
 
 
 if __name__ == "__main__":

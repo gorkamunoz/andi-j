@@ -3,7 +3,7 @@
 Generate TrackMate-format CSV files from AnDi-2 *phenomenological* models
 (`andi_datasets.datasets_phenom`).
 
-Unlike `andi_to_trackmate.py` (theory models: ATTM/CTRW/FBM/LW/SBM, one α per
+Unlike `andi_theory_to_trackmate.py` (theory models: ATTM/CTRW/FBM/LW/SBM, one α per
 trajectory), the phenomenological models produce 2-D trajectories whose local
 diffusion properties can **change over time** (multi-state, traps, dimerization,
 confinement) — ideal for testing the segmentation tools.

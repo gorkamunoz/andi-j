@@ -36,7 +36,7 @@ AnDi-J is organised around two menu commands under **`Plugins ▸ AnDi-J`**:
 
 ## Installation
 
-AnDi-J is available in Fiji through the **AnDi-J** update site: select **Help › Update…**, click **Manage update sites**, tick **AnDi-J**, then **Apply changes** and restart Fiji. The plugin appears under **Plugins › AnDi-J**.
+AnDi-J is available in Fiji through the **AnDi-J** update site: select **Help › Update…**, click **Manage update sites**, tick **AnDi-J**, then **Apply changes** and restart Fiji. The plugin appears under **Plugins › AnDi-J**. If **AnDi-J** is not in the list, click **Add unlisted site** and enter the name `AnDi-J` and the URL `https://sites.imagej.net/AnDi-J/`.
 
 Other installation options (manual installation, GPU acceleration, building from source) are described in the [wiki](https://github.com/gorkamunoz/andi-j/wiki#installation).
 

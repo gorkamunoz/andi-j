@@ -97,12 +97,10 @@ public class AnomalousExponentPanel extends JPanel {
 
         // ── Row 1: method selector ───────────────────────────────────────
         methodCombo = new JComboBox<>(new String[]{"TMSD", "ML"});
-        JButton selectMethodBtn = new JButton("Select");
 
         JPanel methodRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         methodRow.add(new JLabel("Method:"));
         methodRow.add(methodCombo);
-        methodRow.add(selectMethodBtn);
 
         // ── Row 2a – TMSD params ─────────────────────────────────────────
         tLagsField = new JTextField(DEFAULT_LAGS, 8);
@@ -173,7 +171,7 @@ public class AnomalousExponentPanel extends JPanel {
         add(Toolbars.makeScrollable(northPanel), BorderLayout.NORTH);
 
         // Wire method-selector and ML loader actions
-        selectMethodBtn.addActionListener(e ->
+        methodCombo.addActionListener(e ->
             methodCards.show(methodParamsPanel, (String) methodCombo.getSelectedItem()));
         chooseModelBtn.addActionListener(e -> chooseCustomModel(mlStatusLabel));
         mlComputeBtn  .addActionListener(e -> recomputeML(parseIntOr(binsPlotField.getText(), 20)));

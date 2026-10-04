@@ -298,7 +298,7 @@ public class PsdPanel extends JPanel {
                 for (int i = 0; i < freqAxis.length; i++) {
                     double v = psd[0][i];              // 2D component
                     if (!Double.isFinite(v)) continue; // skip empty frequency bins
-                    pw.printf("%s,%.8e,%.8e%n", exp.name, freqAxis[i], v);
+                    pw.printf("%s,%.8e,%.8e%n", CsvExport.name(exp), freqAxis[i], v);
                 }
             }
             IJ.log("AnDi-J: PSD saved → " + f.getAbsolutePath());

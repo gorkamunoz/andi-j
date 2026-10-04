@@ -647,23 +647,16 @@ public class AnomalousExponentPanel extends JPanel {
         File f = CsvExport.chooseFile(this, "Save anomalous exponents");
         if (f == null) return;
 
-        boolean multiExp = experiments.stream().filter(ExperimentData::hasAlpha).count() > 1;
-
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            if (multiExp) pw.println("experiment,traj_idx,alpha_2d,alpha_x,alpha_y");
-            else          pw.println("traj_idx,alpha_2d,alpha_x,alpha_y");
+            pw.println("experiment,track_id,alpha_2d,alpha_x,alpha_y");
 
             for (ExperimentData exp : experiments) {
                 if (!exp.hasAlpha()) continue;
                 for (Map.Entry<Integer, double[]> entry : exp.alphaCoeffs.entrySet()) {
                     int      id = entry.getKey();
                     double[] a  = entry.getValue();
-                    if (multiExp)
-                        pw.printf("%s,%d,%.6f,%.6f,%.6f%n",
-                                  exp.name, id, a[0], a[1], a[2]);
-                    else
-                        pw.printf("%d,%.6f,%.6f,%.6f%n",
-                                  id, a[0], a[1], a[2]);
+                    pw.printf("%s,%d,%.6f,%.6f,%.6f%n",
+                              CsvExport.name(exp), id, a[0], a[1], a[2]);
                 }
             }
             IJ.log("AnDi-J: α values saved → " + f.getAbsolutePath());

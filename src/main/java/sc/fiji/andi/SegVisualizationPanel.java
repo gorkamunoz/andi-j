@@ -203,7 +203,7 @@ public class SegVisualizationPanel extends JPanel {
 
         JButton saveRawBtn = new JButton("Save raw preds.");
         saveRawBtn.setToolTipText("Export the per-frame α / D / state predictions to CSV "
-            + "(experiment, traj_idx, frame, alpha, D, state)");
+            + "(experiment, track_id, frame, alpha, D, state)");
         saveRawBtn.addActionListener(e -> saveRawPredictions());
 
         JButton saveSegBtn = new JButton("Save segments");
@@ -251,26 +251,22 @@ public class SegVisualizationPanel extends JPanel {
         File f = CsvExport.chooseFile(this, "Save change-point segments");
         if (f == null) return;
 
-        boolean multiExp = experiments.stream().filter(ExperimentData::hasSegments).count() > 1;
-
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            if (multiExp) pw.println("experiment,track_id,segment,start_frame,length,alpha,D,state");
-            else          pw.println("track_id,segment,start_frame,length,alpha,D,state");
+            pw.println("experiment,track_id,segment,start_frame,length,alpha,D,state");
 
             for (ExperimentData exp : experiments) {
                 if (!exp.hasSegments()) continue;
                 for (Map.Entry<Integer, List<Segment>> e : exp.segments.entrySet()) {
                     int id = e.getKey();
                     List<Segment> segs = e.getValue();
+                    List<double[]> spots = exp.tracks.get(id);
                     for (int k = 0; k < segs.size(); k++) {
                         Segment s = segs.get(k);
-                        int startFrame = s.start + 1;   // 1-based
-                        if (multiExp)
-                            pw.printf("%s,%d,%d,%d,%d,%.6f,%.6e,%s%n",
-                                exp.name, id, k + 1, startFrame, s.length, s.alpha, s.d(), stateLabel(s.state));
-                        else
-                            pw.printf("%d,%d,%d,%d,%.6f,%.6e,%s%n",
-                                id, k + 1, startFrame, s.length, s.alpha, s.d(), stateLabel(s.state));
+                        long startFrame = (spots != null && s.start < spots.size())
+                                        ? Math.round(spots.get(s.start)[0]) : s.start;
+                        pw.printf("%s,%d,%d,%d,%d,%.6f,%.6e,%s%n",
+                            CsvExport.name(exp), id, k + 1, startFrame, s.length, s.alpha, s.d(),
+                            stateLabel(s.state));
                     }
                 }
             }
@@ -289,7 +285,7 @@ public class SegVisualizationPanel extends JPanel {
 
     /**
      * Exports the per-frame predictions to CSV with columns
-     * {@code experiment, traj_idx, frame, alpha, D, state}. α is the per-frame
+     * {@code experiment, track_id, frame, alpha, D, state}. α is the per-frame
      * anomalous exponent; D = 10^log₁₀(D) (blank where D is undefined); state is
      * the per-frame diffusive state.
      */
@@ -305,7 +301,7 @@ public class SegVisualizationPanel extends JPanel {
         if (f == null) return;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            pw.println("experiment,traj_idx,frame,alpha,D,state");
+            pw.println("experiment,track_id,frame,alpha,D,state");
 
             for (ExperimentData exp : experiments) {
                 if (!exp.hasStepPredictions()) continue;
@@ -322,7 +318,7 @@ public class SegVisualizationPanel extends JPanel {
                         String dStr  = "";
                         if (ld != null && t < ld.length && Double.isFinite(ld[t]))
                             dStr = String.format("%.6e", Math.pow(10, ld[t]));
-                        pw.printf("%s,%d,%d,%.6f,%s,%s%n", exp.name, id, frame, a[t], dStr,
+                        pw.printf("%s,%d,%d,%.6f,%s,%s%n", CsvExport.name(exp), id, frame, a[t], dStr,
                             stateLabel(states != null && t < states.length ? states[t] : -1));
                     }
                 }

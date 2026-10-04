@@ -376,19 +376,15 @@ public class DiffusionModelPanel extends JPanel {
         File f = CsvExport.chooseFile(this, "Save diffusion-model predictions");
         if (f == null) return;
 
-        boolean multiExp = shown.stream().filter(ExperimentData::hasDiffModel).count() > 1;
-
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            if (multiExp) pw.println("experiment,traj_idx,model");
-            else          pw.println("traj_idx,model");
+            pw.println("experiment,track_id,model");
 
             for (ExperimentData exp : shown) {
                 if (!exp.hasDiffModel()) continue;
                 for (Map.Entry<Integer, Integer> entry : exp.diffModel.entrySet()) {
                     int    id    = entry.getKey();
                     String model = MODEL_NAMES[entry.getValue()];
-                    if (multiExp) pw.printf("%s,%d,%s%n", exp.name, id, model);
-                    else          pw.printf("%d,%s%n", id, model);
+                    pw.printf("%s,%d,%s%n", CsvExport.name(exp), id, model);
                 }
             }
             IJ.log("AnDi-J: diffusion-model predictions saved → " + f.getAbsolutePath());

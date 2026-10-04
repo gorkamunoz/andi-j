@@ -166,11 +166,8 @@ public class AnglesPanel extends JPanel {
         File f = CsvExport.chooseFile(this, "Save turning angles");
         if (f == null) return;
 
-        boolean multiExp = shown.size() > 1;
-
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            if (multiExp) pw.println("experiment,traj_idx,turning_angle_rad");
-            else          pw.println("traj_idx,turning_angle_rad");
+            pw.println("experiment,track_id,turning_angle_rad");
 
             for (ExperimentData exp : shown) {
                 for (Map.Entry<Integer, List<double[]>> te : exp.tracks.entrySet()) {
@@ -187,8 +184,7 @@ public class AnglesPanel extends JPanel {
                         double angle = Math.atan2(dx1 * dy2 - dy1 * dx2,
                                                   dx1 * dx2 + dy1 * dy2);
                         if (angle < 0) angle += 2 * Math.PI;
-                        if (multiExp) pw.printf("%s,%d,%.6f%n", exp.name, id, angle);
-                        else          pw.printf("%d,%.6f%n", id, angle);
+                        pw.printf("%s,%d,%.6f%n", CsvExport.name(exp), id, angle);
                     }
                 }
             }

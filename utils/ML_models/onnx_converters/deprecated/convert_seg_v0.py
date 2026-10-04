@@ -35,11 +35,11 @@ from pathlib import Path
 import torch
 
 # Reuse the reference architecture / loader
-from utils.ML_models.onnx_converters.model_seg_v0 import UNet3P, load_model
+from utils.ML_models.onnx_converters.deprecated.model_seg_v0 import UNet3P, load_model
 
 SCRIPT_DIR = Path(__file__).parent
-MODEL_PATH = SCRIPT_DIR / '../model_weights/seg_v0.pth'
-OUT_PATH   = SCRIPT_DIR / '../model_weights/seg_v0.onnx'
+MODEL_PATH = SCRIPT_DIR / '../../model_weights/seg_v0.pth'
+OUT_PATH   = SCRIPT_DIR / '../../model_weights/seg_v0.onnx'
 OPSET      = 13
 DUMMY_T    = 224     # multiple of 32 for tracing; the T axis is exported dynamic
 

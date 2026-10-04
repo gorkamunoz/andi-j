@@ -32,8 +32,8 @@ from pathlib import Path
 from step.models import XResAttn
 
 SCRIPT_DIR = Path(__file__).parent
-MODEL_PATH = SCRIPT_DIR / '../model_weights/analysis_v0.pth'
-OUT_PATH   = SCRIPT_DIR / '../model_weights/model_analysis_v0.onnx'
+MODEL_PATH = SCRIPT_DIR / '../../model_weights/analysis_v0.pth'
+OUT_PATH   = SCRIPT_DIR / '../../model_weights/model_analysis_v0.onnx'
 OPSET      = 17
 DUMMY_LEN  = 50
 

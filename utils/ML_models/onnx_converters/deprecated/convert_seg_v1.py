@@ -68,8 +68,8 @@ except ImportError:  # run directly from this folder
     from model_seg_v1 import load_model
 
 SCRIPT_DIR = Path(__file__).parent
-MODEL_PATH = SCRIPT_DIR / '../model_weights/seg_v1.pth'
-OUT_PATH = SCRIPT_DIR / '../model_weights/seg_v1.onnx'
+MODEL_PATH = SCRIPT_DIR / '../../model_weights/seg_v1.pth'
+OUT_PATH = SCRIPT_DIR / '../../model_weights/seg_v1.onnx'
 OPSET = 13
 DUMMY_T = 224          # arbitrary; the T axis is exported dynamic
 

@@ -60,10 +60,6 @@ public class FullAnalysisPanel extends JPanel {
 
     // -----------------------------------------------------------------------
 
-    FullAnalysisPanel(List<ExperimentData> experiments, double initInterval) {
-        this(experiments, initInterval, null);
-    }
-
     FullAnalysisPanel(List<ExperimentData> experiments, double initInterval,
                       Consumer<ExperimentData> populationSink) {
         super(new BorderLayout(0, 4));

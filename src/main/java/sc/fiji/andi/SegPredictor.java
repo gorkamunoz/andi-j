@@ -69,12 +69,8 @@ public class SegPredictor implements Closeable {
 
     public static SegPredictor fromResources(boolean useModelSegments)
             throws OrtException, IOException {
-        return new SegPredictor(loadResource(DEFAULT_RESOURCE), useModelSegments);
-    }
-
-    public SegPredictor(File modelFile, boolean useModelSegments)
-            throws OrtException, IOException {
-        this(readFile(modelFile), useModelSegments);
+        return new SegPredictor(OnnxModels.loadResource(DEFAULT_RESOURCE, "andi-j-seg-latest"),
+                                useModelSegments);
     }
 
     public SegPredictor(byte[] modelBytes, boolean useModelSegments) throws OrtException {
@@ -144,7 +140,7 @@ public class SegPredictor implements Closeable {
             return o;
         }
 
-        try (OnnxTensor tensor = OnnxTensor.createTensor(env, new float[][][]{ positions(spots) });
+        try (OnnxTensor tensor = OnnxTensor.createTensor(env, new float[][][]{ OnnxModels.positions(spots) });
              OrtSession.Result res = session.run(
                      Collections.singletonMap(inputName, tensor))) {
 
@@ -183,17 +179,6 @@ public class SegPredictor implements Closeable {
         return out;
     }
 
-    /** Extracts the (T, 2) position matrix from a track's spot list. */
-    private static float[][] positions(List<double[]> spots) {
-        int T = spots.size();
-        float[][] xy = new float[T][2];
-        for (int t = 0; t < T; t++) {
-            xy[t][0] = (float) spots.get(t)[1];
-            xy[t][1] = (float) spots.get(t)[2];
-        }
-        return xy;
-    }
-
     // -----------------------------------------------------------------------
     // Reading outputs
     // -----------------------------------------------------------------------
@@ -221,10 +206,7 @@ public class SegPredictor implements Closeable {
         if (val instanceof float[][][]) {          // (1, T, K) -> argmax per frame
             float[][] frames = ((float[][][]) val)[0];
             for (int t = 0; t < T && t < frames.length; t++) {
-                float[] f = frames[t];
-                int best = 0;
-                for (int k = 1; k < f.length; k++) if (f[k] > f[best]) best = k;
-                out[t] = best;
+                out[t] = OnnxModels.argmax(frames[t]);
             }
             return out;
         }
@@ -416,27 +398,6 @@ public class SegPredictor implements Closeable {
     private static double clamp(double v, double lo, double hi) {
         if (Double.isNaN(v)) return lo;
         return v < lo ? lo : (v > hi ? hi : v);
-    }
-
-    private static byte[] loadResource(String path) throws IOException {
-        InputStream is = SegPredictor.class.getResourceAsStream(path);
-        if (is == null)
-            throw new FileNotFoundException(
-                    "Bundled model andi-j-seg-latest not found: " + path + "\n"
-                    + "Copy the model into src/main/resources/models/ and rebuild.");
-        try { return readAllBytes(is); } finally { is.close(); }
-    }
-
-    private static byte[] readFile(File f) throws IOException {
-        try (FileInputStream fis = new FileInputStream(f)) { return readAllBytes(fis); }
-    }
-
-    private static byte[] readAllBytes(InputStream is) throws IOException {
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        int len;
-        while ((len = is.read(chunk)) != -1) buf.write(chunk, 0, len);
-        return buf.toByteArray();
     }
 
     private void printInfo() throws OrtException {

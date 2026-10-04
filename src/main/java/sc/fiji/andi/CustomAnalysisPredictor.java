@@ -38,7 +38,7 @@ public class CustomAnalysisPredictor implements MlPredictor {
     private final String         outputName;
 
     public CustomAnalysisPredictor(File modelFile, Mode mode) throws OrtException, IOException {
-        this(readFile(modelFile), mode);
+        this(OnnxModels.readFile(modelFile), mode);
     }
 
     public CustomAnalysisPredictor(byte[] modelBytes, Mode mode) throws OrtException {
@@ -51,16 +51,12 @@ public class CustomAnalysisPredictor implements MlPredictor {
 
     // -----------------------------------------------------------------------
 
-    public void computeForExperiment(ExperimentData exp) throws OrtException {
-        computeForExperiment(exp, null);
-    }
-
     @Override
     public void computeForExperiment(ExperimentData exp, MlPredictor.ProgressListener listener)
             throws OrtException {
         // raw model output per track; null for tracks too short to run
         Map<Integer, float[]> outs = ParallelTracks.map(exp.tracks,
-                spots -> spots.size() < 2 ? null : runSingle(extractXY(spots)), listener);
+                spots -> spots.size() < 2 ? null : runSingle(OnnxModels.positions(spots)), listener);
 
         Map<Integer, double[]> alpha  = (mode == Mode.ALPHA) ? new LinkedHashMap<>() : null;
         Map<Integer, Integer>  models = (mode == Mode.MODEL) ? new LinkedHashMap<>() : null;
@@ -71,7 +67,8 @@ public class CustomAnalysisPredictor implements MlPredictor {
                 alpha.put(id, new double[]{out != null && out.length > 0 ? out[0] : Double.NaN,
                                            Double.NaN, Double.NaN});
             } else if (out != null) {
-                models.put(id, out.length > 1 ? argmax(out) : Math.round(out.length > 0 ? out[0] : 0));
+                models.put(id, out.length > 1 ? OnnxModels.argmax(out)
+                                              : Math.round(out.length > 0 ? out[0] : 0));
             }
         }
 
@@ -81,14 +78,9 @@ public class CustomAnalysisPredictor implements MlPredictor {
 
     // -----------------------------------------------------------------------
 
-    private float[] runSingle(double[][] xy) throws OrtException {
-        int T = xy.length;
-        float[][][] input = new float[1][T][2];
-        for (int t = 0; t < T; t++) {
-            input[0][t][0] = (float) xy[t][0];
-            input[0][t][1] = (float) xy[t][1];
-        }
-        try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
+    /** Runs the model on one trajectory ({@code (T, 2)} raw positions). */
+    private float[] runSingle(float[][] xy) throws OrtException {
+        try (OnnxTensor tensor = OnnxTensor.createTensor(env, new float[][][]{ xy });
              OrtSession.Result res = session.run(
                      Collections.singletonMap(inputName, tensor))) {
             OnnxValue outVal = res.get(outputName)
@@ -111,29 +103,6 @@ public class CustomAnalysisPredictor implements MlPredictor {
         AndiLog.warn("CustomAnalysisPredictor: unexpected output type: "
                 + (val == null ? "null" : val.getClass().getName()));
         return new float[]{Float.NaN};
-    }
-
-    private static int argmax(float[] v) {
-        int best = 0;
-        for (int i = 1; i < v.length; i++) if (v[i] > v[best]) best = i;
-        return best;
-    }
-
-    private static double[][] extractXY(List<double[]> spots) {
-        int T = spots.size();
-        double[][] out = new double[T][2];
-        for (int i = 0; i < T; i++) { out[i][0] = spots.get(i)[1]; out[i][1] = spots.get(i)[2]; }
-        return out;
-    }
-
-    private static byte[] readFile(File f) throws IOException {
-        try (FileInputStream fis = new FileInputStream(f)) {
-            ByteArrayOutputStream buf = new ByteArrayOutputStream();
-            byte[] chunk = new byte[8192];
-            int len;
-            while ((len = fis.read(chunk)) != -1) buf.write(chunk, 0, len);
-            return buf.toByteArray();
-        }
     }
 
     @Override

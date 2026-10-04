@@ -44,19 +44,9 @@ public class AnalysisPredictor implements MlPredictor {
     // Construction
     // -----------------------------------------------------------------------
 
-    public AnalysisPredictor(File modelFile) throws OrtException, IOException {
-        this(readFile(modelFile));
-    }
-
     public static AnalysisPredictor fromResource() throws OrtException, IOException {
-        InputStream is = AnalysisPredictor.class.getResourceAsStream(DEFAULT_RESOURCE);
-        if (is == null)
-            throw new FileNotFoundException(
-                    "Bundled model andi-j-analysis-latest not found: " + DEFAULT_RESOURCE + "\n"
-                    + "Copy the model into src/main/resources/models/ and rebuild.");
-        byte[] bytes;
-        try { bytes = readAllBytes(is); } finally { is.close(); }
-        return new AnalysisPredictor(bytes);
+        return new AnalysisPredictor(
+                OnnxModels.loadResource(DEFAULT_RESOURCE, "andi-j-analysis-latest"));
     }
 
     public AnalysisPredictor(byte[] modelBytes) throws OrtException {
@@ -79,7 +69,7 @@ public class AnalysisPredictor implements MlPredictor {
             throws OrtException {
         // {alpha (1), scores (5)} per track; null for tracks too short to run
         Map<Integer, float[][]> outs = ParallelTracks.map(exp.tracks,
-                spots -> spots.size() < 2 ? null : runSingle(positions(spots)), listener);
+                spots -> spots.size() < 2 ? null : runSingle(OnnxModels.positions(spots)), listener);
 
         Map<Integer, double[]> alpha  = new LinkedHashMap<>();
         Map<Integer, Integer>  models = new LinkedHashMap<>();
@@ -90,28 +80,11 @@ public class AnalysisPredictor implements MlPredictor {
                 continue;
             }
             alpha.put(e.getKey(), new double[]{out[0][0], Double.NaN, Double.NaN});
-            models.put(e.getKey(), argmax(out[1]));
+            models.put(e.getKey(), OnnxModels.argmax(out[1]));
         }
 
         exp.alphaCoeffs = alpha;
         exp.diffModel   = models;
-    }
-
-    private static int argmax(float[] v) {
-        int best = 0;
-        for (int i = 1; i < v.length; i++) if (v[i] > v[best]) best = i;
-        return best;
-    }
-
-    /** The {@code (1, T, 2)} input tensor data: raw x, y per frame. */
-    private static float[][][] positions(List<double[]> spots) {
-        int T = spots.size();
-        float[][][] xy = new float[1][T][2];
-        for (int t = 0; t < T; t++) {
-            xy[0][t][0] = (float) spots.get(t)[1];
-            xy[0][t][1] = (float) spots.get(t)[2];
-        }
-        return xy;
     }
 
     // -----------------------------------------------------------------------
@@ -121,10 +94,11 @@ public class AnalysisPredictor implements MlPredictor {
     /**
      * Runs the model on one trajectory.
      *
+     * @param xy raw positions, shape {@code (T, 2)}
      * @return {@code {alpha (length 1), class scores (length N_MODELS)}}
      */
-    private float[][] runSingle(float[][][] input) throws OrtException {
-        try (OnnxTensor tensor = OnnxTensor.createTensor(env, input);
+    private float[][] runSingle(float[][] xy) throws OrtException {
+        try (OnnxTensor tensor = OnnxTensor.createTensor(env, new float[][][]{ xy });
              OrtSession.Result res = session.run(
                      Collections.singletonMap(inputName, tensor))) {
             return new float[][]{ row(res, "alpha"), row(res, "model") };
@@ -139,22 +113,6 @@ public class AnalysisPredictor implements MlPredictor {
         if (val instanceof float[][]) return ((float[][]) val)[0];
         throw new OrtException("Unexpected type for output '" + name + "': "
                 + (val == null ? "null" : val.getClass().getName()));
-    }
-
-    // -----------------------------------------------------------------------
-    // Utilities
-    // -----------------------------------------------------------------------
-
-    private static byte[] readFile(File f) throws IOException {
-        try (FileInputStream fis = new FileInputStream(f)) { return readAllBytes(fis); }
-    }
-
-    private static byte[] readAllBytes(InputStream is) throws IOException {
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        int len;
-        while ((len = is.read(chunk)) != -1) buf.write(chunk, 0, len);
-        return buf.toByteArray();
     }
 
     @Override

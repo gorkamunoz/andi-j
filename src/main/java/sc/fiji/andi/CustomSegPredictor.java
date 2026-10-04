@@ -38,12 +38,12 @@ public class CustomSegPredictor implements Closeable {
     private final boolean        useModelSegments;
 
     public CustomSegPredictor(File modelFile, Kind kind) throws OrtException, IOException {
-        this(readFile(modelFile), kind, false);
+        this(OnnxModels.readFile(modelFile), kind, false);
     }
 
     public CustomSegPredictor(File modelFile, Kind kind, boolean useModelSegments)
             throws OrtException, IOException {
-        this(readFile(modelFile), kind, useModelSegments);
+        this(OnnxModels.readFile(modelFile), kind, useModelSegments);
     }
 
     public CustomSegPredictor(byte[] modelBytes, Kind kind, boolean useModelSegments)
@@ -62,16 +62,10 @@ public class CustomSegPredictor implements Closeable {
      *
      * @param xy raw positions, shape {@code (T, 2)} = [[x0,y0], …]
      */
-    public Out run(double[][] xy) throws OrtException {
+    public Out run(float[][] xy) throws OrtException {
         int T = xy.length;
-        float[][][] in = new float[1][T][2];
-        for (int t = 0; t < T; t++) {
-            in[0][t][0] = (float) xy[t][0];
-            in[0][t][1] = (float) xy[t][1];
-        }
-
         Out out = new Out();
-        try (OnnxTensor tensor = OnnxTensor.createTensor(env, in);
+        try (OnnxTensor tensor = OnnxTensor.createTensor(env, new float[][][]{ xy });
              OrtSession.Result res = session.run(Collections.singletonMap(inputName, tensor))) {
             if (kind == Kind.COMBINED) {
                 out.alpha = read(res, "alpha", 0, T);
@@ -159,10 +153,7 @@ public class CustomSegPredictor implements Closeable {
         if (val instanceof float[][][]) {              // (1, T, K) → argmax per frame
             float[][] frames = ((float[][][]) val)[0];
             for (int t = 0; t < T && t < frames.length; t++) {
-                float[] f = frames[t];
-                int best = 0;
-                for (int k = 1; k < f.length; k++) if (f[k] > f[best]) best = k;
-                out[t] = best;
+                out[t] = OnnxModels.argmax(frames[t]);
             }
         } else if (val instanceof float[][]) {          // (1, T) → rounded value
             float[] row = ((float[][]) val)[0];
@@ -171,16 +162,6 @@ public class CustomSegPredictor implements Closeable {
             return null;
         }
         return out;
-    }
-
-    private static byte[] readFile(File f) throws IOException {
-        try (FileInputStream fis = new FileInputStream(f)) {
-            ByteArrayOutputStream buf = new ByteArrayOutputStream();
-            byte[] chunk = new byte[8192];
-            int len;
-            while ((len = fis.read(chunk)) != -1) buf.write(chunk, 0, len);
-            return buf.toByteArray();
-        }
     }
 
     @Override

@@ -118,8 +118,7 @@ public final class SegmentationRunner {
             return r;
         }
 
-        double[][] xy = new double[T][2];
-        for (int t = 0; t < T; t++) { xy[t][0] = spots.get(t)[1]; xy[t][1] = spots.get(t)[2]; }
+        float[][] xy = OnnxModels.positions(spots);
 
         double[] a, d, cp;
         int[] state;

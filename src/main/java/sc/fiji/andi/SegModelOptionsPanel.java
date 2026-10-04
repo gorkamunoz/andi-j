@@ -39,9 +39,9 @@ public class SegModelOptionsPanel extends JPanel {
     private final JButton chooseCp = new JButton("Choose…");
     private final JLabel  cpLabel  = status("default");
     private File cpFile;
-    private final JButton choosePhenom = new JButton("Choose…");
-    private final JLabel  phenomLabel  = status("default");
-    private File phenomFile;
+    private final JButton chooseState = new JButton("Choose…");
+    private final JLabel  stateLabel  = status("default");
+    private File stateFile;
 
     private final JPanel loadPanel;      // shown only when "Load" is selected
     private final JPanel combinedCard;
@@ -91,7 +91,7 @@ public class SegModelOptionsPanel extends JPanel {
         perOutputCard.add(outRow("α (exponent)",     chooseAlpha,  alphaLabel));
         perOutputCard.add(outRow("D (coefficient)",  chooseD,      dLabel));
         perOutputCard.add(outRow("Change points",    chooseCp,     cpLabel));
-        perOutputCard.add(outRow("Diffusive state",   choosePhenom, phenomLabel));
+        perOutputCard.add(outRow("Diffusive state",   chooseState, stateLabel));
         JLabel hint = new JLabel("Outputs left as “default” use the bundled model.");
         hint.setFont(hint.getFont().deriveFont(Font.ITALIC, 10f));
         hint.setForeground(new Color(120, 120, 120));
@@ -127,9 +127,9 @@ public class SegModelOptionsPanel extends JPanel {
             File f = pick("Choose change-point model");
             if (f != null) { cpFile = f; setFile(cpLabel, f); }
         });
-        choosePhenom.addActionListener(e -> {
+        chooseState.addActionListener(e -> {
             File f = pick("Choose diffusive-state model");
-            if (f != null) { phenomFile = f; setFile(phenomLabel, f); }
+            if (f != null) { stateFile = f; setFile(stateLabel, f); }
         });
 
         refresh();
@@ -142,7 +142,7 @@ public class SegModelOptionsPanel extends JPanel {
         if (defaultRadio.isSelected()) return SegModelConfig.defaultModel();
         if (combinedRadio.isSelected())
             return SegModelConfig.combined(combinedFile, modelSegsBox.isSelected());
-        return SegModelConfig.perOutput(alphaFile, dFile, cpFile, phenomFile);
+        return SegModelConfig.perOutput(alphaFile, dFile, cpFile, stateFile);
     }
 
     // -----------------------------------------------------------------------

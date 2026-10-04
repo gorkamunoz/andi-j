@@ -18,7 +18,7 @@ public class Segment {
     /** Mean predicted log₁₀(D) over the segment (NaN if D unavailable). */
     public final double logD;
     /** Diffusive-state class over the segment (majority of per-frame states),
-     *  index into {@link SegPhenomPanel#PHENOM_NAMES}; −1 if unavailable. */
+     *  index into {@link DiffusiveStatePanel#STATE_NAMES}; −1 if unavailable. */
     public final int state;
 
     public Segment(int start, int length, double alpha, double logD) {

@@ -289,7 +289,7 @@ public class SegVisualizationPanel extends JPanel {
 
     /** Diffusive-state class as an integer (0=immobile, 1=confined, 2=free, 3=directed), or "" when unknown. */
     private static String stateLabel(int st) {
-        return (st >= 0 && st < SegPhenomPanel.PHENOM_NAMES.length) ? String.valueOf(st) : "";
+        return (st >= 0 && st < DiffusiveStatePanel.STATE_NAMES.length) ? String.valueOf(st) : "";
     }
 
     /**
@@ -577,10 +577,10 @@ public class SegVisualizationPanel extends JPanel {
                 int stripY = py - STRIP_H;
                 for (int t = 0; t < seqLen && t < state.length; t++) {
                     int c = state[t];
-                    if (c < 0 || c >= SegPhenomPanel.STATE_COLORS.length) continue;
+                    if (c < 0 || c >= DiffusiveStatePanel.STATE_COLORS.length) continue;
                     int x0 = px + xToPixel(t, seqLen, pw);
                     int x1 = px + xToPixel(Math.min(seqLen, t + 1), seqLen, pw);
-                    g2.setColor(SegPhenomPanel.STATE_COLORS[c]);
+                    g2.setColor(DiffusiveStatePanel.STATE_COLORS[c]);
                     g2.fillRect(x0, stripY, Math.max(1, x1 - x0), STRIP_H);
                 }
             }
@@ -742,8 +742,8 @@ public class SegVisualizationPanel extends JPanel {
 
         /** Draggable legend for the diffusive-state strip colours (top-left plot only). */
         private void drawStateLegend(Graphics2D g2, int px, int py, int pw, int ph, int W, int H) {
-            String[] names = SegPhenomPanel.PHENOM_NAMES;
-            Color[]  cols  = SegPhenomPanel.STATE_COLORS;
+            String[] names = DiffusiveStatePanel.STATE_NAMES;
+            Color[]  cols  = DiffusiveStatePanel.STATE_COLORS;
 
             // Match the toolbar's text size (e.g. "Experiment:", "Sample random 16").
             float sz = UIManager.getFont("Label.font") != null

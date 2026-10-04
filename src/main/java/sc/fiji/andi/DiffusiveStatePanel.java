@@ -21,10 +21,10 @@ import java.util.List;
  * head, {@code kac[:, 2]}), computed during Perform Analysis — so there are no
  * ML controls here; the model is chosen in the Data Manager.
  */
-public class SegPhenomPanel extends JPanel {
+public class DiffusiveStatePanel extends JPanel {
 
     /** AnDi diffusive-state classes, in the model's output-class order (0…3). */
-    public static final String[] PHENOM_NAMES = {
+    public static final String[] STATE_NAMES = {
         "Immobile", "Confined", "Free diffusion", "Directed"
     };
 
@@ -44,7 +44,7 @@ public class SegPhenomPanel extends JPanel {
     private final List<ExperimentData>         experiments;
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
     /** Which diffusive-state lines to draw (default: the states present in the data). */
-    private final boolean[] modeVisible = new boolean[PHENOM_NAMES.length];
+    private final boolean[] modeVisible = new boolean[STATE_NAMES.length];
 
     private final BarPanel            barPanel;
     private final SegStatsPanel.Hist1D lengthHist;   // one line per state
@@ -52,7 +52,7 @@ public class SegPhenomPanel extends JPanel {
     private JComponent plotArea;
     private final JCheckBox           normalizeBox = new JCheckBox("Normalize (%)");
 
-    public SegPhenomPanel(List<ExperimentData> experiments) {
+    public DiffusiveStatePanel(List<ExperimentData> experiments) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
         setBorder(new EmptyBorder(6, 6, 6, 6));
@@ -168,9 +168,9 @@ public class SegPhenomPanel extends JPanel {
         JPanel col = new JPanel();
         col.setLayout(new BoxLayout(col, BoxLayout.Y_AXIS));
         col.setBorder(new EmptyBorder(4, 4, 4, 4));
-        for (int st = 0; st < PHENOM_NAMES.length; st++) {
+        for (int st = 0; st < STATE_NAMES.length; st++) {
             final int s = st;
-            JToggleButton b = new JToggleButton(PHENOM_NAMES[st], modeVisible[st]);
+            JToggleButton b = new JToggleButton(STATE_NAMES[st], modeVisible[st]);
             b.setForeground(STATE_COLORS[st]);
             b.setFont(b.getFont().deriveFont(Font.BOLD));
             b.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -209,7 +209,7 @@ public class SegPhenomPanel extends JPanel {
         List<int[]>  counts = new ArrayList<>();
         List<Color>  colors = new ArrayList<>();
         List<String> names  = new ArrayList<>();
-        for (int st = 0; st < PHENOM_NAMES.length; st++) {
+        for (int st = 0; st < STATE_NAMES.length; st++) {
             if (!modeVisible[st]) continue;                     // omit toggled-off states
             int[] c = new int[nb];                              // all-zeros if the state is empty
             for (ExperimentData exp : sel)
@@ -218,7 +218,7 @@ public class SegPhenomPanel extends JPanel {
                         if (s.state == st) c[bin(s.length, lenMin, lenMax, nb)]++;
             counts.add(c);
             colors.add(STATE_COLORS[st]);
-            names.add(PHENOM_NAMES[st]);
+            names.add(STATE_NAMES[st]);
         }
 
         lengthHist.setData(lenMin, lenMax, nb, counts, colors, names);
@@ -271,7 +271,7 @@ public class SegPhenomPanel extends JPanel {
             for (ExperimentData exp : experiments)
                 if (expVisible.getOrDefault(exp, true) && exp.hasSegments()) visible.add(exp);
 
-            int nModels = PHENOM_NAMES.length;
+            int nModels = STATE_NAMES.length;
             double[][] pct = new double[visible.size()][nModels];
             for (int ei = 0; ei < visible.size(); ei++) {
                 int[] counts = new int[nModels];
@@ -359,7 +359,7 @@ public class SegPhenomPanel extends JPanel {
             FontMetrics fm = g2.getFontMetrics();
             double groupW = (double) pw / nModels;
             for (int mi = 0; mi < nModels; mi++) {
-                String lbl = PHENOM_NAMES[mi];
+                String lbl = STATE_NAMES[mi];
                 int cx = (int) (px + (mi + 0.5) * groupW);
                 g2.drawString(lbl, cx - fm.stringWidth(lbl) / 2, py + ph + 16);
             }

@@ -25,11 +25,11 @@ public final class SegModelConfig {
     public final File    alphaFile;    // per-output mode (any may be null → default)
     public final File    dFile;
     public final File    cpFile;
-    public final File    phenomFile;   // per-output diffusive state (optional)
+    public final File    stateFile;   // per-output diffusive state (optional)
 
     private SegModelConfig(boolean useDefault, boolean useModelSegments, boolean combined,
                            File combinedFile, File alphaFile, File dFile, File cpFile,
-                           File phenomFile) {
+                           File stateFile) {
         this.useDefault       = useDefault;
         this.useModelSegments = useModelSegments;
         this.combined     = combined;
@@ -37,7 +37,7 @@ public final class SegModelConfig {
         this.alphaFile    = alphaFile;
         this.dFile        = dFile;
         this.cpFile       = cpFile;
-        this.phenomFile   = phenomFile;
+        this.stateFile   = stateFile;
     }
 
     public static SegModelConfig defaultModel() {
@@ -48,8 +48,8 @@ public final class SegModelConfig {
         return new SegModelConfig(false, useModelSegments, true, file, null, null, null, null);
     }
 
-    public static SegModelConfig perOutput(File alpha, File d, File cp, File phenom) {
-        return new SegModelConfig(false, false, false, null, alpha, d, cp, phenom);
+    public static SegModelConfig perOutput(File alpha, File d, File cp, File state) {
+        return new SegModelConfig(false, false, false, null, alpha, d, cp, state);
     }
 
     /** True in per-output mode when at least one α/D/CP output falls back to the default. */
@@ -62,7 +62,7 @@ public final class SegModelConfig {
         if (useDefault) return "default";
         if (combined)   return "combined:" + path(combinedFile) + ";segs=" + useModelSegments;
         return "perout:a=" + path(alphaFile) + ";d=" + path(dFile) + ";cp=" + path(cpFile)
-             + ";ph=" + path(phenomFile);
+             + ";state=" + path(stateFile);
     }
 
     private static String path(File f) { return f == null ? "-" : f.getAbsolutePath(); }

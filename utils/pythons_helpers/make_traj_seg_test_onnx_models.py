@@ -61,8 +61,8 @@ def _cp(step):
     return (step > 2.0 * mean).float()
 
 
-def _model_type(step):
-    # (1, T, 4) per-frame softmax over the 4 AnDi diffusive modes
+def _state(step):
+    # (1, T, 4) per-frame softmax over the 4 AnDi diffusive states
     # (immobile, confined, free diffusion, directed), mapped from step
     # magnitude (purely illustrative).
     centers = torch.tensor([0.25, 1.0, 1.75, 2.5])               # (4,)
@@ -82,14 +82,14 @@ class CpModel(nn.Module):
     def forward(self, x): return _cp(_step(x))
 
 
-class ModelTypeModel(nn.Module):
-    def forward(self, x): return _model_type(_step(x))
+class StateModel(nn.Module):
+    def forward(self, x): return _state(_step(x))
 
 
 class CombinedModel(nn.Module):
     def forward(self, x):
         s = _step(x)
-        return _alpha(s), _logd(s), _cp(s), _model_type(s)
+        return _alpha(s), _logd(s), _cp(s), _state(s)
 
 
 def export(model, name, out_names):
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     export(AlphaModel(),     "seg_alpha.onnx",     ["alpha"])
     export(LogDModel(),      "seg_logd.onnx",      ["logD"])
     export(CpModel(),        "seg_cp.onnx",        ["cp"])
-    export(ModelTypeModel(), "seg_state.onnx",     ["diffusive_state"])
+    export(StateModel(), "seg_state.onnx",     ["diffusive_state"])
     export(CombinedModel(),  "seg_combined.onnx", ["alpha", "logD", "cp", "diffusive_state"])
 
     # Optional round-trip check

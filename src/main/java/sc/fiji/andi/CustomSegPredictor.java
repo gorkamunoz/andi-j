@@ -19,7 +19,7 @@ import java.util.*;
  */
 public class CustomSegPredictor implements Closeable {
 
-    public enum Kind { COMBINED, ALPHA, LOGD, CP, MODELTYPE }
+    public enum Kind { COMBINED, ALPHA, LOGD, CP, STATE }
 
     /** Per-frame outputs; any field may be null if this model does not provide it. */
     public static final class Out {
@@ -74,7 +74,7 @@ public class CustomSegPredictor implements Closeable {
                 out.state = requiredState(res, T);
                 if (useModelSegments)
                     out.segments = SegPredictor.readModelSegments(res, outNames, T);
-            } else if (kind == Kind.MODELTYPE) {
+            } else if (kind == Kind.STATE) {
                 out.state = readStatePerFrame(res, 0, T, (String) null);
             } else {
                 double[] v = read(res, null, 0, T);

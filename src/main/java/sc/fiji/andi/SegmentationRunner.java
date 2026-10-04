@@ -52,7 +52,7 @@ public final class SegmentationRunner {
         CustomSegPredictor ca  = cfg.alphaFile  != null ? new CustomSegPredictor(cfg.alphaFile,  CustomSegPredictor.Kind.ALPHA)     : null;
         CustomSegPredictor cd  = cfg.dFile      != null ? new CustomSegPredictor(cfg.dFile,      CustomSegPredictor.Kind.LOGD)      : null;
         CustomSegPredictor cc  = cfg.cpFile     != null ? new CustomSegPredictor(cfg.cpFile,     CustomSegPredictor.Kind.CP)        : null;
-        CustomSegPredictor cph = cfg.phenomFile != null ? new CustomSegPredictor(cfg.phenomFile, CustomSegPredictor.Kind.MODELTYPE) : null;
+        CustomSegPredictor cph = cfg.stateFile != null ? new CustomSegPredictor(cfg.stateFile, CustomSegPredictor.Kind.STATE) : null;
         try {
             runMixed(exps, tick, null, def, ca, cd, cc, cph);
         } finally {

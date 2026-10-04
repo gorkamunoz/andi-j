@@ -15,7 +15,7 @@ import java.util.List;
 public class AnalysisWindow extends JFrame {
 
     public AnalysisWindow(List<ExperimentData> experiments,
-                          int initMaxLag, double initInterval,
+                          int initMaxLag,
                           DataManagerWindow dataManager) {
         super("AnDi-J – Trajectory Analysis");
 
@@ -52,12 +52,12 @@ public class AnalysisWindow extends JFrame {
 
         final JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("TMSD Visualization",
-            new TmsdPanel(experiments, initMaxLag, initInterval));
+            new TmsdPanel(experiments, initMaxLag));
         tabs.addTab("Diffusion coefficient",
-            new DiffusionCoeffPanel(experiments, initInterval));
+            new DiffusionCoeffPanel(experiments));
         tabs.addTab("Anomalous exponent", anomalousPanel);
         tabs.addTab("D vs α",
-            new FullAnalysisPanel(experiments, initInterval, populationSink));
+            new FullAnalysisPanel(experiments, populationSink));
         tabs.addTab("Diffusion Model", diffusionPanel);
         tabs.addTab("Turning Angles",  anglesPanel);
         tabs.addTab("PSD",             new PsdPanel(experiments));

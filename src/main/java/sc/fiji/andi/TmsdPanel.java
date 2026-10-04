@@ -48,7 +48,7 @@ public class TmsdPanel extends JPanel {
     private final JTextField minLagField, maxLagField, intervalField, unitField;
     private final JCheckBox  logSpacedBox;
 
-    TmsdPanel(List<ExperimentData> experiments, int initMaxLag, double initInterval) {
+    TmsdPanel(List<ExperimentData> experiments, int initMaxLag) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
         setBorder(new EmptyBorder(6, 6, 6, 6));
@@ -68,7 +68,7 @@ public class TmsdPanel extends JPanel {
         minLagField   = new JTextField(String.valueOf(1),          4);
         maxLagField   = new JTextField(String.valueOf(initMaxLag), 4);
         logSpacedBox  = new JCheckBox("Log-spaced", false);
-        intervalField = new JTextField(String.format("%.3f", initInterval), 6);
+        intervalField = new JTextField("1", 6);
         unitField     = new JTextField("frames",                   6);
         JButton computeBtn = new JButton("Compute tMSD");
 
@@ -225,21 +225,29 @@ public class TmsdPanel extends JPanel {
         int     minL     = parseIntOr(minLagField.getText(),    1);
         int     maxL     = parseIntOr(maxLagField.getText(),   20);
         boolean logS     = logSpacedBox.isSelected();
-        // Linear: every integer lag; log-spaced: up to 50 points (avoids over-sampling)
-        int     n        = logS ? Math.min(50, Math.max(2, maxL - minL + 1))
-                                : (maxL - minL + 1);
         double  interval = parseDblOr(intervalField.getText(), 1.0);
         String  unit     = unitField.getText().trim();
         if (unit.isEmpty()) unit = "frames";
 
-        for (ExperimentData exp : experiments) {
-            exp.computeTamsd(minL, maxL, n, logS, interval);
-            exp.computeEmsd();
-        }
+        compute(experiments, minL, maxL, logS, interval);
 
         plotPanel.setLogScale(logS);
         plotPanel.setTimeUnit(unit);
         plotPanel.repaint();
+    }
+
+    /**
+     * The tMSD of every experiment for lags {@code minL … maxL}: every integer lag,
+     * or up to 50 log-spaced lags. Also run by the Trajectory Analysis launcher with
+     * the tab's initial field values, so the first plot matches the fields.
+     */
+    static void compute(List<ExperimentData> experiments, int minL, int maxL,
+                        boolean logS, double interval) {
+        int n = logS ? Math.min(50, Math.max(2, maxL - minL + 1)) : (maxL - minL + 1);
+        for (ExperimentData exp : experiments) {
+            exp.computeTamsd(minL, maxL, n, logS, interval);
+            exp.computeEmsd();
+        }
     }
 
     private static int    parseIntOr(String s, int    d) { try { return Integer.parseInt(s.trim());   } catch (Exception e) { return d; } }

@@ -31,6 +31,10 @@ import java.util.List;
  */
 public class AnomalousExponentPanel extends JPanel {
 
+    /** Initial value of the Time lags field (TMSD method). */
+    static final String DEFAULT_LAGS = "[1, 0.1]";
+
+
     private final List<ExperimentData> experiments;
 
     // Per-experiment selected components: Set may contain {0=2D, 1=X, 2=Y}
@@ -101,7 +105,7 @@ public class AnomalousExponentPanel extends JPanel {
         methodRow.add(selectMethodBtn);
 
         // ── Row 2a – TMSD params ─────────────────────────────────────────
-        tLagsField = new JTextField("[1, 0.1]", 8);
+        tLagsField = new JTextField(DEFAULT_LAGS, 8);
         JButton computeBtn = new JButton("Compute α");
         JButton saveBtn    = new JButton("Save α…");
 

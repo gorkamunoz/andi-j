@@ -43,7 +43,10 @@ public class DiffusionCoeffPanel extends JPanel {
 
     // -----------------------------------------------------------------------
 
-    DiffusionCoeffPanel(List<ExperimentData> experiments, double initInterval) {
+    /** Initial value of the Time lags field. */
+    static final String DEFAULT_LAGS = "[1,2]";
+
+    DiffusionCoeffPanel(List<ExperimentData> experiments) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
         setBorder(new EmptyBorder(6, 6, 6, 6));
@@ -56,10 +59,10 @@ public class DiffusionCoeffPanel extends JPanel {
         }
 
         // ── parameter bar (North) ────────────────────────────────────────
-        tLagsField    = new JTextField("[1,2]",                             8);
+        tLagsField    = new JTextField(DEFAULT_LAGS,                        8);
         binsField     = new JTextField("20",                                4);
         intervalField = new JTextField("1",      6);
-        unitField     = new JTextField("second", 6);
+        unitField     = new JTextField("frames", 6);
         JButton computeBtn = new JButton("Compute D");
         JButton saveDBtn   = new JButton("Save D…");
 

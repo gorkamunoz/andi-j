@@ -55,7 +55,6 @@ public class DataManagerWindow extends JFrame {
     public interface AnalysisLauncher {
         void launch(List<ExperimentData> experiments,
                     int                  defaultMaxLag,
-                    double               defaultInterval,
                     DataManagerWindow    dataManager);
     }
 
@@ -368,19 +367,11 @@ public class DataManagerWindow extends JFrame {
             .flatMap(e -> e.tracks.values().stream())
             .mapToInt(List::size).max().orElse(4);
 
-        // If every row shares the same positive cut length, use max(cut-2, 4)
-        int cutVal = uniformCutLength();
-        int defaultMaxLag = (cutVal > 0)
-            ? Math.max(cutVal - 2, 4)
-            : Math.max(1, maxLen / 4);
-        double defaultInterval = experiments.get(0).estimatedInterval;
+        // Default max lag: the largest lag with data, from the longest trajectory
+        int defaultMaxLag = Math.max(1, maxLen - 1);
 
         // ── delegate to injected launcher ────────────────────────────────
-        final List<ExperimentData> exps     = experiments;
-        final int                  maxLag   = defaultMaxLag;
-        final double               interval = defaultInterval;
-        final DataManagerWindow    self     = this;
-        launcher.launch(exps, maxLag, interval, self);
+        launcher.launch(experiments, defaultMaxLag, this);
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -416,15 +407,6 @@ public class DataManagerWindow extends JFrame {
     private static int parseCut(String s) {
         try { int n = Integer.parseInt(s.trim()); return n >= 1 ? n : -1; }
         catch (NumberFormatException e) { return -1; }
-    }
-
-    /** Returns the shared cut length if every row has the same positive value; else -1. */
-    private int uniformCutLength() {
-        if (rows.isEmpty()) return -1;
-        int first = rows.get(0).cutLength;
-        if (first <= 0) return -1;
-        for (FileRow r : rows) if (r.cutLength != first) return -1;
-        return first;
     }
 
     private static Map<Integer, List<double[]>> deepCopy(

@@ -230,11 +230,6 @@ public class ExperimentData {
         }
     }
 
-    /** Convenience overload – wraps a fixed lag array. */
-    public void computeDiffusionCoefficients(int[] tLags, double frameInterval) {
-        computeDiffusionCoefficients(LagSpec.fixed(tLags), frameInterval);
-    }
-
     /** Returns {D_2D, D_X, D_Y} for one trajectory. */
     private static double[] computeSingleD(List<double[]> spots, int[] tLags, double frameInterval) {
         double[][] tamsd = computeSingleTamsdAllComp(spots, tLags);

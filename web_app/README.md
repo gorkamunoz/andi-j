@@ -4,7 +4,7 @@ Benchmarks for the models used by the AnDi-J Fiji / ImageJ plugin. New models ar
 AnDi-J default model, other available models and, for completeness, the methods of the
 1st Anomalous Diffusion (AnDi) Challenge (Muñoz-Gil et al., Nat. Commun. 12, 6253, 2021).
 
-Pages: Overview (placeholder), Trajectory Analysis (benchmark, anomalous exponent, diffusion model,
+Pages: Overview (introduction and links to the two benchmarks), Trajectory Analysis (benchmark, anomalous exponent, diffusion model,
 submit) and Trajectory segmentation (analysis, submit). The Trajectory Analysis benchmark covers the two
 predictions of AnDi-J's Trajectory Analysis tab:
 

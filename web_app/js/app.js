@@ -468,9 +468,9 @@ const WIKI = 'https://github.com/gorkamunoz/andi-j/wiki';
 function viewHome() {
   const page = h('<div class="home"></div>');
   page.append(pageHead('', 'Benchmark methods for anomalous diffusion',
-    `This tool allows to benchmark methods on the analysis of diffusive single-particle trajectories of many different types.
+    `This tool lets you benchmark methods on the analysis of diffusive single-particle trajectories of many different types.
     The benchmarks are based on the datasets and metrics of the two Anomalous Diffusion (AnDi) Challenges
-     (<a href="${ANDI1}" ${EXT}>1st</a>, <a href="${ANDI2}" ${EXT}>2nd</a>). It also include comparisons to the bundled methods of the <a href="${REPO}" ${EXT}>AnDi-J Fiji plugin</a>.`));
+     (<a href="${ANDI1}" ${EXT}>1st</a>, <a href="${ANDI2}" ${EXT}>2nd</a>). It also includes comparisons to the bundled methods of the <a href="${REPO}" ${EXT}>AnDi-J Fiji plugin</a>.`));
 
   page.append(h(`<div class="grid grid-2">
     <section class="card home-card">

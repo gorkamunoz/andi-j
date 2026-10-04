@@ -19,11 +19,6 @@ public class ExperimentData {
     public int[]    lags;
     public double[] tAxis;
 
-    /** 2D tMSD per track – kept for backward compatibility. Points to tamsdByComp[id][0]. */
-    public final Map<Integer, double[]>   tamsdPerTrack = new LinkedHashMap<>();
-    /** Average 2D tMSD – kept for backward compatibility. Points to avgTamsdComp[0]. */
-    public double[] avgTamsd;
-
     /** Per-component averages: [0]=2D, [1]=X, [2]=Y;  second dim = lag index. */
     public double[][]               avgTamsdComp;
     /** Per-track per-component tMSD: trackId → [comp][lagIdx],  comp 0=2D 1=X 2=Y. */
@@ -38,9 +33,9 @@ public class ExperimentData {
     public Map<Integer, double[]> alphaCoeffs;
 
     // -- per-frame predictions from andi-j-seg-latest (null until segmentation runs) --
-    /** Per-frame anomalous exponent: trackId → double[T-1]. Null until segmentation runs. */
+    /** Per-frame anomalous exponent: trackId → double[T]. Null until segmentation runs. */
     public Map<Integer, double[]> stepAlpha;
-    /** Per-frame log₁₀(D): trackId → double[T-1]. Null until segmentation runs. */
+    /** Per-frame log₁₀(D): trackId → double[T]. Null until segmentation runs. */
     public Map<Integer, double[]> stepLogD;
     /** Per-frame diffusive-state class: trackId → int[T]. Null until segmentation runs. */
     public Map<Integer, int[]> stepState;
@@ -52,12 +47,11 @@ public class ExperimentData {
      */
     public double[][] emsdComp;
 
-    // -- predicted diffusion-model class (null until DiffusionModelPanel generates it) --
+    // -- predicted diffusion-model class (null until an analysis model runs) --
     /**
      * Predicted diffusion model per track: trackId → model index into
-     * {@link DiffusionModelPanel#MODEL_NAMES} (0=ATTM, 1=CTRW, 2=FBM, 3=SBM, 4=LW).
-     * Currently filled with random placeholder predictions until the real
-     * classifier model is trained. 2-D only.
+     * {@link DiffusionModelPanel#MODEL_NAMES} (0=ATTM, 1=CTRW, 2=FBM, 3=LW, 4=SBM).
+     * 2-D only.
      */
     public Map<Integer, Integer> diffModel;
 
@@ -68,10 +62,6 @@ public class ExperimentData {
     public Map<Integer, List<Segment>> segments;
 
     public boolean hasSegments() { return segments != null && !segments.isEmpty(); }
-
-    // -- legacy display flags (kept for any external reader; rendering uses TmsdPanel maps) --
-    public boolean showAverage = true;
-    public boolean showAll     = false;
 
     public ExperimentData(String name,
                           Map<Integer, List<double[]>> tracks,
@@ -133,12 +123,8 @@ public class ExperimentData {
         for (int i = 0; i < lags.length; i++) tAxis[i] = lags[i] * frameInterval;
 
         tamsdByComp.clear();
-        tamsdPerTrack.clear();
-        for (Map.Entry<Integer, List<double[]>> e : tracks.entrySet()) {
-            double[][] byComp = computeSingleTamsdAllComp(e.getValue(), lags);
-            tamsdByComp.put(e.getKey(), byComp);
-            tamsdPerTrack.put(e.getKey(), byComp[0]);  // 2D slice for backward compat
-        }
+        for (Map.Entry<Integer, List<double[]>> e : tracks.entrySet())
+            tamsdByComp.put(e.getKey(), computeSingleTamsdAllComp(e.getValue(), lags));
 
         // Average across tracks per component
         avgTamsdComp = new double[3][lags.length];
@@ -151,7 +137,6 @@ public class ExperimentData {
                 if (count > 0) avgTamsdComp[c][li] = sum / count;
             }
         }
-        avgTamsd = avgTamsdComp[0];  // backward compat alias
 
         // Keep eMSD in sync with taMSD — always recompute with the new lags
         computeEmsd();
@@ -234,10 +219,9 @@ public class ExperimentData {
      * Stores results in {@link #dCoeffs}: trackId → {D_2D, D_X, D_Y}
      * Units: μm² / (real time unit given by frameInterval).
      *
-     * @param tLags         frame lags to use (e.g. {1, 2})
+     * @param lagSpec       frame lags to use, fixed or a fraction of each track's length
      * @param frameInterval real time per frame
      */
-    /** Compute D using a {@link LagSpec} (supports per-trajectory fractional lags). */
     public void computeDiffusionCoefficients(LagSpec lagSpec, double frameInterval) {
         dCoeffs = new LinkedHashMap<>();
         for (Map.Entry<Integer, List<double[]>> e : tracks.entrySet()) {
@@ -253,33 +237,12 @@ public class ExperimentData {
 
     /** Returns {D_2D, D_X, D_Y} for one trajectory. */
     private static double[] computeSingleD(List<double[]> spots, int[] tLags, double frameInterval) {
-        Map<Integer, double[]> fm = new HashMap<>(spots.size() * 2);
-        for (double[] s : spots) fm.put((int) s[0], new double[]{s[1], s[2]});
-
-        double[] tamsd2D = new double[tLags.length];
-        double[] tamsdX  = new double[tLags.length];
-        double[] tamsdY  = new double[tLags.length];
-        Arrays.fill(tamsd2D, Double.NaN);
-        Arrays.fill(tamsdX,  Double.NaN);
-        Arrays.fill(tamsdY,  Double.NaN);
-
-        for (int li = 0; li < tLags.length; li++) {
-            double s2D = 0, sX = 0, sY = 0; int n = 0;
-            for (Map.Entry<Integer, double[]> e : fm.entrySet()) {
-                double[] p2 = fm.get(e.getKey() + tLags[li]);
-                if (p2 != null) {
-                    double dx = p2[0] - e.getValue()[0];
-                    double dy = p2[1] - e.getValue()[1];
-                    s2D += dx*dx + dy*dy; sX += dx*dx; sY += dy*dy; n++;
-                }
-            }
-            if (n > 0) { tamsd2D[li] = s2D/n; tamsdX[li] = sX/n; tamsdY[li] = sY/n; }
-        }
+        double[][] tamsd = computeSingleTamsdAllComp(spots, tLags);
 
         // slope of linear fit TAMSD vs t_lag (in frames), then D = slope / (2*ndim*interval)
-        double slope2D = linearSlope(tLags, tamsd2D);
-        double slopeX  = linearSlope(tLags, tamsdX);
-        double slopeY  = linearSlope(tLags, tamsdY);
+        double slope2D = linearSlope(tLags, tamsd[0]);
+        double slopeX  = linearSlope(tLags, tamsd[1]);
+        double slopeY  = linearSlope(tLags, tamsd[2]);
         double fi = frameInterval > 0 ? frameInterval : 1.0;
         return new double[]{
             slope2D / (4.0 * fi),   // 2D: ndim=2
@@ -300,20 +263,14 @@ public class ExperimentData {
      * Stores results in {@link #alphaCoeffs}: trackId → {alpha_2D, alpha_X, alpha_Y}
      * α ∈ [0, 2]: 1 = normal diffusion, <1 = subdiffusion, >1 = superdiffusion.
      *
-     * @param tLags  frame lags to use
+     * @param lagSpec frame lags to use, fixed or a fraction of each track's length
      */
-    /** Compute α using a {@link LagSpec} (supports per-trajectory fractional lags). */
     public void computeAnomalousExponents(LagSpec lagSpec) {
         alphaCoeffs = new LinkedHashMap<>();
         for (Map.Entry<Integer, List<double[]>> e : tracks.entrySet()) {
             int[] lags = lagSpec.lagsFor(e.getValue().size());
             alphaCoeffs.put(e.getKey(), computeSingleAlpha(e.getValue(), lags));
         }
-    }
-
-    /** Convenience overload – wraps a fixed lag array. */
-    public void computeAnomalousExponents(int[] tLags) {
-        computeAnomalousExponents(LagSpec.fixed(tLags));
     }
 
     /** Returns {alpha_2D, alpha_X, alpha_Y} for one trajectory. */
@@ -397,9 +354,8 @@ public class ExperimentData {
     /**
      * Gap-aware tMSD for a single trajectory, all three components at once.
      * Returns [comp][lagIdx] where comp 0=2D, 1=X, 2=Y.
-     * Package-private so AnomalousExponentPanel can reuse it via computeSingleAlpha.
      */
-    static double[][] computeSingleTamsdAllComp(List<double[]> spots, int[] lags) {
+    private static double[][] computeSingleTamsdAllComp(List<double[]> spots, int[] lags) {
         Map<Integer, double[]> fm = new HashMap<>(spots.size() * 2);
         for (double[] s : spots) fm.put((int) s[0], new double[]{s[1], s[2]});
 

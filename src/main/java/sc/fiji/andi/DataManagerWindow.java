@@ -16,17 +16,19 @@ import java.util.List;
 /**
  * Persistent "Manage Data" window.
  *
- * Opened by AnDi-J > Trajectory Analysis and by the "Manage Data" button
- * inside AnalysisWindow.  State (loaded files, tags, cut lengths) is
- * preserved across show/hide cycles.
+ * Opened by AnDi-J > Trajectory Analysis and > Trajectory Segmentation (one
+ * window per command) and by the "Manage Data" button of their windows.  State
+ * (loaded files, tags, cut lengths) is preserved across show/hide cycles.
  *
  * Workflow:
- *   1. Choose "Load as separate" or "Merge", optionally fill Tag / Cut length.
- *   2. Click "Load Data…" to pick one or more CSV files.
+ *   1. Click "Choose Files…" to pick one or more CSV files.
+ *   2. Choose "Load as separate" or "Merge", optionally fill Tag / Cut length, and
+ *      click "Load Data" to add them to the table.
  *   3. Review the file table; edit Tag or Cut length cells, remove rows.
  *   4. Click "Perform Analysis" → files that share a tag are merged into one
- *      ExperimentData, cut-length filters are applied per file, tMSD / D / α
- *      are pre-computed, and AnalysisWindow opens (or refreshes).
+ *      ExperimentData, cut-length filters are applied per file, and the
+ *      command's launcher runs (pre-computing tMSD / D / α, or the
+ *      segmentation) and opens its window.
  */
 public class DataManagerWindow extends JFrame {
 

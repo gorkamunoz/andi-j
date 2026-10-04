@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * Main analysis window – a JFrame with a tabbed pane.
  * Tabs: TMSD Visualization, Diffusion coefficient, Anomalous exponent,
- *       D vs α scatter, Diffusion Model, Turning Angles.
+ *       D vs α scatter, Diffusion Model, Turning Angles, PSD.
  *
  * A "Manage Data" button floats at the right end of the tab bar so it
  * sits on the same horizontal line as the tab headers.

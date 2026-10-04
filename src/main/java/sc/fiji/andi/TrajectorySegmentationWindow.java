@@ -8,8 +8,7 @@ import java.util.List;
  * Main window for the Trajectory Segmentation feature.
  * Opens as a JFrame with a tabbed pane.
  *
- * Current tabs:
- *   1. "Visualization" – per-frame α and log₁₀(D) time-series for 16 tracks
+ * Tabs: Visualization, D vs α, Segment Stats, Diffusive state.
  *
  * A "Manage Data ▶" button floats on the tab bar (same pattern as
  * {@link AnalysisWindow}) so the user can return to load more files.

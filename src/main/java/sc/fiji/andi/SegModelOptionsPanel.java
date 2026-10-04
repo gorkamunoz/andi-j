@@ -9,9 +9,9 @@ import java.io.File;
  * "ML model options" panel for the segmentation Data Manager.
  *
  * <p>Lets the user run the bundled <b>Default</b> model or <b>Load</b> custom
- * ONNX model(s) — either one <b>Combined</b> file (α, log₁₀(D) &amp; change
- * points) or one file <b>Per output</b>, where any output left unset falls back
- * to the default. <b>Model segments</b> (Combined only) selects the model's seg_*
+ * ONNX model(s) — either one <b>Combined</b> file (α, log₁₀(D), change points
+ * &amp; diffusive state) or one file <b>Per output</b>, where any α, D or
+ * change-point output left unset comes from the default. <b>Model segments</b> (Combined only) selects the model's seg_*
  * outputs for the segment-level values. See the <i>ML Models</i> wiki page for the
  * I/O contract.</p>
  */

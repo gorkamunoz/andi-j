@@ -26,8 +26,8 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  *
  * <h3>Population tagging</h3>
  * In <b>Select</b> mode the user circles (lassos) a region of the scatter;
- * the enclosed trajectories can then be saved as a named population via the
- * "Save population with tag:" row at the bottom.  Tagged points are recoloured
+ * the enclosed trajectories can then be tagged as a named population via the
+ * "Population tag:" row at the bottom.  Tagged points are recoloured
  * to a lighter shade of their parent experiment's colour, get their own
  * marginal-KDE curve, and are pushed to the Turning Angles and Diffusion Model
  * tabs as a new dataset. The <b>Save</b> column of the population table writes a

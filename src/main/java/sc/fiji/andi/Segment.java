@@ -3,9 +3,9 @@ package sc.fiji.andi;
 /**
  * One change-point segment of a trajectory's per-frame predictions.
  *
- * <p>Indices refer to positions in the per-frame STEP prediction arrays
+ * <p>Indices refer to positions in the per-frame prediction arrays
  * ({@link ExperimentData#stepAlpha} / {@link ExperimentData#stepLogD}),
- * which run 0 … (T−2) for a track of T frames.</p>
+ * which run 0 … (T−1) for a track of T frames.</p>
  */
 public class Segment {
 

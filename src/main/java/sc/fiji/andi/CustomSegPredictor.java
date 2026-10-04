@@ -10,10 +10,10 @@ import java.util.*;
  * pre/post-processing: the raw trajectory is fed as {@code (1, T, 2)} float32
  * (x, y positions) and the per-frame outputs are read verbatim.
  *
- * <p>A {@link Kind#COMBINED} model exposes three outputs — α, log₁₀(D) and a
- * per-frame change-point signal — plus an optional {@code diffusive_state} —
- * read by name (falling back to output order 0, 1, 2, 3). A single-output model
- * ({@link Kind#ALPHA}/{@link Kind#LOGD}/{@link Kind#CP}) exposes just that one.
+ * <p>A {@link Kind#COMBINED} model exposes four outputs — α, log₁₀(D), a
+ * per-frame change-point flag and {@code diffusive_state} — read by name (falling
+ * back to output order 0, 1, 2, 3). A single-output model ({@link Kind#ALPHA},
+ * {@link Kind#LOGD}, {@link Kind#CP}, {@link Kind#STATE}) exposes just that one.
  * When {@code useModelSegments} is set, the optional seg_* outputs are read
  * verbatim as the segments. See the <i>ML Models</i> wiki page for the contract.</p>
  */

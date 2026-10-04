@@ -15,7 +15,7 @@ Contract (see the ML Models wiki page)
   Output "alpha"      : (1, T)      per-frame α                     (verbatim)
   Output "logD"       : (1, T)      per-frame log10(D)              (verbatim)
   Output "cp"         : (1, T)      per-frame 0/1 change-point flag
-  Output "diffusive_state" : (1, T, 4)  per-frame diffusive-state softmax (optional)
+  Output "diffusive_state" : (1, T, 4)  per-frame diffusive-state softmax
                          classes: 0=immobile, 1=confined, 2=free diffusion, 3=directed
 
 What these dummies compute (purely illustrative, so you can *see* your model is

@@ -21,10 +21,11 @@ import java.util.List;
  * <ul>
  *   <li>X axis – anomalous exponent α ∈ [0, 2]  (fixed range)</li>
  *   <li>Y axis – log₁₀(D), auto-ranged from the selected data</li>
- *   <li>Centre – 2-D histogram heatmap (combined over the selected experiments;
- *       coloured by the experiment when only one is selected, neutral otherwise)</li>
+ *   <li>Centre – 2-D histogram heatmaps, one per selected experiment, overlaid
+ *       in the experiment's colour with opacity encoding its own density</li>
  *   <li>Top / right – per-experiment marginal KDE of α and log₁₀(D)</li>
- *   <li>Far right – colour-scale bar mapping shade → frame count</li>
+ *   <li>Far right – colour-scale bar mapping shade → frame count (only when a
+ *       single experiment is selected)</li>
  * </ul>
  *
  * Controls: per-experiment toggles (left), bin count, log-count colour scale.

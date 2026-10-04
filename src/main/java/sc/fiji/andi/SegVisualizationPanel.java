@@ -21,14 +21,16 @@ import java.util.List;
  *   <li><b style="color:#C80000">red</b>   – anomalous exponent α  (right y-axis, range [0, 2])</li>
  *   <li><b style="color:#0050C8">blue</b>  – log₁₀(D)              (left  y-axis, auto-scaled)</li>
  * </ul>
- * The x-axis is the displacement index (0 … T−2 for a track of T frames).
+ * The x-axis is the frame index (0 … T−1 for a track of T frames).
  *
  * <p>Top bar controls:
  * <ul>
  *   <li>Experiment drop-down (hidden when only one experiment is loaded)</li>
  *   <li>"Sample random 16" button</li>
- *   <li>"Show trajectories:" text field – comma-separated track IDs</li>
- *   <li>Toggle buttons for α and D visibility (affect all 16 plots at once)</li>
+ *   <li>"Choose trajectories" button – popup field for comma-separated track IDs</li>
+ *   <li>Raw α/D opacity slider and α_seg / D_seg / CP / State toggles
+ *       (affect all 16 plots at once)</li>
+ *   <li>"Save raw preds." and "Save segments" CSV exports</li>
  * </ul>
  */
 public class SegVisualizationPanel extends JPanel {
@@ -150,7 +152,7 @@ public class SegVisualizationPanel extends JPanel {
             SwingUtilities.invokeLater(trajField::requestFocusInWindow);
         });
 
-        // Raw α / D opacity slider (replaces the old on/off toggles)
+        // Raw α / D opacity slider
         JLabel rawLabel = new JLabel(String.format(
             "<html>Raw <font color='#%06X'>α</font>/<font color='#%06X'>D</font>:</html>",
             ALPHA_COLOR.getRGB() & 0xFFFFFF, D_COLOR.getRGB() & 0xFFFFFF));
@@ -375,7 +377,7 @@ public class SegVisualizationPanel extends JPanel {
     }
 
     /**
-     * Parses the "Show trajectories:" text field and displays those tracks.
+     * Parses the track-ID field of the "Choose trajectories" popup and displays those tracks.
      * Accepts formats like {@code 1, 5, 20, 37} or {@code [1, 5, 20, 37]}.
      */
     private void showSpecified() {

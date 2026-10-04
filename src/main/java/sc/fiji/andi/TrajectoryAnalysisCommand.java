@@ -46,7 +46,7 @@ public class TrajectoryAnalysisCommand implements PlugIn {
 
     private static DataManagerWindow.AnalysisLauncher createLauncher() {
         return (exps, maxLag, interval, dm) -> {
-            // Pre-compute tMSD, D, and α (same as before)
+            // Pre-compute tMSD, D, and α
             LagSpec alphaSpec = LagSpec.fractional(1, 0.1);
             for (ExperimentData exp : exps) {
                 exp.computeTamsd(1, maxLag, 15, false, interval);

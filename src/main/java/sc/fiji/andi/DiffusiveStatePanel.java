@@ -13,13 +13,12 @@ import java.util.List;
  * <p>Two stacked plots (draggable divider):</p>
  * <ol>
  *   <li><b>Top</b> — per experiment, the % of <em>segments</em> in each AnDi
- *       diffusive state (each segment's majority per-frame state).</li>
- *   <li><b>Bottom</b> — one segment-length histogram per diffusive state that
- *       has any segments (states with no segments are omitted).</li>
+ *       diffusive state (each segment's {@link Segment#state}).</li>
+ *   <li><b>Bottom</b> — one segment-length histogram per selected diffusive
+ *       state (all zeros for a state with no segments).</li>
  * </ol>
- * The classification comes from the segmentation model (its per-frame state
- * head, {@code kac[:, 2]}), computed during Perform Analysis — so there are no
- * ML controls here; the model is chosen in the Data Manager.
+ * The states come from the segmentation model, run during Perform Analysis —
+ * so there are no ML controls here; the model is chosen in the Data Manager.
  */
 public class DiffusiveStatePanel extends JPanel {
 

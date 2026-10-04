@@ -17,14 +17,14 @@ import java.util.List;
  * <ul>
  *   <li><b>Segment-length histogram</b> – 1-D distribution of segment durations,
  *       one outlined curve per experiment.</li>
- *   <li><b>Time vs α</b> – 2-D density heatmap: for every frame covered by a
- *       segment, the point (frame, segment-α).</li>
- *   <li><b>Time vs D</b> – same, with the segment's log₁₀(D).</li>
+ *   <li><b>Segment length vs α</b> – 2-D density heatmap, one point per segment
+ *       (length, segment α), with a marginal KDE of α.</li>
+ *   <li><b>Segment length vs D</b> – same, with the segment's log₁₀(D).</li>
  * </ul>
  * The two heatmaps follow the same style as the "D vs α" tab.
  *
- * <p>Segments come from {@link ExperimentData#segments} (computed in the
- * Visualization tab with the current parameters); "Refresh" re-reads them.</p>
+ * <p>Segments come from {@link ExperimentData#segments} (computed by the
+ * segmentation run of Perform Analysis); "Refresh" re-reads them.</p>
  */
 public class SegStatsPanel extends JPanel {
 
@@ -601,7 +601,7 @@ public class SegStatsPanel extends JPanel {
     }
 
     // ═════════════════════════════════════════════════════════════════════
-    // 2-D density heatmap (time vs α  /  time vs D)
+    // 2-D density heatmap (segment length vs α  /  segment length vs D)
     // ═════════════════════════════════════════════════════════════════════
 
     /** One experiment's 2-D histogram, for the overlaid heatmap. */

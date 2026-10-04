@@ -226,8 +226,8 @@ public class SegDvsAlphaPanel extends JPanel {
                 if (++h2[ai][li] > max2) max2 = h2[ai][li];
             }
             margs.add(new Marginal(exp.color, a.length,
-                gaussianKde1D(a, evalA, silvermanBw(a)),
-                gaussianKde1D(d, evalD, silvermanBw(d)),
+                Kde.gaussianKde1D(a, evalA, Kde.silvermanBw(a)),
+                Kde.gaussianKde1D(d, evalD, Kde.silvermanBw(d)),
                 aHist, dHist));
             densities.add(new ExpHist2D(exp.color, h2, max2));
         }
@@ -255,25 +255,7 @@ public class SegDvsAlphaPanel extends JPanel {
 
     // ── KDE helpers ─────────────────────────────────────────────────────────
 
-    private static double[] gaussianKde1D(double[] data, double[] eval, double bw) {
-        double[] result = new double[eval.length];
-        if (data.length == 0 || bw <= 0) return result;
-        double c = 1.0 / (data.length * bw * Math.sqrt(2.0 * Math.PI));
-        for (int i = 0; i < eval.length; i++) {
-            double s = 0;
-            for (double d : data) { double u = (eval[i] - d) / bw; s += Math.exp(-0.5 * u * u); }
-            result[i] = s * c;
-        }
-        return result;
-    }
 
-    private static double silvermanBw(double[] data) {
-        if (data.length < 2) return 1.0;
-        double mean = 0; for (double d : data) mean += d; mean /= data.length;
-        double var  = 0; for (double d : data) { double dd = d - mean; var += dd * dd; }
-        double std  = Math.sqrt(var / data.length);
-        return std < 1e-10 ? 1.0 : 1.06 * std * Math.pow(data.length, -0.2);
-    }
 
     private static double[] linspace(double lo, double hi, int n) {
         double[] a = new double[n];
@@ -818,12 +800,12 @@ public class SegDvsAlphaPanel extends JPanel {
                                      int px, int py, int pw, int ph) {
             g2.setColor(new Color(0, 0, 0, 40));
             g2.setStroke(new BasicStroke(0.5f));
-            double xStep = niceStep(xMax - xMin, 6);
+            double xStep = PlotUtils.niceStep(xMax - xMin, 6);
             for (double t = Math.ceil(xMin / xStep) * xStep; t <= xMax + xStep * 0.01; t += xStep) {
                 int xp = mapXPx(t, xMin, xMax, px, pw);
                 g2.drawLine(xp, py, xp, py + ph);
             }
-            double yStep = niceStep(yMax - yMin, 5);
+            double yStep = PlotUtils.niceStep(yMax - yMin, 5);
             for (double t = Math.ceil(yMin / yStep) * yStep; t <= yMax + yStep * 0.01; t += yStep) {
                 int yp = mapYPx(t, yMin, yMax, py, ph);
                 g2.drawLine(px, yp, px + pw, yp);
@@ -836,11 +818,11 @@ public class SegDvsAlphaPanel extends JPanel {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double step = niceStep(xMax - xMin, 6);
+            double step = PlotUtils.niceStep(xMax - xMin, 6);
             for (double t = Math.ceil(xMin / step) * step; t <= xMax + step * 0.01; t += step) {
                 int xp = mapXPx(t, xMin, xMax, px, pw);
                 g2.drawLine(xp, py + ph, xp, py + ph + 4);
-                String lbl = fmtTick(t);
+                String lbl = PlotUtils.fmtTick(t, 0.01, 1000);
                 g2.drawString(lbl, xp - fm.stringWidth(lbl) / 2, py + ph + 15);
             }
         }
@@ -850,11 +832,11 @@ public class SegDvsAlphaPanel extends JPanel {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double step = niceStep(yMax - yMin, 5);
+            double step = PlotUtils.niceStep(yMax - yMin, 5);
             for (double t = Math.ceil(yMin / step) * step; t <= yMax + step * 0.01; t += step) {
                 int yp = mapYPx(t, yMin, yMax, py, ph);
                 g2.drawLine(px - 4, yp, px, yp);
-                String lbl = fmtTick(t);
+                String lbl = PlotUtils.fmtTick(t, 0.01, 1000);
                 g2.drawString(lbl, px - 6 - fm.stringWidth(lbl), yp + fm.getAscent() / 2 - 1);
             }
         }
@@ -903,22 +885,6 @@ public class SegDvsAlphaPanel extends JPanel {
             double m = 0; for (double v : a) if (v > m) m = v; return m;
         }
 
-        static double niceStep(double range, int target) {
-            if (range <= 0) return 1;
-            double rough = range / target;
-            int    exp   = (int) Math.floor(Math.log10(rough));
-            double base  = Math.pow(10, exp);
-            for (double m : new double[]{1, 2, 2.5, 5, 10})
-                if (m * base >= rough) return m * base;
-            return base * 10;
-        }
 
-        static String fmtTick(double v) {
-            if (v == 0) return "0";
-            double abs = Math.abs(v);
-            if (abs >= 0.01 && abs < 1000)
-                return String.format("%.4g", v).replaceAll("0+$", "").replaceAll("\\.$", "");
-            return String.format("%.2e", v).replace("e+0", "e").replace("e-0", "e-").replace("e+", "e");
-        }
     }
 }

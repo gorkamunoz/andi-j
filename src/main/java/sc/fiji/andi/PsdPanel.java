@@ -3,7 +3,6 @@ package sc.fiji.andi;
 import ij.IJ;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.AffineTransform;
@@ -288,14 +287,8 @@ public class PsdPanel extends JPanel {
             return;
         }
 
-        JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
-        fc.setDialogTitle("Save PSD curve");
-        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-
-        File f = fc.getSelectedFile();
-        if (!f.getName().toLowerCase().endsWith(".csv"))
-            f = new File(f.getParent(), f.getName() + ".csv");
+        File f = CsvExport.chooseFile(this, "Save PSD curve");
+        if (f == null) return;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
             pw.println("experiment,frequency,psd");
@@ -582,10 +575,10 @@ public class PsdPanel extends JPanel {
                 logGrid(g2, yMin, yMax, false, xMin, xMax, yMin, yMax, px, py, pw, ph);
             } else {
                 g2.setColor(new Color(220,220,220));
-                double xs = niceStep(xMax-xMin, 6);
+                double xs = PlotUtils.niceStep(xMax-xMin, 6);
                 for (double t = Math.ceil(xMin/xs)*xs; t <= xMax+xs*0.01; t += xs)
                     g2.drawLine(mapX(t,xMin,xMax,px,pw), py, mapX(t,xMin,xMax,px,pw), py+ph);
-                double ys = niceStep(yMax-yMin, 5);
+                double ys = PlotUtils.niceStep(yMax-yMin, 5);
                 for (double t = Math.floor(yMin/ys)*ys; t <= yMax+ys*0.01; t += ys) {
                     if (t < yMin) continue;
                     g2.drawLine(px, mapY(t,yMin,yMax,py,ph), px+pw, mapY(t,yMin,yMax,py,ph));
@@ -616,13 +609,13 @@ public class PsdPanel extends JPanel {
                 logTicks(g2, fm, xMin, xMax, true,  xMin, xMax, yMin, yMax, px, py, pw, ph);
                 logTicks(g2, fm, yMin, yMax, false, xMin, xMax, yMin, yMax, px, py, pw, ph);
             } else {
-                double xs = niceStep(xMax-xMin, 6);
+                double xs = PlotUtils.niceStep(xMax-xMin, 6);
                 for (double t = Math.ceil(xMin/xs)*xs; t <= xMax+xs*0.01; t += xs) {
                     int p = mapX(t,xMin,xMax,px,pw);
                     g2.drawLine(p, py+ph, p, py+ph+5);
                     String l = fmtLinear(t); g2.drawString(l, p-fm.stringWidth(l)/2, py+ph+17);
                 }
-                double ys = niceStep(yMax-yMin, 5);
+                double ys = PlotUtils.niceStep(yMax-yMin, 5);
                 for (double t = Math.floor(yMin/ys)*ys; t <= yMax+ys*0.01; t += ys) {
                     if (t < yMin) continue;
                     int p = mapY(t,yMin,yMax,py,ph);
@@ -715,13 +708,6 @@ public class PsdPanel extends JPanel {
             if (abs >= 0.001 && abs < 10000)
                 return String.format("%.4g", v).replaceAll("0+$","").replaceAll("\\.$","");
             return String.format("%.2e", v).replace("e+0","e").replace("e-0","e-").replace("e+","e");
-        }
-        private double niceStep(double range, int target) {
-            if (range <= 0) return 1;
-            double rough = range/target; int e = (int)Math.floor(Math.log10(rough));
-            double base = Math.pow(10, e);
-            for (double m : new double[]{1,2,2.5,5,10}) if (m*base >= rough) return m*base;
-            return base*10;
         }
     }
 }

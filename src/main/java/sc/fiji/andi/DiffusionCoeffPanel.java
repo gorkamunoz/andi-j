@@ -3,7 +3,6 @@ package sc.fiji.andi;
 import ij.IJ;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.*;
@@ -287,14 +286,8 @@ public class DiffusionCoeffPanel extends JPanel {
             return;
         }
 
-        JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
-        fc.setDialogTitle("Save diffusion coefficients");
-        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-
-        File f = fc.getSelectedFile();
-        if (!f.getName().toLowerCase().endsWith(".csv"))
-            f = new File(f.getParent(), f.getName() + ".csv");
+        File f = CsvExport.chooseFile(this, "Save diffusion coefficients");
+        if (f == null) return;
 
         boolean multiExp = experiments.stream().filter(ExperimentData::hasD).count() > 1;
 
@@ -746,7 +739,7 @@ public class DiffusionCoeffPanel extends JPanel {
             if (hoverPx >= px && hoverPx <= px + pw
                     && hoverPy >= py && hoverPy <= py + ph) {
                 double dataX = pxToDataX(hoverPx);
-                drawHoverTooltip(g2, "D = " + fmtTick(dataX),
+                drawHoverTooltip(g2, "D = " + PlotUtils.fmtTick(dataX),
                                  hoverPx, hoverPy, W, H);
             }
 
@@ -773,13 +766,13 @@ public class DiffusionCoeffPanel extends JPanel {
                                            boolean normalize) {
             g2.setColor(new Color(220, 220, 220));
             g2.setStroke(new BasicStroke(0.5f));
-            double xStep = niceStep(xMax - xMin, 6);
+            double xStep = PlotUtils.niceStep(xMax - xMin, 6);
             for (double t = Math.ceil(xMin / xStep) * xStep;
                  t <= xMax + xStep * 0.01; t += xStep) {
                 int p = linPxX(t, xMin, xMax, px, pw);
                 g2.drawLine(p, py, p, py + ph);
             }
-            double yStep = niceStep(yMax - yMin, 5);
+            double yStep = PlotUtils.niceStep(yMax - yMin, 5);
             if (!normalize) yStep = Math.max(1, yStep);
             for (double t = 0; t <= yMax + yStep * 0.01; t += yStep) {
                 int p = linPxY(t, yMin, yMax, py, ph);
@@ -795,12 +788,12 @@ public class DiffusionCoeffPanel extends JPanel {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double step = niceStep(xMax - xMin, 6);
+            double step = PlotUtils.niceStep(xMax - xMin, 6);
             for (double t = Math.ceil(xMin / step) * step;
                  t <= xMax + step * 0.01; t += step) {
                 int p = linPxX(t, xMin, xMax, px, pw);
                 g2.drawLine(p, py + ph, p, py + ph + 4);
-                String lbl = fmtTick(t);
+                String lbl = PlotUtils.fmtTick(t);
                 g2.drawString(lbl, p - fm.stringWidth(lbl) / 2, py + ph + 15);
             }
         }
@@ -811,7 +804,7 @@ public class DiffusionCoeffPanel extends JPanel {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double step = niceStep(yMax - yMin, 5);
+            double step = PlotUtils.niceStep(yMax - yMin, 5);
             if (!normalize) step = Math.max(1, step);
             for (double t = 0; t <= yMax + step * 0.01; t += step) {
                 int p = linPxY(t, yMin, yMax, py, ph);
@@ -928,24 +921,6 @@ public class DiffusionCoeffPanel extends JPanel {
             g2.drawString(text, bx + pad, by + pad + th - 1);
         }
 
-        private static double niceStep(double range, int target) {
-            if (range <= 0) return 1;
-            double rough = range / target;
-            int exp = (int) Math.floor(Math.log10(rough));
-            double base = Math.pow(10, exp);
-            for (double m : new double[]{1, 2, 2.5, 5, 10})
-                if (m * base >= rough) return m * base;
-            return base * 10;
-        }
 
-        private static String fmtTick(double v) {
-            if (v == 0) return "0";
-            double abs = Math.abs(v);
-            if (abs >= 0.001 && abs < 10000)
-                return String.format("%.4g", v)
-                             .replaceAll("0+$", "").replaceAll("\\.$", "");
-            return String.format("%.2e", v)
-                         .replace("e+0","e").replace("e-0","e-").replace("e+","e");
-        }
     }
 }

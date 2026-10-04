@@ -615,12 +615,12 @@ public class TmsdPanel extends JPanel {
                 drawLogGridForAxis(g2, yMin, yMax, false, xMin, xMax, yMin, yMax, px, py, pw, ph);
             } else {
                 g2.setColor(new Color(220, 220, 220));
-                double xStep = niceStep(xMax - xMin, 6);
+                double xStep = PlotUtils.niceStep(xMax - xMin, 6);
                 for (double t = Math.ceil(xMin / xStep) * xStep; t <= xMax + xStep * 0.01; t += xStep) {
                     int p = mapX(t, xMin, xMax, px, pw);
                     g2.drawLine(p, py, p, py + ph);
                 }
-                double yStep = niceStep(yMax - yMin, 5);
+                double yStep = PlotUtils.niceStep(yMax - yMin, 5);
                 for (double t = Math.floor(yMin / yStep) * yStep; t <= yMax + yStep * 0.01; t += yStep) {
                     if (t < yMin) continue;
                     int p = mapY(t, yMin, yMax, py, ph);
@@ -663,14 +663,14 @@ public class TmsdPanel extends JPanel {
                 drawLogTicksForAxis(g2, fm, xMin, xMax, true,  xMin, xMax, yMin, yMax, px, py, pw, ph);
                 drawLogTicksForAxis(g2, fm, yMin, yMax, false, xMin, xMax, yMin, yMax, px, py, pw, ph);
             } else {
-                double xStep = niceStep(xMax - xMin, 6);
+                double xStep = PlotUtils.niceStep(xMax - xMin, 6);
                 for (double t = Math.ceil(xMin / xStep) * xStep; t <= xMax + xStep * 0.01; t += xStep) {
                     int p = mapX(t, xMin, xMax, px, pw);
                     g2.drawLine(p, py + ph, p, py + ph + 5);
                     String lbl = fmtLinear(t);
                     g2.drawString(lbl, p - fm.stringWidth(lbl) / 2, py + ph + 17);
                 }
-                double yStep = niceStep(yMax - yMin, 5);
+                double yStep = PlotUtils.niceStep(yMax - yMin, 5);
                 for (double t = Math.floor(yMin / yStep) * yStep; t <= yMax + yStep * 0.01; t += yStep) {
                     if (t < yMin) continue;
                     int p = mapY(t, yMin, yMax, py, ph);
@@ -901,14 +901,5 @@ public class TmsdPanel extends JPanel {
                          .replace("e+0", "e").replace("e-0", "e-").replace("e+", "e");
         }
 
-        private double niceStep(double range, int target) {
-            if (range <= 0) return 1;
-            double rough = range / target;
-            int e = (int) Math.floor(Math.log10(rough));
-            double base = Math.pow(10, e);
-            for (double m : new double[]{1, 2, 2.5, 5, 10})
-                if (m * base >= rough) return m * base;
-            return base * 10;
-        }
     }
 }

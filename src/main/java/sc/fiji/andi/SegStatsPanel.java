@@ -260,8 +260,8 @@ public class SegStatsPanel extends JPanel {
                 }
             }
             double[] a = toArray(aVals), d = toArray(dVals);
-            kdeA.add(gaussianKde1D(a, evalA, silvermanBw(a)));
-            kdeD.add(gaussianKde1D(d, evalD, silvermanBw(d)));
+            kdeA.add(Kde.gaussianKde1D(a, evalA, Kde.silvermanBw(a)));
+            kdeD.add(Kde.gaussianKde1D(d, evalD, Kde.silvermanBw(d)));
             kdeColors.add(exp.color);
             densA.add(new ExpHist2D(exp.color, hA, maxA));
             densD.add(new ExpHist2D(exp.color, hD, maxD));
@@ -286,22 +286,7 @@ public class SegStatsPanel extends JPanel {
     // Shared drawing helpers
     // ═════════════════════════════════════════════════════════════════════
 
-    static double niceStep(double range, int target) {
-        if (range <= 0) return 1;
-        double rough = range / target;
-        int exp = (int) Math.floor(Math.log10(rough));
-        double base = Math.pow(10, exp);
-        for (double m : new double[]{1, 2, 2.5, 5, 10}) if (m * base >= rough) return m * base;
-        return base * 10;
-    }
 
-    static String fmtTick(double v) {
-        if (v == 0) return "0";
-        double abs = Math.abs(v);
-        if (abs >= 0.01 && abs < 10000)
-            return String.format("%.4g", v).replaceAll("0+$", "").replaceAll("\\.$", "");
-        return String.format("%.2e", v).replace("e+0", "e").replace("e-0", "e-").replace("e+", "e");
-    }
 
     static double[] linspace(double lo, double hi, int n) {
         double[] a = new double[n];
@@ -315,25 +300,7 @@ public class SegStatsPanel extends JPanel {
         return a;
     }
 
-    static double[] gaussianKde1D(double[] data, double[] eval, double bw) {
-        double[] result = new double[eval.length];
-        if (data.length == 0 || bw <= 0) return result;
-        double c = 1.0 / (data.length * bw * Math.sqrt(2.0 * Math.PI));
-        for (int i = 0; i < eval.length; i++) {
-            double s = 0;
-            for (double d : data) { double u = (eval[i] - d) / bw; s += Math.exp(-0.5 * u * u); }
-            result[i] = s * c;
-        }
-        return result;
-    }
 
-    static double silvermanBw(double[] data) {
-        if (data.length < 2) return 1.0;
-        double mean = 0; for (double d : data) mean += d; mean /= data.length;
-        double var  = 0; for (double d : data) { double dd = d - mean; var += dd * dd; }
-        double std  = Math.sqrt(var / data.length);
-        return std < 1e-10 ? 1.0 : 1.06 * std * Math.pow(data.length, -0.2);
-    }
 
     static double arrayMax(double[] a) {
         double m = 0; for (double v : a) if (v > m) m = v; return m;
@@ -502,22 +469,22 @@ public class SegStatsPanel extends JPanel {
             // grid + y ticks
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double yStep = niceStep(dvYMax - dvYMin, 4);
+            double yStep = PlotUtils.niceStep(dvYMax - dvYMin, 4);
             for (double t = Math.ceil(dvYMin / yStep) * yStep; t <= dvYMax + yStep * 0.01; t += yStep) {
                 int yp = mapYpix(t, py, ph);
                 g2.setColor(new Color(228, 228, 228)); g2.drawLine(px, yp, px + pw, yp);
                 g2.setColor(Color.BLACK); g2.drawLine(px - 4, yp, px, yp);
-                String lbl = fmtTick(t);
+                String lbl = PlotUtils.fmtTick(t, 0.01, 10000);
                 g2.drawString(lbl, px - 6 - fm.stringWidth(lbl), yp + fm.getAscent() / 2 - 1);
             }
 
             // x ticks (length)
-            double xStep = niceStep(dvXMax - dvXMin, 6);
+            double xStep = PlotUtils.niceStep(dvXMax - dvXMin, 6);
             for (double t = Math.ceil(dvXMin / xStep) * xStep; t <= dvXMax + xStep * 0.01; t += xStep) {
                 int xp = mapXpix(t, px, pw);
                 g2.setColor(Color.BLACK);
                 g2.drawLine(xp, py + ph, xp, py + ph + 4);
-                String lbl = fmtTick(t);
+                String lbl = PlotUtils.fmtTick(t, 0.01, 10000);
                 g2.drawString(lbl, xp - fm.stringWidth(lbl) / 2, py + ph + 16);
             }
 
@@ -592,7 +559,7 @@ public class SegStatsPanel extends JPanel {
         }
 
         private static double niceCeil(double v) {
-            double step = niceStep(Math.max(v, 1), 4);
+            double step = PlotUtils.niceStep(Math.max(v, 1), 4);
             return Math.ceil(v / step) * step;
         }
         private static void drawFrame(Graphics2D g2, int px, int py, int pw, int ph) {
@@ -929,12 +896,12 @@ public class SegStatsPanel extends JPanel {
 
         private void drawGrid(Graphics2D g2, int px, int py, int pw, int ph) {
             g2.setColor(new Color(0, 0, 0, 35)); g2.setStroke(new BasicStroke(0.5f));
-            double xStep = niceStep(dvXMax - dvXMin, 5);
+            double xStep = PlotUtils.niceStep(dvXMax - dvXMin, 5);
             for (double t = Math.ceil(dvXMin / xStep) * xStep; t <= dvXMax + xStep * 0.01; t += xStep) {
                 int xp = mapXpix(t, px, pw);
                 g2.drawLine(xp, py, xp, py + ph);
             }
-            double yStep = niceStep(dvYMax - dvYMin, 5);
+            double yStep = PlotUtils.niceStep(dvYMax - dvYMin, 5);
             for (double t = Math.ceil(dvYMin / yStep) * yStep; t <= dvYMax + yStep * 0.01; t += yStep) {
                 int yp = mapYpix(t, py, ph);
                 g2.drawLine(px, yp, px + pw, yp);
@@ -945,18 +912,18 @@ public class SegStatsPanel extends JPanel {
         private void drawTicks(Graphics2D g2, int px, int py, int pw, int ph) {
             g2.setColor(Color.BLACK); g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double xStep = niceStep(dvXMax - dvXMin, 5);
+            double xStep = PlotUtils.niceStep(dvXMax - dvXMin, 5);
             for (double t = Math.ceil(dvXMin / xStep) * xStep; t <= dvXMax + xStep * 0.01; t += xStep) {
                 int xp = mapXpix(t, px, pw);
                 g2.drawLine(xp, py + ph, xp, py + ph + 4);
-                String lbl = fmtTick(t);
+                String lbl = PlotUtils.fmtTick(t, 0.01, 10000);
                 g2.drawString(lbl, xp - fm.stringWidth(lbl) / 2, py + ph + 15);
             }
-            double yStep = niceStep(dvYMax - dvYMin, 5);
+            double yStep = PlotUtils.niceStep(dvYMax - dvYMin, 5);
             for (double t = Math.ceil(dvYMin / yStep) * yStep; t <= dvYMax + yStep * 0.01; t += yStep) {
                 int yp = mapYpix(t, py, ph);
                 g2.drawLine(px - 4, yp, px, yp);
-                String lbl = fmtTick(t);
+                String lbl = PlotUtils.fmtTick(t, 0.01, 10000);
                 g2.drawString(lbl, px - 6 - fm.stringWidth(lbl), yp + fm.getAscent() / 2 - 1);
             }
         }

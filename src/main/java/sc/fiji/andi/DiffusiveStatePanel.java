@@ -306,7 +306,7 @@ public class DiffusiveStatePanel extends JPanel {
 
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double yStep = niceStep(yMax, 5);
+            double yStep = PlotUtils.niceStep(yMax, 5);
             for (double t = 0; t <= yMax + yStep * 0.01; t += yStep) {
                 int yp = py + ph - (int) (t / yMax * ph);
                 g2.setColor(new Color(225, 225, 225)); g2.setStroke(new BasicStroke(0.5f));
@@ -381,15 +381,8 @@ public class DiffusiveStatePanel extends JPanel {
         }
 
         private double niceCeil(double v) {
-            double step = niceStep(v, 5);
+            double step = PlotUtils.niceStep(v, 5);
             return Math.ceil(v / step) * step;
-        }
-        private double niceStep(double range, int target) {
-            if (range <= 0) return 1;
-            double rough = range / target;
-            double base  = Math.pow(10, Math.floor(Math.log10(rough)));
-            for (double m : new double[]{1, 2, 2.5, 5, 10}) if (m * base >= rough) return m * base;
-            return base * 10;
         }
         private String fmtPct(double v) {
             if (Math.abs(v - Math.rint(v)) < 1e-9) return String.format("%d%%", (int) Math.rint(v));

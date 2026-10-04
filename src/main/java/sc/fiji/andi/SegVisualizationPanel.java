@@ -2,7 +2,6 @@ package sc.fiji.andi;
 
 import ij.IJ;
 import javax.swing.*;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -249,14 +248,8 @@ public class SegVisualizationPanel extends JPanel {
             return;
         }
 
-        JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
-        fc.setDialogTitle("Save change-point segments");
-        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-
-        File f = fc.getSelectedFile();
-        if (!f.getName().toLowerCase().endsWith(".csv"))
-            f = new File(f.getParent(), f.getName() + ".csv");
+        File f = CsvExport.chooseFile(this, "Save change-point segments");
+        if (f == null) return;
 
         boolean multiExp = experiments.stream().filter(ExperimentData::hasSegments).count() > 1;
 
@@ -308,14 +301,8 @@ public class SegVisualizationPanel extends JPanel {
             return;
         }
 
-        JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new FileNameExtensionFilter("CSV files", "csv"));
-        fc.setDialogTitle("Save raw per-frame predictions");
-        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-
-        File f = fc.getSelectedFile();
-        if (!f.getName().toLowerCase().endsWith(".csv"))
-            f = new File(f.getParent(), f.getName() + ".csv");
+        File f = CsvExport.chooseFile(this, "Save raw per-frame predictions");
+        if (f == null) return;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
             pw.println("experiment,traj_idx,frame,alpha,D,state");

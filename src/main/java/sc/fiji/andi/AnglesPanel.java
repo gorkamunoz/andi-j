@@ -163,14 +163,8 @@ public class AnglesPanel extends JPanel {
             return;
         }
 
-        JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CSV files", "csv"));
-        fc.setDialogTitle("Save turning angles");
-        if (fc.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
-
-        File f = fc.getSelectedFile();
-        if (!f.getName().toLowerCase().endsWith(".csv"))
-            f = new File(f.getParent(), f.getName() + ".csv");
+        File f = CsvExport.chooseFile(this, "Save turning angles");
+        if (f == null) return;
 
         boolean multiExp = shown.size() > 1;
 

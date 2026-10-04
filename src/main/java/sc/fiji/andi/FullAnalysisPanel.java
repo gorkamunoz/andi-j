@@ -989,7 +989,7 @@ public class FullAnalysisPanel extends JPanel {
             if (hoverPx >= px && hoverPx <= px+pw && hoverPy >= py && hoverPy <= py+ph) {
                 double dataX = pxToDataX(hoverPx);
                 double dataY = pxToDataY(hoverPy);
-                String tip = String.format("α = %.3f     D = %s", dataX, fmtTick(dataY));
+                String tip = String.format("α = %.3f     D = %s", dataX, PlotUtils.fmtTick(dataY));
                 drawHoverTooltip(g2, tip, hoverPx, hoverPy, W, H);
             }
 
@@ -1029,7 +1029,7 @@ public class FullAnalysisPanel extends JPanel {
             for (MarginGroup grp : groups) {
                 double[] vals = toArray(grp.alphas);
                 if (vals.length < 2) continue;
-                double[] kde = gaussianKde1D(vals, evalPts, silvermanBw(vals));
+                double[] kde = Kde.gaussianKde1D(vals, evalPts, Kde.silvermanBw(vals));
                 double kdeMax = arrayMax(kde);
                 if (kdeMax < 1e-300) continue;
 
@@ -1080,7 +1080,7 @@ public class FullAnalysisPanel extends JPanel {
                 for (int i = 0; i < raw.size(); i++)
                     vals[i] = logY ? safeLog(raw.get(i)) : raw.get(i);
                 if (vals.length < 2) continue;
-                double[] kde = gaussianKde1D(vals, evalPts, silvermanBw(vals));
+                double[] kde = Kde.gaussianKde1D(vals, evalPts, Kde.silvermanBw(vals));
                 double kdeMax = arrayMax(kde);
                 if (kdeMax < 1e-300) continue;
 
@@ -1108,25 +1108,7 @@ public class FullAnalysisPanel extends JPanel {
 
         // ── KDE helpers ───────────────────────────────────────────────────
 
-        private static double[] gaussianKde1D(double[] data, double[] eval, double bw) {
-            double[] result = new double[eval.length];
-            if (data.length == 0 || bw <= 0) return result;
-            double c = 1.0 / (data.length * bw * Math.sqrt(2.0 * Math.PI));
-            for (int i = 0; i < eval.length; i++) {
-                double s = 0;
-                for (double d : data) { double u = (eval[i]-d)/bw; s += Math.exp(-0.5*u*u); }
-                result[i] = s * c;
-            }
-            return result;
-        }
 
-        private static double silvermanBw(double[] data) {
-            if (data.length < 2) return 1.0;
-            double mean = 0; for (double d : data) mean += d; mean /= data.length;
-            double var  = 0; for (double d : data) { double dd=d-mean; var+=dd*dd; }
-            double std  = Math.sqrt(var / data.length);
-            return std < 1e-10 ? 1.0 : 1.06 * std * Math.pow(data.length, -0.2);
-        }
 
         // ── Coordinate transforms ─────────────────────────────────────────
 
@@ -1152,14 +1134,14 @@ public class FullAnalysisPanel extends JPanel {
                                int px, int py, int pw, int ph) {
             g2.setStroke(new BasicStroke(0.5f));
             g2.setColor(new Color(220, 220, 220));
-            double xStep = niceStep(xMax - xMin, 6);
+            double xStep = PlotUtils.niceStep(xMax - xMin, 6);
             for (double t = Math.ceil(xMin/xStep)*xStep; t <= xMax+xStep*0.01; t += xStep)
                 g2.drawLine(mapX(t,xMin,xMax,px,pw), py, mapX(t,xMin,xMax,px,pw), py+ph);
 
             if (logY) {
                 drawLogGridY(g2, yMin, yMax, px, py, pw, ph);
             } else {
-                double yStep = niceStep(yMax - yMin, 5);
+                double yStep = PlotUtils.niceStep(yMax - yMin, 5);
                 for (double t = Math.ceil(yMin/yStep)*yStep; t <= yMax+yStep*0.01; t += yStep)
                     g2.drawLine(px, mapY(t,yMin,yMax,py,ph), px+pw, mapY(t,yMin,yMax,py,ph));
             }
@@ -1188,11 +1170,11 @@ public class FullAnalysisPanel extends JPanel {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double step = niceStep(xMax - xMin, 6);
+            double step = PlotUtils.niceStep(xMax - xMin, 6);
             for (double t = Math.ceil(xMin/step)*step; t <= xMax+step*0.01; t += step) {
                 int p = mapX(t, xMin, xMax, px, pw);
                 g2.drawLine(p, py+ph, p, py+ph+4);
-                String lbl = fmtTick(t);
+                String lbl = PlotUtils.fmtTick(t);
                 g2.drawString(lbl, p - fm.stringWidth(lbl)/2, py+ph+15);
             }
         }
@@ -1210,7 +1192,7 @@ public class FullAnalysisPanel extends JPanel {
                     if (v < yMin*0.999 || v > yMax*1.001) continue;
                     int p = mapY(v, yMin, yMax, py, ph);
                     g2.drawLine(px-4, p, px, p);
-                    String lbl = fmtTick(v);
+                    String lbl = PlotUtils.fmtTick(v);
                     g2.drawString(lbl, px-6-fm.stringWidth(lbl), p+fm.getAscent()/2-1);
                     for (int m : new int[]{2,5}) {
                         double mv = m * v;
@@ -1219,11 +1201,11 @@ public class FullAnalysisPanel extends JPanel {
                     }
                 }
             } else {
-                double step = niceStep(yMax - yMin, 5);
+                double step = PlotUtils.niceStep(yMax - yMin, 5);
                 for (double t = Math.ceil(yMin/step)*step; t <= yMax+step*0.01; t += step) {
                     int p = mapY(t, yMin, yMax, py, ph);
                     g2.drawLine(px-4, p, px, p);
-                    String lbl = fmtTick(t);
+                    String lbl = PlotUtils.fmtTick(t);
                     g2.drawString(lbl, px-6-fm.stringWidth(lbl), p+fm.getAscent()/2-1);
                 }
             }
@@ -1342,20 +1324,6 @@ public class FullAnalysisPanel extends JPanel {
                                           Math.min(255,base.getBlue()+55));
             if (comp==2) return base.darker();
             return base;
-        }
-        private static double niceStep(double range, int target) {
-            if (range<=0) return 1;
-            double rough=range/target, base=Math.pow(10,(int)Math.floor(Math.log10(rough)));
-            for (double m : new double[]{1,2,2.5,5,10}) if (m*base>=rough) return m*base;
-            return base*10;
-        }
-        private static String fmtTick(double v) {
-            if (v==0) return "0";
-            double abs=Math.abs(v);
-            if (abs>=0.001 && abs<10000)
-                return String.format("%.4g",v).replaceAll("0+$","").replaceAll("\\.$","");
-            return String.format("%.2e",v)
-                         .replace("e+0","e").replace("e-0","e-").replace("e+","e");
         }
         private static double[] linspace(double lo, double hi, int n) {
             double[] a = new double[n];

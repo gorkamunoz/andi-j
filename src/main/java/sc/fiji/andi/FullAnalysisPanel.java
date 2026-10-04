@@ -60,7 +60,7 @@ public class FullAnalysisPanel extends JPanel {
 
     // -----------------------------------------------------------------------
 
-    FullAnalysisPanel(List<ExperimentData> experiments, String spaceUnit,
+    FullAnalysisPanel(List<ExperimentData> experiments, Units units,
                       Consumer<ExperimentData> populationSink) {
         super(new BorderLayout(0, 4));
         this.experiments    = experiments;
@@ -83,7 +83,11 @@ public class FullAnalysisPanel extends JPanel {
         add(infoLabel, BorderLayout.NORTH);
 
         // ── scatter canvas ───────────────────────────────────────────────
-        scatterPanel = new ScatterPanel(experiments, componentSelection, populations, spaceUnit);
+        scatterPanel = new ScatterPanel(experiments, componentSelection, populations, units);
+        units.addListener(() -> {
+            scatterPanel.clearPending(); updateSelStatus();
+            scatterPanel.resetViewport(); scatterPanel.repaint();
+        });
         scatterPanel.setSelectionListener(this::updateSelStatus);
 
         // ── view toolbar ─────────────────────────────────────────────────
@@ -103,6 +107,8 @@ public class FullAnalysisPanel extends JPanel {
         toolbar.add(resetViewBtn);
         toolbar.add(Box.createHorizontalStrut(12));
         toolbar.add(logYBox);
+        toolbar.add(Box.createHorizontalStrut(8));
+        toolbar.add(units.button());
 
         zoomBtn  .addActionListener(e -> { scatterPanel.setPanMode(false); scatterPanel.setSelectMode(false); });
         panBtn   .addActionListener(e -> scatterPanel.setPanMode(true));
@@ -299,8 +305,10 @@ public class FullAnalysisPanel extends JPanel {
      * Writes the population's trajectories as a TrackMate-style CSV that the Data
      * Manager loads again: a header row ({@code TRACK_ID, POSITION_X, POSITION_Y,
      * POSITION_T, FRAME, EXPERIMENT}), two label rows and a units row, then one row
-     * per spot. {@code POSITION_T} is the frame times the experiment's frame
-     * interval. {@code TRACK_ID} keeps the experiment's id when the population comes
+     * per spot. With a calibration, positions are written in μm and {@code POSITION_T}
+     * in seconds (units row {@code (micron)}, {@code (sec)}), so the file loads back
+     * calibrated; without one, positions stay in their input unit {@code (pixel)} and
+     * {@code POSITION_T} is the frame {@code (frame)}. {@code TRACK_ID} keeps the experiment's id when the population comes
      * from one experiment and is renumbered from 0 otherwise, so ids stay unique.
      * Commas in experiment names are written as semicolons.
      */
@@ -332,9 +340,13 @@ public class FullAnalysisPanel extends JPanel {
             pw.println("TRACK_ID,POSITION_X,POSITION_Y,POSITION_T,FRAME,EXPERIMENT");
             pw.println("Track ID,X,Y,T,Frame,Experiment");
             pw.println("Track ID,X,Y,T,Frame,Experiment");
-            pw.println(",,,,,");
+            ExperimentData first = pop.members.keySet().iterator().next();
+            String xyUnit = first.spaceUm != null ? "(micron)" : "(pixel)";
+            String tUnit  = first.frameUs != null ? "(sec)"    : "(frame)";
+            pw.println("," + xyUnit + "," + xyUnit + "," + tUnit + ",,");
             for (Map.Entry<ExperimentData, Set<Integer>> e : pop.members.entrySet()) {
                 ExperimentData exp = e.getKey();
+                double xyScale = exp.spaceUm != null ? exp.spaceUm : 1.0;
                 String expName = exp.name.replace(',', ';');
                 for (Integer id : e.getValue()) {
                     List<double[]> tr = exp.tracks.get(id);
@@ -342,8 +354,9 @@ public class FullAnalysisPanel extends JPanel {
                     int outId = single ? id : nextId++;
                     for (double[] s : tr) {
                         long frame = Math.round(s[0]);
-                        pw.println(outId + "," + s[1] + "," + s[2] + ","
-                                 + (frame * exp.estimatedInterval) + "," + frame + "," + expName);
+                        double t = exp.frameUs != null ? frame * exp.frameUs * 1e-6 : frame;
+                        pw.println(outId + "," + (s[1] * xyScale) + "," + (s[2] * xyScale) + ","
+                                 + t + "," + frame + "," + expName);
                     }
                 }
             }
@@ -428,7 +441,7 @@ public class FullAnalysisPanel extends JPanel {
         }
 
         ExperimentData ds = new ExperimentData(pop.tag, tracks, pop.color,
-                                               firstParent.estimatedInterval);
+                                               firstParent.spaceUm, firstParent.frameUs);
         if (!diff.isEmpty()) ds.diffModel = diff;
         return ds;
     }
@@ -618,13 +631,13 @@ public class FullAnalysisPanel extends JPanel {
         // ────────────────────────────────────────────────────────────────
 
         /** Unit of the x, y positions, for the D axis label. */
-        private final String spaceUnit;
+        private final Units units;
 
         ScatterPanel(List<ExperimentData> exps,
                      Map<ExperimentData, Set<Integer>> sel,
-                     List<Population> populations, String spaceUnit) {
+                     List<Population> populations, Units units) {
             this.experiments = exps;
-            this.spaceUnit   = spaceUnit;
+            this.units       = units;
             this.componentSel = sel;
             this.populations  = populations;
             setBackground(new Color(240, 240, 240));
@@ -840,7 +853,7 @@ public class FullAnalysisPanel extends JPanel {
             double[] d = exp.dCoeffs.get(id);
             double[] a = exp.alphaCoeffs.get(id);
             if (d == null || a == null) return;
-            double dv = d[comp], av = a[comp];
+            double dv = d[comp] * units.diffusion(exp), av = a[comp];
             if (Double.isFinite(dv) && Double.isFinite(av)
                     && dv >= 0 && av >= 0 && av <= 2 && (!logY || dv > 0))
                 s.pts.add(new double[]{av, dv, id});
@@ -1223,7 +1236,7 @@ public class FullAnalysisPanel extends JPanel {
             FontMetrics fm = g2.getFontMetrics();
             String xTitle = "α (anomalous exponent)";
             g2.drawString(xTitle, px + (pw - fm.stringWidth(xTitle))/2, py+ph+MB-8);
-            String yTitle = "D  (" + spaceUnit + "²)";
+            String yTitle = "D  (" + units.diffusionLabel() + ")";
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph/2.0);
             g2.rotate(-Math.PI/2);

@@ -46,8 +46,12 @@ public class SegStatsPanel extends JPanel {
 
     // ═════════════════════════════════════════════════════════════════════
 
-    public SegStatsPanel(List<ExperimentData> experiments) {
+    /** Display units shared by the window's tabs. */
+    private final Units units;
+
+    public SegStatsPanel(List<ExperimentData> experiments, Units units) {
         super(new BorderLayout(0, 4));
+        this.units = units;
         this.experiments = experiments;
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
@@ -130,6 +134,8 @@ public class SegStatsPanel extends JPanel {
         bar.add(resetViewBtn);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(SvgExport.button(() -> plotArea, "segment_stats"));
+        bar.add(units.button());
+        units.addListener(this::rebuild);
         return bar;
     }
 
@@ -191,20 +197,27 @@ public class SegStatsPanel extends JPanel {
                 sel.add(exp);
 
         // ── gather ──────────────────────────────────────────────────────
+        // Segment lengths are counted in frames and shown in the display time unit;
+        // log₁₀(D) is shifted to the display units.
         int maxLen = 1, maxTime = 1;
+        double tMin = Double.MAX_VALUE, tMax = 0;
         double ldMin = Double.MAX_VALUE, ldMax = -Double.MAX_VALUE;
         for (ExperimentData exp : sel) {
+            double off = Math.log10(units.diffusion(exp));
+            tMin = Math.min(tMin, units.time(exp));
+            tMax = Math.max(tMax, units.time(exp));
             for (List<Segment> segs : exp.segments.values()) {
                 for (Segment s : segs) {
                     maxLen  = Math.max(maxLen, s.length);
                     maxTime = Math.max(maxTime, s.start + s.length - 1);
                     if (Double.isFinite(s.logD)) {
-                        ldMin = Math.min(ldMin, s.logD);
-                        ldMax = Math.max(ldMax, s.logD);
+                        ldMin = Math.min(ldMin, s.logD + off);
+                        ldMax = Math.max(ldMax, s.logD + off);
                     }
                 }
             }
         }
+        if (tMin == Double.MAX_VALUE) { tMin = 1; tMax = 1; }
         if (ldMin > ldMax) { ldMin = -2; ldMax = 2; }
         double lRng = ldMax - ldMin;
         if (lRng < 1e-6) { ldMin -= 0.5; ldMax += 0.5; lRng = 1; }
@@ -214,7 +227,7 @@ public class SegStatsPanel extends JPanel {
 
         // ── segment-length histogram (per experiment) ─────────────────────
         int lenBins = Math.max(1, Math.min(lenBinsChosen, maxLen));
-        double lenMin = 0.5, lenMax = maxLen + 0.5;     // integer-centred bins
+        double lenMin = 0.5 * tMin, lenMax = (maxLen + 0.5) * tMax;   // integer-centred bins in frames
         List<int[]> lenCounts = new ArrayList<>();
         List<Color> lenColors = new ArrayList<>();
         List<String> lenNames = new ArrayList<>();
@@ -222,12 +235,15 @@ public class SegStatsPanel extends JPanel {
             int[] counts = new int[lenBins];
             for (List<Segment> segs : exp.segments.values())
                 for (Segment s : segs)
-                    counts[bin(s.length, lenMin, lenMax, lenBins)]++;
+                    counts[bin(s.length * units.time(exp), lenMin, lenMax, lenBins)]++;
             lenCounts.add(counts);
             lenColors.add(exp.color);
             lenNames.add(exp.name);
         }
+        lengthHist.setXLabel("Segment length (" + units.timeAxisLabel() + ")");
         lengthHist.setData(lenMin, lenMax, lenBins, lenCounts, lenColors, lenNames);
+        timeAlpha.setXUnit(units.timeAxisLabel());
+        timeD.setXUnit(units.timeAxisLabel());
 
         // ── length-vs-α and length-vs-D 2-D histograms (overlaid per exp) ──
         // One point per segment: x = segment length, y = segment mean.
@@ -244,18 +260,19 @@ public class SegStatsPanel extends JPanel {
             int[][] hD = new int[lenBins][dBins];
             int maxA = 0, maxD = 0;
             List<Double> aVals = new ArrayList<>(), dVals = new ArrayList<>();
+            double off = Math.log10(units.diffusion(exp));
             for (List<Segment> segs : exp.segments.values()) {
                 for (Segment s : segs) {
-                    int xi = bin(s.length, lenMin, lenMax, lenBins);
+                    int xi = bin(s.length * units.time(exp), lenMin, lenMax, lenBins);
                     if (Double.isFinite(s.alpha)) {
                         int ai = bin(s.alpha, aMin, aMax, alphaBins);
                         if (++hA[xi][ai] > maxA) maxA = hA[xi][ai];
                         totA++; aVals.add(s.alpha);
                     }
                     if (Double.isFinite(s.logD)) {
-                        int li = bin(s.logD, ldMin, ldMax, dBins);
+                        int li = bin(s.logD + off, ldMin, ldMax, dBins);
                         if (++hD[xi][li] > maxD) maxD = hD[xi][li];
-                        totD++; dVals.add(s.logD);
+                        totD++; dVals.add(s.logD + off);
                     }
                 }
             }
@@ -311,6 +328,9 @@ public class SegStatsPanel extends JPanel {
     // ═════════════════════════════════════════════════════════════════════
 
     static class Hist1D extends JPanel {
+        /** x-axis label. */
+        private String xLabel = "Segment length (frames)";
+        void setXLabel(String l) { this.xLabel = l; }
         private static final int ML = 56, MR = 16, MT = 26, MB = 40;
 
         private double xMin, xMax;
@@ -528,7 +548,7 @@ public class SegStatsPanel extends JPanel {
             // axis labels
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
-            String xt = "Segment length (frames)";
+            String xt = xLabel;
             g2.drawString(xt, px + (pw - g2.getFontMetrics().stringWidth(xt)) / 2, py + ph + MB - 4);
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph / 2.0); g2.rotate(-Math.PI / 2);
@@ -588,6 +608,8 @@ public class SegStatsPanel extends JPanel {
         private static final int CBAR_W = 12, CBAR_LBL = 42, GAP = 8;
 
         private final String  xLabel, yLabel;
+        /** Unit appended to the x-axis label, e.g. {@code s}; null for none. */
+        private String xUnit;
         private final boolean leftMarginal;     // KDE strip on the left (else right)
 
         private List<ExpHist2D> densities = java.util.Collections.emptyList();
@@ -607,6 +629,8 @@ public class SegStatsPanel extends JPanel {
         private int dragX0, dragY0, dragX1, dragY1, panX0, panY0;
         private double panXMin, panXMax, panYMin, panYMax;
         private int hoverPx = -1, hoverPy = -1;
+
+        void setXUnit(String u) { this.xUnit = u; }
 
         Heat2D(String xLabel, String yLabel, boolean leftMarginal) {
             this.xLabel = xLabel; this.yLabel = yLabel; this.leftMarginal = leftMarginal;
@@ -931,7 +955,8 @@ public class SegStatsPanel extends JPanel {
         private void drawTitles(Graphics2D g2, int px, int py, int pw, int ph) {
             g2.setColor(Color.BLACK); g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
-            g2.drawString(xLabel, px + (pw - fm.stringWidth(xLabel)) / 2, py + ph + MB - 3);
+            String xl = xUnit == null ? xLabel : xLabel + " (" + xUnit + ")";
+            g2.drawString(xl, px + (pw - fm.stringWidth(xl)) / 2, py + ph + MB - 3);
             AffineTransform orig = g2.getTransform();
             int yTitleX = leftMarginal ? (MARGW + GAP + 12) : 12;
             g2.translate(yTitleX, py + ph / 2.0); g2.rotate(-Math.PI / 2);

@@ -15,9 +15,12 @@ import java.util.List;
 public class AnalysisWindow extends JFrame {
 
     public AnalysisWindow(List<ExperimentData> experiments,
-                          int initMaxLag, String spaceUnit,
+                          int initMaxLag,
                           DataManagerWindow dataManager) {
         super("AnDi-J – Trajectory Analysis");
+
+        // Display units, shared by every tab (Units button)
+        final Units units = new Units(experiments);
 
         // Build the panels that receive tagged populations first, so the
         // D vs α tab can push new populations to them via a callback.
@@ -52,15 +55,15 @@ public class AnalysisWindow extends JFrame {
 
         final JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("TMSD Visualization",
-            new TmsdPanel(experiments, initMaxLag, spaceUnit));
+            new TmsdPanel(experiments, initMaxLag, units));
         tabs.addTab("Diffusion coefficient",
-            new DiffusionCoeffPanel(experiments, spaceUnit));
+            new DiffusionCoeffPanel(experiments, units));
         tabs.addTab("Anomalous exponent", anomalousPanel);
         tabs.addTab("D vs α",
-            new FullAnalysisPanel(experiments, spaceUnit, populationSink));
+            new FullAnalysisPanel(experiments, units, populationSink));
         tabs.addTab("Diffusion Model", diffusionPanel);
         tabs.addTab("Turning Angles",  anglesPanel);
-        tabs.addTab("PSD",             new PsdPanel(experiments));
+        tabs.addTab("PSD",             new PsdPanel(experiments, units));
 
         // ── "Manage Data" button overlaid on the tab bar ──────────────────
         final JButton manageBtn = new JButton("Manage Data ▶");

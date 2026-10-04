@@ -61,9 +61,15 @@ public class SegVisualizationPanel extends JPanel {
     // Constructor
     // ═════════════════════════════════════════════════════════════════════
 
-    public SegVisualizationPanel(List<ExperimentData> experiments) {
+    /** Display units shared by the window's tabs. */
+    private final Units units;
+    /** Track ids currently shown, re-drawn when the units change. */
+    private List<Integer> shownIds = Collections.emptyList();
+
+    public SegVisualizationPanel(List<ExperimentData> experiments, Units units) {
         super(new BorderLayout(0, 2));
         this.experiments = experiments;
+        this.units       = units;
         this.currentExp  = experiments.isEmpty() ? null : experiments.get(0);
 
         // ── top bar ──────────────────────────────────────────────────────
@@ -232,6 +238,8 @@ public class SegVisualizationPanel extends JPanel {
         bar.add(Box.createHorizontalStrut(10));
         bar.add(saveRawBtn);
         bar.add(saveSegBtn);
+        bar.add(units.button());
+        units.addListener(() -> updatePlots(shownIds));
 
         return bar;
     }
@@ -252,7 +260,8 @@ public class SegVisualizationPanel extends JPanel {
         if (f == null) return;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            pw.println("experiment,track_id,segment,start_frame,length,alpha,D,state");
+            pw.println("experiment,track_id,segment,start_frame,length,alpha,D ["
+                       + Units.ascii(units.diffusionLabel()) + "],state");
 
             for (ExperimentData exp : experiments) {
                 if (!exp.hasSegments()) continue;
@@ -265,7 +274,8 @@ public class SegVisualizationPanel extends JPanel {
                         long startFrame = (spots != null && s.start < spots.size())
                                         ? Math.round(spots.get(s.start)[0]) : s.start;
                         pw.printf("%s,%d,%d,%d,%d,%.6f,%.6e,%s%n",
-                            CsvExport.name(exp), id, k + 1, startFrame, s.length, s.alpha, s.d(),
+                            CsvExport.name(exp), id, k + 1, startFrame, s.length, s.alpha,
+                            s.d() * units.diffusion(exp),
                             stateLabel(s.state));
                     }
                 }
@@ -301,7 +311,8 @@ public class SegVisualizationPanel extends JPanel {
         if (f == null) return;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            pw.println("experiment,track_id,frame,alpha,D,state");
+            pw.println("experiment,track_id,frame,alpha,D [" + Units.ascii(units.diffusionLabel())
+                       + "],state");
 
             for (ExperimentData exp : experiments) {
                 if (!exp.hasStepPredictions()) continue;
@@ -317,7 +328,7 @@ public class SegVisualizationPanel extends JPanel {
                         long   frame = (spots != null) ? Math.round(spots.get(t)[0]) : t;
                         String dStr  = "";
                         if (ld != null && t < ld.length && Double.isFinite(ld[t]))
-                            dStr = String.format("%.6e", Math.pow(10, ld[t]));
+                            dStr = String.format("%.6e", Math.pow(10, ld[t]) * units.diffusion(exp));
                         pw.printf("%s,%d,%d,%.6f,%s,%s%n", CsvExport.name(exp), id, frame, a[t], dStr,
                             stateLabel(states != null && t < states.length ? states[t] : -1));
                     }
@@ -379,7 +390,18 @@ public class SegVisualizationPanel extends JPanel {
     }
 
     /** Pushes data (or a "not found" marker) into each of the 16 plot panels. */
+    /** {@code v + off} element-wise (null stays null). */
+    private static double[] shift(double[] v, double off) {
+        if (v == null || off == 0) return v;
+        double[] r = new double[v.length];
+        for (int i = 0; i < v.length; i++) r[i] = v[i] + off;
+        return r;
+    }
+
     private void updatePlots(List<Integer> ids) {
+        shownIds = new ArrayList<>(ids);
+        // log₁₀(D) is shown in the display units
+        double dOffset = currentExp == null ? 0 : Math.log10(units.diffusion(currentExp));
         for (int i = 0; i < N_PLOTS; i++) {
             if (currentExp == null || i >= ids.size()) {
                 plots[i].clear();
@@ -397,7 +419,7 @@ public class SegVisualizationPanel extends JPanel {
                             ? currentExp.segments.get(id) : null;
                     int[] st = (currentExp.stepState != null)
                             ? currentExp.stepState.get(id) : null;
-                    plots[i].setData(id, alpha, logD, segs, st);
+                    plots[i].setData(id, alpha, shift(logD, dOffset), segs, st, dOffset);
                 }
             }
             plots[i].rawOpacity   = rawOpacity;
@@ -421,6 +443,8 @@ public class SegVisualizationPanel extends JPanel {
      * log₁₀(D) (blue, left axis) as time series for a single trajectory.
      */
     static class TrajectoryPlot extends JPanel {
+        /** Shift added to the model's log₁₀(D) to show it in the display units. */
+        private double dOffset;
 
         // Padding around the plot area (pixels)
         private static final int PAD_L = 40;
@@ -468,10 +492,13 @@ public class SegVisualizationPanel extends JPanel {
         }
 
         /** Show data for an existing track. */
-        void setData(int id, double[] alpha, double[] logD, List<Segment> segments, int[] state) {
+        /** Shows a track; {@code logD} is already shifted by {@code dOffset} (display units). */
+        void setData(int id, double[] alpha, double[] logD, List<Segment> segments, int[] state,
+                     double dOffset) {
             this.trackId  = id;
             this.alpha    = alpha;
             this.logD     = logD;
+            this.dOffset  = dOffset;
             this.segments = segments;
             this.state    = state;
             this.notFound = false;
@@ -706,7 +733,7 @@ public class SegVisualizationPanel extends JPanel {
                     int x1 = px + xToPixel(Math.min(seqLen - 1, s.start + s.length - 1),
                                            seqLen, pw);
                     if (showSegD && logD != null && Double.isFinite(s.logD)) {
-                        int yp = py + ph - yToPixel(s.logD, dMin, dMax, ph);
+                        int yp = py + ph - yToPixel(s.logD + dOffset, dMin, dMax, ph);
                         g2.setColor(D_COLOR.darker());
                         g2.drawLine(x0, yp, x1, yp);
                     }

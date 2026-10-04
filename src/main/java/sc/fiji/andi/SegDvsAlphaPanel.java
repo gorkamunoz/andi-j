@@ -43,9 +43,13 @@ public class SegDvsAlphaPanel extends JPanel {
     // Constructor
     // ═════════════════════════════════════════════════════════════════════
 
-    public SegDvsAlphaPanel(List<ExperimentData> experiments) {
+    /** Display units shared by the window's tabs. */
+    private final Units units;
+
+    public SegDvsAlphaPanel(List<ExperimentData> experiments, Units units) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
+        this.units       = units;
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
         alphaBinsSpin = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
@@ -118,6 +122,8 @@ public class SegDvsAlphaPanel extends JPanel {
         bar.add(resetViewBtn);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(SvgExport.button(() -> canvas, "seg_d_vs_alpha"));
+        bar.add(units.button());
+        units.addListener(this::rebuild);
         return bar;
     }
 
@@ -180,6 +186,7 @@ public class SegDvsAlphaPanel extends JPanel {
         for (ExperimentData exp : sel) {
             List<Double> av = new ArrayList<>();
             List<Double> dv = new ArrayList<>();
+            double off = Math.log10(units.diffusion(exp));   // log₁₀(D) in display units
             for (Map.Entry<Integer, double[]> e : exp.stepAlpha.entrySet()) {
                 double[] al = e.getValue();
                 double[] ld = exp.stepLogD != null ? exp.stepLogD.get(e.getKey()) : null;
@@ -187,9 +194,10 @@ public class SegDvsAlphaPanel extends JPanel {
                 int len = Math.min(al.length, ld.length);
                 for (int t = 0; t < len; t++) {
                     if (Double.isFinite(al[t]) && Double.isFinite(ld[t])) {
-                        av.add(al[t]); dv.add(ld[t]);
-                        ldMin = Math.min(ldMin, ld[t]);
-                        ldMax = Math.max(ldMax, ld[t]);
+                        double d = ld[t] + off;
+                        av.add(al[t]); dv.add(d);
+                        ldMin = Math.min(ldMin, d);
+                        ldMax = Math.max(ldMax, d);
                     }
                 }
             }

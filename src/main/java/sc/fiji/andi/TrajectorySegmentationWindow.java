@@ -19,11 +19,14 @@ public class TrajectorySegmentationWindow extends JFrame {
                                         DataManagerWindow    dataManager) {
         super("AnDi-J – Trajectory Segmentation");
 
+        // Display units, shared by every tab (Units button)
+        final Units units = new Units(experiments);
+
         final JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Visualization",    new SegVisualizationPanel(experiments));
-        tabs.addTab("D vs α",           new SegDvsAlphaPanel(experiments));
-        tabs.addTab("Segment Stats",    new SegStatsPanel(experiments));
-        tabs.addTab("Diffusive state",  new DiffusiveStatePanel(experiments));
+        tabs.addTab("Visualization",    new SegVisualizationPanel(experiments, units));
+        tabs.addTab("D vs α",           new SegDvsAlphaPanel(experiments, units));
+        tabs.addTab("Segment Stats",    new SegStatsPanel(experiments, units));
+        tabs.addTab("Diffusive state",  new DiffusiveStatePanel(experiments, units));
 
         // ── "Manage Data" button overlaid on the tab bar ──────────────────
         final JButton manageBtn = new JButton("Manage Data ▶");

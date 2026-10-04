@@ -35,7 +35,7 @@ public class DiffusionCoeffPanel extends JPanel {
     private final List<JToggleButton> allCompButtons = new ArrayList<>();
 
     // Parameter fields
-    private final JTextField tLagsField, binsField, intervalField, unitField;
+    private final JTextField tLagsField, binsField;
 
     // Sub-panels
     private final HistogramPanel  histPanel;
@@ -46,9 +46,13 @@ public class DiffusionCoeffPanel extends JPanel {
     /** Initial value of the Time lags field. */
     static final String DEFAULT_LAGS = "[1,2]";
 
-    DiffusionCoeffPanel(List<ExperimentData> experiments, String spaceUnit) {
+    /** Display units shared by the window's tabs. */
+    private final Units units;
+
+    DiffusionCoeffPanel(List<ExperimentData> experiments, Units units) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
+        this.units       = units;
         setBorder(new EmptyBorder(6, 6, 6, 6));
 
         // Default: only 2D selected for every experiment
@@ -61,8 +65,6 @@ public class DiffusionCoeffPanel extends JPanel {
         // ── parameter bar (North) ────────────────────────────────────────
         tLagsField    = new JTextField(DEFAULT_LAGS,                        8);
         binsField     = new JTextField("20",                                4);
-        intervalField = new JTextField("1",      6);
-        unitField     = new JTextField("frames", 6);
         JButton computeBtn = new JButton("Compute D");
         JButton saveDBtn   = new JButton("Save D…");
 
@@ -73,14 +75,14 @@ public class DiffusionCoeffPanel extends JPanel {
         paramBar.add(new JLabel("Time lags:"));     paramBar.add(tLagsField);
         paramBar.add(dHint);
         paramBar.add(new JLabel("Bins:"));          paramBar.add(binsField);
-        paramBar.add(new JLabel("Frame interval:")); paramBar.add(intervalField);
-        paramBar.add(new JLabel("Unit:"));          paramBar.add(unitField);
         paramBar.add(computeBtn);
         paramBar.add(saveDBtn);
+        paramBar.add(Box.createHorizontalStrut(10));
+        paramBar.add(units.button());
         add(Toolbars.makeScrollable(paramBar), BorderLayout.NORTH);
 
         // ── histogram panel ──────────────────────────────────────────────
-        histPanel = new HistogramPanel(experiments, componentSelection, spaceUnit);
+        histPanel = new HistogramPanel(experiments, componentSelection, units);
 
         // ── zoom / pan toolbar ───────────────────────────────────────────
         JToggleButton zoomBtn    = new JToggleButton("⊕ Zoom", true);
@@ -163,6 +165,7 @@ public class DiffusionCoeffPanel extends JPanel {
 
         // ── Actions ──────────────────────────────────────────────────────
         computeBtn.addActionListener(e -> recompute());
+        units.addListener(() -> { histPanel.resetViewport(); histPanel.repaint(); refreshTable(); });
         saveDBtn  .addActionListener(e -> saveD());
 
         // If D was pre-computed before the tab was built, populate immediately
@@ -250,16 +253,13 @@ public class DiffusionCoeffPanel extends JPanel {
     private void recompute() {
         LagSpec lagSpec  = parseTLags(tLagsField.getText());
         int     nBins    = parseIntOr(binsField.getText(), 20);
-        double  interval = parseDblOr(intervalField.getText(), 1.0);
-        String  unit     = unitField.getText().trim().isEmpty()
-                           ? "frames" : unitField.getText().trim();
 
+        // D in (position unit)²/frame; the Units window converts it for display
         for (ExperimentData exp : experiments)
-            exp.computeDiffusionCoefficients(lagSpec, interval);
+            exp.computeDiffusionCoefficients(lagSpec, 1.0);
 
         histPanel.resetViewport();
         histPanel.setNBins(nBins);
-        histPanel.setTimeUnit(unit);
         histPanel.repaint();
         refreshTable();
     }
@@ -268,7 +268,8 @@ public class DiffusionCoeffPanel extends JPanel {
         tableModel.setRowCount(0);
         for (ExperimentData exp : experiments)
             tableModel.addRow(new Object[]{
-                exp.name, fmtD(exp.avgD(0)), fmtD(exp.avgD(1)), fmtD(exp.avgD(2))});
+                exp.name, fmtD(exp.avgD(0) * units.diffusion(exp)),
+                fmtD(exp.avgD(1) * units.diffusion(exp)), fmtD(exp.avgD(2) * units.diffusion(exp))});
     }
 
     private static String fmtD(double v) {
@@ -293,15 +294,17 @@ public class DiffusionCoeffPanel extends JPanel {
         if (f == null) return;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            pw.println("experiment,track_id,D_2d,D_x,D_y");
+            String u = " [" + Units.ascii(units.diffusionLabel()) + "]";
+            pw.println("experiment,track_id,D_2d" + u + ",D_x" + u + ",D_y" + u);
 
             for (ExperimentData exp : experiments) {
                 if (!exp.hasD()) continue;
                 for (Map.Entry<Integer, double[]> entry : exp.dCoeffs.entrySet()) {
                     int    id = entry.getKey();
                     double[] d = entry.getValue();
+                    double   k = units.diffusion(exp);
                     pw.printf("%s,%d,%.6e,%.6e,%.6e%n",
-                              CsvExport.name(exp), id, d[0], d[1], d[2]);
+                              CsvExport.name(exp), id, d[0] * k, d[1] * k, d[2] * k);
                 }
             }
             IJ.log("AnDi-J: D values saved → " + f.getAbsolutePath());
@@ -403,7 +406,6 @@ public class DiffusionCoeffPanel extends JPanel {
         return LagSpec.fixed(lags.stream().mapToInt(Integer::intValue).toArray());
     }
     private static int    parseIntOr(String s, int    d) { try { return Integer.parseInt(s.trim());   } catch (Exception e) { return d; } }
-    private static double parseDblOr(String s, double d) { try { return Double.parseDouble(s.trim()); } catch (Exception e) { return d; } }
 
     // =======================================================================
     // Histogram canvas
@@ -414,7 +416,6 @@ public class DiffusionCoeffPanel extends JPanel {
         private final List<ExperimentData>               experiments;
         private final Map<ExperimentData, Set<Integer>>  componentSel;
         private int     nBins    = 20;
-        private String  timeUnit = "frames";
         /** When true each series is shown as % of its own total (density-like). */
         private boolean normalize = false;
 
@@ -453,13 +454,13 @@ public class DiffusionCoeffPanel extends JPanel {
         }
 
         /** Unit of the x, y positions, for the D axis label. */
-        private final String spaceUnit;
+        private final Units units;
 
         HistogramPanel(List<ExperimentData> exps,
-                       Map<ExperimentData, Set<Integer>> sel, String spaceUnit) {
+                       Map<ExperimentData, Set<Integer>> sel, Units units) {
             this.experiments  = exps;
             this.componentSel = sel;
-            this.spaceUnit    = spaceUnit;
+            this.units        = units;
             setBackground(new Color(240, 240, 240));
             setPreferredSize(new Dimension(500, 300));
             setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
@@ -469,7 +470,6 @@ public class DiffusionCoeffPanel extends JPanel {
         // ── Public controls ─────────────────────────────────────────────
 
         void setNBins(int n)       { this.nBins    = Math.max(2, n); }
-        void setTimeUnit(String u) { this.timeUnit = u; }
         void setNormalize(boolean n) { if (normalize != n) { normalize = n; viewport = null; } }
         void resetViewport()       { this.viewport = null; }
 
@@ -637,7 +637,7 @@ public class DiffusionCoeffPanel extends JPanel {
             double globalXMin = Double.MAX_VALUE, globalXMax = -Double.MAX_VALUE;
             for (HistEntry he : entries)
                 for (double[] d : he.exp.dCoeffs.values()) {
-                    double v = d[he.component];
+                    double v = d[he.component] * units.diffusion(he.exp);
                     if (Double.isFinite(v) && v >= 0) {
                         globalXMin = Math.min(globalXMin, v);
                         globalXMax = Math.max(globalXMax, v);
@@ -661,7 +661,7 @@ public class DiffusionCoeffPanel extends JPanel {
                 he.counts = new int[nBins];
                 double sum = 0; int n = 0;
                 for (double[] d : he.exp.dCoeffs.values()) {
-                    double v = d[he.component];
+                    double v = d[he.component] * units.diffusion(he.exp);
                     if (!Double.isFinite(v) || v < 0) continue;
                     int bin = Math.min(nBins - 1, Math.max(0,
                                 (int) ((v - globalXMin) / binW)));
@@ -828,7 +828,7 @@ public class DiffusionCoeffPanel extends JPanel {
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             FontMetrics fm = g2.getFontMetrics();
 
-            String xTitle = "D  (" + spaceUnit + "² / " + timeUnit + ")";
+            String xTitle = "D  (" + units.diffusionLabel() + ")";
             g2.drawString(xTitle,
                 px + (pw - fm.stringWidth(xTitle)) / 2,
                 py + ph + MB - 8);

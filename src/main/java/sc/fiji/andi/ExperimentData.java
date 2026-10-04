@@ -13,7 +13,11 @@ public class ExperimentData {
     public final String name;
     public final Map<Integer, List<double[]>> tracks; // trackId -> [{frame,x,y}]
     public final Color  color;
-    public final double estimatedInterval;
+    /** Size of one position unit in μm (1 for data in μm, the pixel size for data in
+     *  pixels); null when unknown. Computations stay in position units; see {@link Units}. */
+    public final Double spaceUm;
+    /** Frame interval in μs; null when unknown. Computations stay in frames. */
+    public final Double frameUs;
 
     // -- computed tMSD (null until computeTamsd() is called) --
     public int[]    lags;
@@ -66,11 +70,12 @@ public class ExperimentData {
     public ExperimentData(String name,
                           Map<Integer, List<double[]>> tracks,
                           Color color,
-                          double estimatedInterval) {
-        this.name              = name;
-        this.tracks            = tracks;
-        this.color             = color;
-        this.estimatedInterval = estimatedInterval;
+                          Double spaceUm, Double frameUs) {
+        this.name    = name;
+        this.tracks  = tracks;
+        this.color   = color;
+        this.spaceUm = spaceUm;
+        this.frameUs = frameUs;
     }
 
     public boolean hasTamsd()            { return lags != null && !tamsdByComp.isEmpty(); }

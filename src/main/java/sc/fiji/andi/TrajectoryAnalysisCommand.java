@@ -45,10 +45,10 @@ public class TrajectoryAnalysisCommand implements PlugIn {
     // -----------------------------------------------------------------------
 
     private static DataManagerWindow.AnalysisLauncher createLauncher() {
-        return (exps, maxLag, spaceUnit, dm) -> {
+        return (exps, maxLag, dm) -> {
             // Pre-compute tMSD, D and α with the tabs' initial field values
-            // (min lag 1, max lag maxLag, linear lags, frame interval 1).
-            TmsdPanel.compute(exps, 1, maxLag, false, 1.0);
+            // (min lag 1, max lag maxLag, linear lags), in frames and position units.
+            TmsdPanel.compute(exps, 1, maxLag, false);
             LagSpec dSpec     = DiffusionCoeffPanel.parseTLags(DiffusionCoeffPanel.DEFAULT_LAGS);
             LagSpec alphaSpec = DiffusionCoeffPanel.parseTLags(AnomalousExponentPanel.DEFAULT_LAGS);
             for (ExperimentData exp : exps) {
@@ -61,7 +61,7 @@ public class TrajectoryAnalysisCommand implements PlugIn {
             SwingUtilities.invokeLater(() -> {
                 if (analysisWindow != null && analysisWindow.isDisplayable())
                     analysisWindow.dispose();
-                analysisWindow = new AnalysisWindow(finalExps, maxLag, spaceUnit, dm);
+                analysisWindow = new AnalysisWindow(finalExps, maxLag, dm);
                 analysisWindow.setVisible(true);
             });
         };

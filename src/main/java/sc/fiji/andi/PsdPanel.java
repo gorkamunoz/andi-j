@@ -44,9 +44,13 @@ public class PsdPanel extends JPanel {
 
     // -----------------------------------------------------------------------
 
-    PsdPanel(List<ExperimentData> experiments) {
+    /** Display units shared by the window's tabs. */
+    private final Units units;
+
+    PsdPanel(List<ExperimentData> experiments, Units units) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
+        this.units       = units;
         setBorder(new EmptyBorder(6, 6, 6, 6));
 
         for (ExperimentData exp : experiments) {
@@ -69,6 +73,8 @@ public class PsdPanel extends JPanel {
         paramBar.add(logLogBox);
         paramBar.add(computeBtn);
         paramBar.add(saveBtn);
+        paramBar.add(Box.createHorizontalStrut(10));
+        paramBar.add(units.button());
         add(Toolbars.makeScrollable(paramBar), BorderLayout.NORTH);
 
         // ── plot toolbar (draw line) ─────────────────────────────────────
@@ -98,6 +104,7 @@ public class PsdPanel extends JPanel {
         split.setDividerLocation(200);
         split.setResizeWeight(0.0);
         add(split, BorderLayout.CENTER);
+        units.addListener(() -> { plotPanel.clearLines(); plotPanel.repaint(); });
 
         computeBtn.addActionListener(e -> recompute());
         saveBtn   .addActionListener(e -> savePsd());
@@ -245,6 +252,12 @@ public class PsdPanel extends JPanel {
      *
      * @return {@code double[N/2 + 1]}; element k is the PSD at frequency k/N.
      */
+    /** Factor from a PSD in (position unit)²·frame to the display units of {@code exp}. */
+    private double psdScale(ExperimentData exp) {
+        double l = units.length(exp);
+        return l * l * units.time(exp);
+    }
+
     static double[] periodogram(double[] series) {
         int N = series.length;
         double mean = 0;
@@ -291,14 +304,16 @@ public class PsdPanel extends JPanel {
         if (f == null) return;
 
         try (PrintWriter pw = new PrintWriter(new BufferedWriter(new FileWriter(f)))) {
-            pw.println("experiment,frequency,psd");
+            pw.println("experiment,frequency [1/" + Units.ascii(units.timeLabel()) + "],psd ["
+                       + Units.ascii(units.areaLabel()) + "*" + Units.ascii(units.timeLabel()) + "]");
             for (ExperimentData exp : experiments) {
                 double[][] psd = psdByComp.get(exp);
                 if (psd == null) continue;
                 for (int i = 0; i < freqAxis.length; i++) {
                     double v = psd[0][i];              // 2D component
                     if (!Double.isFinite(v)) continue; // skip empty frequency bins
-                    pw.printf("%s,%.8e,%.8e%n", CsvExport.name(exp), freqAxis[i], v);
+                    pw.printf("%s,%.8e,%.8e%n", CsvExport.name(exp),
+                              freqAxis[i] / units.time(exp), v * psdScale(exp));
                 }
             }
             IJ.log("AnDi-J: PSD saved → " + f.getAbsolutePath());
@@ -447,18 +462,20 @@ public class PsdPanel extends JPanel {
                 for (int comp : compSel.getOrDefault(exp, Collections.emptySet())) {
                     g2.setColor(TmsdPanel.compColor(exp.color, comp));
                     g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                    drawPolyline(g2, freqAxis, psd[comp], xMin, xMax, yMin, yMax, px, py, pw, ph);
+                    drawPolyline(g2, exp, freqAxis, psd[comp], xMin, xMax, yMin, yMax, px, py, pw, ph);
                 }
             }
         }
 
-        private void drawPolyline(Graphics2D g2, double[] xs, double[] ys,
+        /** Draws a PSD curve of {@code exp}, converted to the display units. */
+        private void drawPolyline(Graphics2D g2, ExperimentData exp, double[] xs, double[] ys,
                                    double xMin, double xMax, double yMin, double yMax,
                                    int px, int py, int pw, int ph) {
             if (xs == null || ys == null) return;
+            double sx = 1.0 / units.time(exp), sy = psdScale(exp);
             List<Integer> xa = new ArrayList<>(), ya = new ArrayList<>();
             for (int i = 0; i < xs.length && i < ys.length; i++) {
-                double x = xs[i], y = ys[i];
+                double x = xs[i] * sx, y = ys[i] * sy;
                 if (Double.isNaN(y)) continue;
                 if (logScale && (x <= 0 || y <= 0)) continue;
                 xa.add(mapX(x, xMin, xMax, px, pw));
@@ -481,9 +498,10 @@ public class PsdPanel extends JPanel {
                 if (psd == null) continue;
                 Set<Integer> sel = compSel.getOrDefault(exp, Collections.emptySet());
                 if (sel.isEmpty()) continue;
+                double sx = 1.0 / units.time(exp), sy = psdScale(exp);
                 for (int comp : sel) {
                     for (int i = 0; i < freqAxis.length; i++) {
-                        double x = freqAxis[i], y = psd[comp][i];
+                        double x = freqAxis[i] * sx, y = psd[comp][i] * sy;
                         boolean okY = logScale ? (!Double.isNaN(y) && y > 0) : Double.isFinite(y);
                         boolean okX = logScale ? x > 0 : Double.isFinite(x);
                         if (okX && okY) {
@@ -678,9 +696,9 @@ public class PsdPanel extends JPanel {
         private void drawAxisTitles(Graphics2D g2, int px, int py, int pw, int ph) {
             g2.setColor(Color.BLACK); g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             FontMetrics fm = g2.getFontMetrics();
-            String xt = "Frequency (1/frames)";
+            String xt = "Frequency (1/" + units.timeLabel() + ")";
             g2.drawString(xt, px + (pw - fm.stringWidth(xt))/2, py+ph+MB-8);
-            String yt = "PSD";
+            String yt = "PSD (" + units.areaLabel() + "·" + units.timeLabel() + ")";
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph/2.0); g2.rotate(-Math.PI/2);
             g2.drawString(yt, -fm.stringWidth(yt)/2, fm.getAscent()/2);

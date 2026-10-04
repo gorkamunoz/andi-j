@@ -45,16 +45,16 @@ public class TmsdPanel extends JPanel {
     private final List<JToggleButton> allToggleButtons = new ArrayList<>();
 
     // Parameter fields (N lags is computed automatically, not exposed in the UI)
-    private final JTextField minLagField, maxLagField, intervalField, unitField;
+    private final JTextField minLagField, maxLagField;
     private final JCheckBox  logSpacedBox;
 
-    /** Unit of the x, y positions, for the MSD axis label. */
-    private final String spaceUnit;
+    /** Display units shared by the window's tabs. */
+    private final Units units;
 
-    TmsdPanel(List<ExperimentData> experiments, int initMaxLag, String spaceUnit) {
+    TmsdPanel(List<ExperimentData> experiments, int initMaxLag, Units units) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
-        this.spaceUnit   = spaceUnit;
+        this.units       = units;
         setBorder(new EmptyBorder(6, 6, 6, 6));
 
         // Default: only Avg-2D on, everything else off
@@ -72,8 +72,6 @@ public class TmsdPanel extends JPanel {
         minLagField   = new JTextField(String.valueOf(1),          4);
         maxLagField   = new JTextField(String.valueOf(initMaxLag), 4);
         logSpacedBox  = new JCheckBox("Log-spaced", false);
-        intervalField = new JTextField("1", 6);
-        unitField     = new JTextField("frames",                   6);
         JButton computeBtn = new JButton("Compute tMSD");
 
         JPanel paramBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
@@ -81,9 +79,9 @@ public class TmsdPanel extends JPanel {
         paramBar.add(new JLabel("Max lag:")); paramBar.add(maxLagField);
         paramBar.add(logSpacedBox);
         paramBar.add(Box.createHorizontalStrut(10));
-        paramBar.add(new JLabel("Frame interval:")); paramBar.add(intervalField);
-        paramBar.add(new JLabel("Unit:"));            paramBar.add(unitField);
         paramBar.add(computeBtn);
+        paramBar.add(Box.createHorizontalStrut(10));
+        paramBar.add(units.button());
         add(Toolbars.makeScrollable(paramBar), BorderLayout.NORTH);
 
         // ── plot toolbar ─────────────────────────────────────────────────
@@ -118,6 +116,7 @@ public class TmsdPanel extends JPanel {
 
         // ── Compute action ───────────────────────────────────────────────
         computeBtn.addActionListener(e -> recompute());
+        units.addListener(() -> { plotPanel.clearLines(); plotPanel.repaint(); });
     }
 
     // -----------------------------------------------------------------------
@@ -229,33 +228,26 @@ public class TmsdPanel extends JPanel {
         int     minL     = parseIntOr(minLagField.getText(),    1);
         int     maxL     = parseIntOr(maxLagField.getText(),   20);
         boolean logS     = logSpacedBox.isSelected();
-        double  interval = parseDblOr(intervalField.getText(), 1.0);
-        String  unit     = unitField.getText().trim();
-        if (unit.isEmpty()) unit = "frames";
-
-        compute(experiments, minL, maxL, logS, interval);
+        compute(experiments, minL, maxL, logS);
 
         plotPanel.setLogScale(logS);
-        plotPanel.setTimeUnit(unit);
         plotPanel.repaint();
     }
 
     /**
-     * The tMSD of every experiment for lags {@code minL … maxL}: every integer lag,
-     * or up to 50 log-spaced lags. Also run by the Trajectory Analysis launcher with
-     * the tab's initial field values, so the first plot matches the fields.
+     * The tMSD of every experiment for lags {@code minL … maxL} (in frames): every
+     * integer lag, or up to 50 log-spaced lags. Also run by the Trajectory Analysis
+     * launcher with the tab's initial field values, so the first plot matches the fields.
      */
-    static void compute(List<ExperimentData> experiments, int minL, int maxL,
-                        boolean logS, double interval) {
+    static void compute(List<ExperimentData> experiments, int minL, int maxL, boolean logS) {
         int n = logS ? Math.min(50, Math.max(2, maxL - minL + 1)) : (maxL - minL + 1);
         for (ExperimentData exp : experiments) {
-            exp.computeTamsd(minL, maxL, n, logS, interval);
+            exp.computeTamsd(minL, maxL, n, logS, 1.0);
             exp.computeEmsd();
         }
     }
 
     private static int    parseIntOr(String s, int    d) { try { return Integer.parseInt(s.trim());   } catch (Exception e) { return d; } }
-    private static double parseDblOr(String s, double d) { try { return Double.parseDouble(s.trim()); } catch (Exception e) { return d; } }
 
     static Color compColor(Color base, int comp) {
         if (comp == 1) return new Color(
@@ -273,7 +265,6 @@ public class TmsdPanel extends JPanel {
     class TmsdPlotPanel extends JPanel {
 
         private final List<ExperimentData> experiments;
-        private String  timeUnit = "frames";
         private boolean logScale = false;
 
         private static final int ML = 68, MR = 22, MT = 22, MB = 52;
@@ -303,7 +294,6 @@ public class TmsdPanel extends JPanel {
             addMouseInteraction();
         }
 
-        void setTimeUnit(String u)  { this.timeUnit = u; }
         void setLogScale(boolean b) { this.logScale = b; }
 
         void setDrawMode(boolean on) {
@@ -563,20 +553,24 @@ public class TmsdPanel extends JPanel {
                 boolean      em = emsdEnabled.getOrDefault(exp, false);
                 if (av.isEmpty() && al.isEmpty() && !em) continue;
 
-                for (double t : exp.tAxis) {
+                double sx = units.time(exp), l = units.length(exp), sy = l * l;
+                for (double t0 : exp.tAxis) {
+                    double t = t0 * sx;
                     if (logScale ? t > 0 : Double.isFinite(t)) {
                         xMin = Math.min(xMin, t); xMax = Math.max(xMax, t);
                     }
                 }
                 for (int comp : av) {
-                    for (double d : exp.avgTamsdComp[comp]) {
+                    for (double d0 : exp.avgTamsdComp[comp]) {
+                        double d = d0 * sy;
                         boolean ok = logScale ? (!Double.isNaN(d) && d > 0) : Double.isFinite(d);
                         if (ok) { yMin = Math.min(yMin, d); yMax = Math.max(yMax, d); }
                     }
                 }
                 for (int comp : al) {
                     for (double[][] byComp : exp.tamsdByComp.values()) {
-                        for (double d : byComp[comp]) {
+                        for (double d0 : byComp[comp]) {
+                            double d = d0 * sy;
                             boolean ok = logScale ? (!Double.isNaN(d) && d > 0) : Double.isFinite(d);
                             if (ok) { yMin = Math.min(yMin, d); yMax = Math.max(yMax, d); }
                         }
@@ -584,7 +578,8 @@ public class TmsdPanel extends JPanel {
                 }
                 if (exp.hasEmsd() && em) {
                     for (int comp : av) {    // mirrors Avg components
-                        for (double d : exp.emsdComp[comp]) {
+                        for (double d0 : exp.emsdComp[comp]) {
+                            double d = d0 * sy;
                             boolean ok = logScale ? (!Double.isNaN(d) && d > 0) : Double.isFinite(d);
                             if (ok) { yMin = Math.min(yMin, d); yMax = Math.max(yMax, d); }
                         }
@@ -743,7 +738,7 @@ public class TmsdPanel extends JPanel {
                 for (int comp : al) {
                     g2.setColor(compColor(exp.color, comp));
                     for (double[][] byComp : exp.tamsdByComp.values())
-                        drawPolyline(g2, exp.tAxis, byComp[comp],
+                        drawPolyline(g2, exp, exp.tAxis, byComp[comp],
                                      xMin, xMax, yMin, yMax, px, py, pw, ph);
                 }
                 g2.setComposite(save);
@@ -755,7 +750,7 @@ public class TmsdPanel extends JPanel {
                     g2.setColor(compColor(exp.color, comp));
                     g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND,
                                                  BasicStroke.JOIN_ROUND));
-                    drawPolyline(g2, exp.tAxis, exp.avgTamsdComp[comp],
+                    drawPolyline(g2, exp, exp.tAxis, exp.avgTamsdComp[comp],
                                  xMin, xMax, yMin, yMax, px, py, pw, ph);
                 }
             }
@@ -767,20 +762,22 @@ public class TmsdPanel extends JPanel {
                 for (int comp : avgComps.getOrDefault(exp, Collections.emptySet())) {
                     g2.setColor(compColor(exp.color, comp));
                     g2.setStroke(emsdStroke);
-                    drawPolyline(g2, exp.tAxis, exp.emsdComp[comp],
+                    drawPolyline(g2, exp, exp.tAxis, exp.emsdComp[comp],
                                  xMin, xMax, yMin, yMax, px, py, pw, ph);
                 }
             }
             g2.setStroke(new BasicStroke(1f));
         }
 
-        private void drawPolyline(Graphics2D g2, double[] tAxis, double[] vals,
+        /** Draws {@code vals} against {@code tAxis}, both converted to the display units of {@code exp}. */
+        private void drawPolyline(Graphics2D g2, ExperimentData exp, double[] tAxis, double[] vals,
                                     double xMin, double xMax, double yMin, double yMax,
                                     int px, int py, int pw, int ph) {
             if (tAxis == null || vals == null) return;
+            double sx = units.time(exp), l = units.length(exp), sy = l * l;
             List<Integer> xs = new ArrayList<>(), ys = new ArrayList<>();
             for (int i = 0; i < tAxis.length && i < vals.length; i++) {
-                double t = tAxis[i], v = vals[i];
+                double t = tAxis[i] * sx, v = vals[i] * sy;
                 if (Double.isNaN(v)) continue;
                 if (logScale && (t <= 0 || v <= 0)) continue;
                 xs.add(mapX(t, xMin, xMax, px, pw));
@@ -861,12 +858,12 @@ public class TmsdPanel extends JPanel {
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             FontMetrics fm = g2.getFontMetrics();
 
-            String xTitle = "Time lag (" + timeUnit + ")";
+            String xTitle = "Time lag (" + units.timeAxisLabel() + ")";
             g2.drawString(xTitle,
                 px + (pw - fm.stringWidth(xTitle)) / 2,
                 py + ph + MB - 8);
 
-            String yTitle = "MSD (" + spaceUnit + "²)";
+            String yTitle = "MSD (" + units.areaLabel() + ")";
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph / 2.0);
             g2.rotate(-Math.PI / 2);

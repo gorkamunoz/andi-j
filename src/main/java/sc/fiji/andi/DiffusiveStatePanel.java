@@ -51,9 +51,13 @@ public class DiffusiveStatePanel extends JPanel {
     private JComponent plotArea;
     private final JCheckBox           normalizeBox = new JCheckBox("Normalize (%)");
 
-    public DiffusiveStatePanel(List<ExperimentData> experiments) {
+    /** Display units shared by the window's tabs. */
+    private final Units units;
+
+    public DiffusiveStatePanel(List<ExperimentData> experiments, Units units) {
         super(new BorderLayout(0, 4));
         this.experiments = experiments;
+        this.units       = units;
         setBorder(new EmptyBorder(6, 6, 6, 6));
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
@@ -81,6 +85,8 @@ public class DiffusiveStatePanel extends JPanel {
         northBar.add(info, BorderLayout.CENTER);
         JPanel northRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
         northRight.add(SvgExport.button(() -> plotArea, "diffusive_state"));
+        northRight.add(units.button());
+        units.addListener(this::rebuild);
         northBar.add(northRight, BorderLayout.EAST);
         add(northBar, BorderLayout.NORTH);
 
@@ -203,7 +209,14 @@ public class DiffusiveStatePanel extends JPanel {
                 for (Segment s : segs) maxLen = Math.max(maxLen, s.length);
 
         int nb = Math.max(1, Math.min(40, maxLen));
-        double lenMin = 0.5, lenMax = maxLen + 0.5;
+        // Lengths are counted in frames and shown in the display time unit
+        double tMin = Double.MAX_VALUE, tMax = 0;
+        for (ExperimentData exp : sel) {
+            tMin = Math.min(tMin, units.time(exp));
+            tMax = Math.max(tMax, units.time(exp));
+        }
+        if (tMin == Double.MAX_VALUE) { tMin = 1; tMax = 1; }
+        double lenMin = 0.5 * tMin, lenMax = (maxLen + 0.5) * tMax;
 
         List<int[]>  counts = new ArrayList<>();
         List<Color>  colors = new ArrayList<>();
@@ -214,12 +227,13 @@ public class DiffusiveStatePanel extends JPanel {
             for (ExperimentData exp : sel)
                 for (List<Segment> segs : exp.segments.values())
                     for (Segment s : segs)
-                        if (s.state == st) c[bin(s.length, lenMin, lenMax, nb)]++;
+                        if (s.state == st) c[bin(s.length * units.time(exp), lenMin, lenMax, nb)]++;
             counts.add(c);
             colors.add(STATE_COLORS[st]);
             names.add(STATE_NAMES[st]);
         }
 
+        lengthHist.setXLabel("Segment length (" + units.timeAxisLabel() + ")");
         lengthHist.setData(lenMin, lenMax, nb, counts, colors, names);
         lengthHist.setNormalize(normalizeBox.isSelected());
         lengthHist.repaint();

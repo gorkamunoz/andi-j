@@ -55,16 +55,12 @@ public class DataManagerWindow extends JFrame {
     public interface AnalysisLauncher {
         void launch(List<ExperimentData> experiments,
                     int                  defaultMaxLag,
-                    String               spaceUnit,
                     DataManagerWindow    dataManager);
     }
 
     // ── UI ───────────────────────────────────────────────────────────────────
     private final JRadioButton  separateBtn, mergeBtn;
     private final JTextField    tagField, cutField;
-    /** Unit of the x, y positions, shown in the Trajectory Analysis plot labels. */
-    private final JTextField    spaceUnitField = new JTextField(DEFAULT_SPACE_UNIT, 5);
-    static final String         DEFAULT_SPACE_UNIT = "μm";
     private final FileRowModel  model;
     private final JTable        table;
     private final JLabel        chosenLabel;
@@ -111,8 +107,6 @@ public class DataManagerWindow extends JFrame {
             "Merge: leave blank for auto \"Exp N\"; provide a name to use it.");
         cutField = new JTextField(5);
         cutField.setToolTipText("Blank = no filtering");
-        spaceUnitField.setToolTipText("Unit of the x, y positions, used in the plot labels "
-                + "(applies at Perform Analysis)");
 
         JButton chooseBtn = new JButton("Choose Files…");
         chooseBtn.setToolTipText("Pick the CSV files; then set Tag / Cut length and click Load Data");
@@ -137,16 +131,13 @@ public class DataManagerWindow extends JFrame {
         loadBar.add(Box.createHorizontalStrut(4));
         loadBar.add(new JLabel("Cut length:"));
         loadBar.add(cutField);
-        loadBar.add(Box.createHorizontalStrut(4));
-        loadBar.add(new JLabel("Spatial unit:"));
-        loadBar.add(spaceUnitField);
         loadBar.add(Box.createHorizontalStrut(8));
         loadBar.add(loadBtn);
 
         // ── table ─────────────────────────────────────────────────────────
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createTitledBorder(
-            "Loaded files  (double-click Tag or Cut length to edit)"));
+            "Loaded files  (double-click Tag, Cut length or the units to edit)"));
 
         // ── bottom buttons ────────────────────────────────────────────────
         JButton removeBtn  = new JButton("Remove selected");
@@ -225,6 +216,16 @@ public class DataManagerWindow extends JFrame {
 
         // Cut length (editable – default white background)
         table.getColumnModel().getColumn(6).setPreferredWidth(80);
+
+        // Units (editable): μm per position unit, μs per frame; empty = unknown
+        table.getColumnModel().getColumn(7).setPreferredWidth(100);
+        table.getColumnModel().getColumn(8).setPreferredWidth(110);
+        table.getColumnModel().getColumn(7).setCellRenderer(new UnitRenderer(
+            "Size of one position unit in μm: 1 for data in μm, the pixel size for data in "
+            + "pixels. Read from the CSV units row; empty when unknown."));
+        table.getColumnModel().getColumn(8).setCellRenderer(new UnitRenderer(
+            "Time between frames in μs. Read from POSITION_T and the CSV units row; empty "
+            + "when unknown."));
 
         table.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
     }
@@ -348,7 +349,6 @@ public class DataManagerWindow extends JFrame {
             List<FileRow> group = entry.getValue();
 
             Map<Integer, List<double[]>> allTracks = new LinkedHashMap<>();
-            double estimatedInterval = group.get(0).estimatedInterval;
             int    idOffset = 0;
 
             for (FileRow row : group) {
@@ -361,13 +361,21 @@ public class DataManagerWindow extends JFrame {
             }
 
             if (allTracks.isEmpty()) continue;
-            experiments.add(new ExperimentData(tag, allTracks, color, estimatedInterval));
+            experiments.add(new ExperimentData(tag, allTracks, color,
+                                               group.get(0).spaceUm, group.get(0).frameUs));
         }
 
         if (experiments.isEmpty()) {
             JOptionPane.showMessageDialog(this,
                 "No tracks survive the length filters.",
                 "AnDi-J", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String unitProblem = unitProblem(byTag);
+        if (unitProblem != null) {
+            JOptionPane.showMessageDialog(this, unitProblem,
+                "AnDi-J – Units", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -380,9 +388,58 @@ public class DataManagerWindow extends JFrame {
         int defaultMaxLag = Math.max(1, maxLen / 4);
 
         // ── delegate to injected launcher ────────────────────────────────
-        String spaceUnit = spaceUnitField.getText().trim();
-        if (spaceUnit.isEmpty()) spaceUnit = DEFAULT_SPACE_UNIT;
-        launcher.launch(experiments, defaultMaxLag, spaceUnit, this);
+        launcher.launch(experiments, defaultMaxLag, this);
+    }
+
+    /**
+     * Why the units of the loaded files cannot be analysed together, or null. Files
+     * merged into one experiment must share their units, and the experiments must be
+     * either all calibrated or all uncalibrated (separately for space and time):
+     * otherwise values in μm and in pixels, or in seconds and in frames, would be
+     * compared on the same axes.
+     */
+    private static String unitProblem(Map<String, List<FileRow>> byTag) {
+        List<String> issues = new ArrayList<>();
+        for (Map.Entry<String, List<FileRow>> e : byTag.entrySet()) {
+            FileRow first = e.getValue().get(0);
+            for (FileRow r : e.getValue())
+                if (!sameValue(r.spaceUm, first.spaceUm) || !sameValue(r.frameUs, first.frameUs)) {
+                    issues.add("The files merged into \"" + e.getKey() + "\" have different units.");
+                    break;
+                }
+        }
+        int withSpace = 0, withTime = 0, n = 0;
+        for (List<FileRow> g : byTag.values())
+            for (FileRow r : g) {
+                n++;
+                if (r.spaceUm != null) withSpace++;
+                if (r.frameUs != null) withTime++;
+            }
+        if (withSpace > 0 && withSpace < n)
+            issues.add("Some files have a spatial unit and others do not: " + missing(byTag, true) + ".");
+        if (withTime > 0 && withTime < n)
+            issues.add("Some files have a frame interval and others do not: " + missing(byTag, false) + ".");
+        if (issues.isEmpty()) return null;
+        return "<html>The files cannot be analysed together:<ul><li>"
+             + String.join("</li><li>", issues) + "</li></ul>"
+             + "Fill in the missing <b>Space unit (μm)</b> / <b>Frame interval (μs)</b> values in "
+             + "the table, or clear them for all files to analyse in pixels and frames.<br>"
+             + "α, turning angles, diffusion models and diffusive states do not depend on the "
+             + "units, so any consistent choice works for them.</html>";
+    }
+
+    private static String missing(Map<String, List<FileRow>> byTag, boolean space) {
+        List<String> names = new ArrayList<>();
+        for (List<FileRow> g : byTag.values())
+            for (FileRow r : g)
+                if ((space ? r.spaceUm : r.frameUs) == null) names.add(r.file.getName());
+        return names.size() <= 4 ? "missing in " + String.join(", ", names)
+                                 : "missing in " + names.size() + " files";
+    }
+
+    private static boolean sameValue(Double a, Double b) {
+        if (a == null || b == null) return a == b;
+        return Math.abs(a - b) <= 1e-9 * Math.max(Math.abs(a), Math.abs(b));
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -451,15 +508,17 @@ public class DataManagerWindow extends JFrame {
     static class FileRow {
         final File                           file;
         final Map<Integer, List<double[]>>   originalTracks;
-        final double                         estimatedInterval;
         final int                            minLen, maxLen;
         String  tag;
         int     cutLength;  // -1 = no filter
+        Double  spaceUm;    // μm per position unit; null = unknown
+        Double  frameUs;    // μs per frame; null = unknown
 
         FileRow(File f, TrajectoryIO.ParseResult p, String tag, int cutLength) {
             this.file              = f;
             this.originalTracks   = p.tracks;
-            this.estimatedInterval = p.estimatedInterval;
+            this.spaceUm           = p.spaceUm;
+            this.frameUs           = p.frameUs;
             this.tag               = tag;
             this.cutLength         = cutLength;
             int mn = Integer.MAX_VALUE, mx = 0;
@@ -479,7 +538,8 @@ public class DataManagerWindow extends JFrame {
 
         private final String[] COLS = {
             "", "Tag", "File Name", "# Trajs",
-            "Min. length", "Max. length", "Cut length"
+            "Min. length", "Max. length", "Cut length",
+            "Space unit (μm)", "Frame interval (μs)"
         };
 
         @Override public int    getRowCount()        { return rows.size(); }
@@ -494,7 +554,7 @@ public class DataManagerWindow extends JFrame {
         }
 
         @Override
-        public boolean isCellEditable(int r, int c) { return c == 1 || c == 6; }
+        public boolean isCellEditable(int r, int c) { return c == 1 || c >= 6; }
 
         @Override
         public Object getValueAt(int r, int c) {
@@ -507,6 +567,8 @@ public class DataManagerWindow extends JFrame {
                 case 4: return row.minLen;
                 case 5: return row.maxLen;
                 case 6: return row.cutLength > 0 ? String.valueOf(row.cutLength) : "";
+                case 7: return fmtUnit(row.spaceUm);
+                case 8: return fmtUnit(row.frameUs);
                 default: return null;
             }
         }
@@ -524,11 +586,42 @@ public class DataManagerWindow extends JFrame {
             } else if (c == 6) {
                 row.cutLength = parseCut(val.toString());
                 fireTableCellUpdated(r, c);
+            } else if (c == 7) {
+                row.spaceUm = parseUnit(val.toString());
+                fireTableCellUpdated(r, c);
+            } else if (c == 8) {
+                row.frameUs = parseUnit(val.toString());
+                fireTableCellUpdated(r, c);
             }
         }
     }
 
     // -------------------------------------------------------------------------
+
+    /** A positive unit value, or null (blank, zero or not a number). */
+    private static Double parseUnit(String s) {
+        try { double v = Double.parseDouble(s.trim()); return v > 0 && Double.isFinite(v) ? v : null; }
+        catch (NumberFormatException e) { return null; }
+    }
+
+    private static String fmtUnit(Double v) {
+        if (v == null) return "";
+        return String.format(Locale.ROOT, "%.6g", v).replaceAll("\\.?0+$", "").replaceAll("\\.?0+(e)", "$1");
+    }
+
+    /** Editable unit cell, with its meaning as tooltip. */
+    private static class UnitRenderer extends DefaultTableCellRenderer {
+        private final String tip;
+        UnitRenderer(String tip) { this.tip = tip; setHorizontalAlignment(SwingConstants.CENTER); }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable t, Object v,
+                boolean sel, boolean focus, int r, int c) {
+            JLabel l = (JLabel) super.getTableCellRendererComponent(t, v, sel, focus, r, c);
+            l.setToolTipText(tip);
+            return l;
+        }
+    }
 
     /** Grey background for read-only (non-editable) cells. */
     private static class ReadOnlyRenderer extends DefaultTableCellRenderer {

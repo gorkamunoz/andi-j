@@ -367,8 +367,8 @@ public class DataManagerWindow extends JFrame {
             .flatMap(e -> e.tracks.values().stream())
             .mapToInt(List::size).max().orElse(4);
 
-        // Default max lag: the largest lag with data, from the longest trajectory
-        int defaultMaxLag = Math.max(1, maxLen - 1);
+        // Default max lag: a quarter of the longest trajectory
+        int defaultMaxLag = Math.max(1, maxLen / 4);
 
         // ── delegate to injected launcher ────────────────────────────────
         launcher.launch(experiments, defaultMaxLag, this);

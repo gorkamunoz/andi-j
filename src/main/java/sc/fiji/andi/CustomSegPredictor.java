@@ -112,16 +112,20 @@ public class CustomSegPredictor implements Closeable {
                     + ") not found");
 
         Object val = v.getValue();
+        String label = name != null ? name : outNames.get(Math.min(index, outNames.size() - 1));
         double[] out = new double[T];
         if (val instanceof float[][][]) {          // (1, T, 1)
             float[][][] a = (float[][][]) val;
-            for (int t = 0; t < T && t < a[0].length; t++) out[t] = a[0][t][0];
+            OnnxModels.checkFrames(label, a[0].length, T);
+            for (int t = 0; t < T; t++) out[t] = a[0][t][0];
         } else if (val instanceof float[][]) {     // (1, T)
             float[][] a = (float[][]) val;
-            for (int t = 0; t < T && t < a[0].length; t++) out[t] = a[0][t];
+            OnnxModels.checkFrames(label, a[0].length, T);
+            for (int t = 0; t < T; t++) out[t] = a[0][t];
         } else if (val instanceof float[]) {       // (T,)
             float[] a = (float[]) val;
-            for (int t = 0; t < T && t < a.length; t++) out[t] = a[t];
+            OnnxModels.checkFrames(label, a.length, T);
+            for (int t = 0; t < T; t++) out[t] = a[t];
         } else {
             throw new OrtException("Unexpected custom-model output type: "
                     + (val == null ? "null" : val.getClass().getName()));
@@ -141,7 +145,8 @@ public class CustomSegPredictor implements Closeable {
     /**
      * Reads an optional diffusive-state output into a per-frame class array:
      * {@code (1, T, K)} → per-frame argmax; {@code (1, T)} → per-frame rounded
-     * value. Returns {@code null} if the output is absent.
+     * value. Returns {@code null} if the output is absent; fails if it is present but
+     * not one value (or one row of K) per frame.
      */
     private int[] readStatePerFrame(OrtSession.Result res, int index, int T, String... names)
             throws OrtException {
@@ -152,14 +157,15 @@ public class CustomSegPredictor implements Closeable {
         int[] out = new int[T];
         if (val instanceof float[][][]) {              // (1, T, K) → argmax per frame
             float[][] frames = ((float[][][]) val)[0];
-            for (int t = 0; t < T && t < frames.length; t++) {
-                out[t] = OnnxModels.argmax(frames[t]);
-            }
+            OnnxModels.checkFrames("diffusive_state", frames.length, T);
+            for (int t = 0; t < T; t++) out[t] = OnnxModels.argmax(frames[t]);
         } else if (val instanceof float[][]) {          // (1, T) → rounded value
             float[] row = ((float[][]) val)[0];
-            for (int t = 0; t < T && t < row.length; t++) out[t] = Math.max(0, Math.round(row[t]));
+            OnnxModels.checkFrames("diffusive_state", row.length, T);
+            for (int t = 0; t < T; t++) out[t] = Math.max(0, Math.round(row[t]));
         } else {
-            return null;
+            throw new OrtException("Unexpected type for output 'diffusive_state': "
+                    + (val == null ? "null" : val.getClass().getName()));
         }
         return out;
     }

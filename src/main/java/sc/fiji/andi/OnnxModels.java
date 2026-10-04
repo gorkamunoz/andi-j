@@ -1,5 +1,7 @@
 package sc.fiji.andi;
 
+import ai.onnxruntime.OrtException;
+
 import java.io.*;
 import java.util.List;
 
@@ -43,6 +45,18 @@ final class OnnxModels {
             xy[t][1] = (float) spots.get(t)[2];
         }
         return xy;
+    }
+
+    /**
+     * Fails unless a per-frame output has one value per frame: a model that returns
+     * {@code T−1} values (one per displacement) or a length fixed at export would
+     * otherwise give silently wrong results.
+     */
+    static void checkFrames(String output, int got, int T) throws OrtException {
+        if (got != T)
+            throw new OrtException("Output '" + output + "' has " + got + " values for a "
+                    + "trajectory of " + T + " frames; per-frame outputs must have length T "
+                    + "(see the ML Models page of the wiki).");
     }
 
     /** Index of the largest value (the first one on ties). */

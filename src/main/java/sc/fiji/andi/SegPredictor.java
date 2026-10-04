@@ -205,9 +205,8 @@ public class SegPredictor implements Closeable {
         int[] out = new int[T];
         if (val instanceof float[][][]) {          // (1, T, K) -> argmax per frame
             float[][] frames = ((float[][][]) val)[0];
-            for (int t = 0; t < T && t < frames.length; t++) {
-                out[t] = OnnxModels.argmax(frames[t]);
-            }
+            OnnxModels.checkFrames("diffusive_state", frames.length, T);
+            for (int t = 0; t < T; t++) out[t] = OnnxModels.argmax(frames[t]);
             return out;
         }
         double[] flat = perFrame(v, T, "diffusive_state");
@@ -263,13 +262,16 @@ public class SegPredictor implements Closeable {
         double[] out = new double[T];
         if (val instanceof float[][][]) {
             float[][][] a = (float[][][]) val;
-            for (int t = 0; t < T && t < a[0].length; t++) out[t] = a[0][t][0];
+            OnnxModels.checkFrames(name, a[0].length, T);
+            for (int t = 0; t < T; t++) out[t] = a[0][t][0];
         } else if (val instanceof float[][]) {
             float[][] a = (float[][]) val;
-            for (int t = 0; t < T && t < a[0].length; t++) out[t] = a[0][t];
+            OnnxModels.checkFrames(name, a[0].length, T);
+            for (int t = 0; t < T; t++) out[t] = a[0][t];
         } else if (val instanceof float[]) {
             float[] a = (float[]) val;
-            for (int t = 0; t < T && t < a.length; t++) out[t] = a[t];
+            OnnxModels.checkFrames(name, a.length, T);
+            for (int t = 0; t < T; t++) out[t] = a[t];
         } else {
             throw new OrtException("Unexpected type for output '" + name + "': "
                     + (val == null ? "null" : val.getClass().getName()));

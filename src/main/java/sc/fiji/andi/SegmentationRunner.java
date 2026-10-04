@@ -136,27 +136,15 @@ public final class SegmentationRunner {
             if (base != null) modelSegs = base.segments;
         }
 
-        // Defensive defaults for a mis-shaped custom output.
-        if (a == null) { a = new double[T]; }
-        if (d == null) { d = new double[T]; Arrays.fill(d, Double.NaN); }
-        int n = Math.min(T, Math.min(a.length, d.length));
-        a = crop(a, n);
-        d = crop(d, n);
-
-        int[] cps = (cp == null) ? new int[0] : SegPredictor.thresholdChangePoints(cp);
-        cps = interior(cps, n);
+        // Every per-frame output has length T (the predictors fail otherwise), and α,
+        // log D and cp always come from a custom model or the bundled one.
+        int n = T;
+        int[] cps = interior(SegPredictor.thresholdChangePoints(cp), n);
 
         r.alpha = a;
         r.logD = d;
         r.state = state != null ? state : new int[n];
         r.segments = modelSegs != null ? modelSegs : SegPredictor.segmentsFrom(cps, a, d, state);
-        return r;
-    }
-
-    private static double[] crop(double[] v, int n) {
-        if (v.length == n) return v;
-        double[] r = new double[n];
-        System.arraycopy(v, 0, r, 0, Math.min(n, v.length));
         return r;
     }
 

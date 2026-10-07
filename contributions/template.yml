@@ -50,7 +50,7 @@ tasks:
   #                                                  # seg_logD, seg_state if the model has them
 
 # AnDi-J version the model was tested with.
-plugin_version: 0.1.3
+plugin_version: 0.1.4
 
 # Scores from the Submit pages of the benchmark website (https://gorkamunoz.github.io/andi-j/).
 # Fill in the metrics of the tasks the model does and delete the others.

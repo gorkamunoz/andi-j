@@ -103,12 +103,22 @@ public class DiffusionCoeffPanel extends JPanel {
             histPanel.repaint();
         });
 
+        JCheckBox logXBox = new JCheckBox("Log D axis", false);
+        logXBox.setFont(logXBox.getFont().deriveFont(Font.PLAIN, 11f));
+        logXBox.setFocusPainted(false);
+        logXBox.setToolTipText("Logarithmic D axis, with log-spaced bins (D ≤ 0 is left out)");
+        logXBox.addActionListener(e -> {
+            histPanel.setLogX(logXBox.isSelected());
+            histPanel.repaint();
+        });
+
         JPanel histToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         histToolbar.add(zoomBtn);
         histToolbar.add(panBtn);
         histToolbar.add(resetViewBtn);
         histToolbar.add(Box.createHorizontalStrut(8));
         histToolbar.add(normalizeBox);
+        histToolbar.add(logXBox);
         zoomBtn.addActionListener(e -> histPanel.setPanMode(false));
         panBtn .addActionListener(e -> histPanel.setPanMode(true));
         resetViewBtn.addActionListener(e -> { histPanel.resetViewport(); histPanel.repaint(); });
@@ -418,6 +428,11 @@ public class DiffusionCoeffPanel extends JPanel {
         private int     nBins    = 20;
         /** When true each series is shown as % of its own total (density-like). */
         private boolean normalize = false;
+        /**
+         * When true the x axis is log₁₀(D): bins, zoom and pan work on log₁₀(D),
+         * and D ≤ 0 is left out. The x coordinate used below ("u") is then log₁₀(D).
+         */
+        private boolean logX = false;
 
         // ── Viewport state ──────────────────────────────────────────────
         private double[] viewport = null;  // null=auto; {xMin,xMax,0,yMax}
@@ -472,6 +487,12 @@ public class DiffusionCoeffPanel extends JPanel {
         void setNBins(int n)       { this.nBins    = Math.max(2, n); }
         void setNormalize(boolean n) { if (normalize != n) { normalize = n; viewport = null; } }
         void resetViewport()       { this.viewport = null; }
+        void setLogX(boolean on)   { if (logX != on) { logX = on; viewport = null; } }
+
+        /** x-axis coordinate of a D value: D, or log₁₀(D) on a log axis (NaN if D ≤ 0). */
+        private double toU(double d) { return logX ? (d > 0 ? Math.log10(d) : Double.NaN) : d; }
+        /** D value of an x-axis coordinate. */
+        private double fromU(double u) { return logX ? Math.pow(10, u) : u; }
 
         /** Bar height for entry {@code he}, bin {@code b}: raw count or % of total. */
         private double barValue(HistEntry he, int b) {
@@ -639,13 +660,15 @@ public class DiffusionCoeffPanel extends JPanel {
                 for (double[] d : he.exp.dCoeffs.values()) {
                     double v = d[he.component] * units.diffusion(he.exp);
                     if (Double.isFinite(v) && v >= 0) {
-                        globalXMin = Math.min(globalXMin, v);
-                        globalXMax = Math.max(globalXMax, v);
+                        double u = toU(v);
+                        if (!Double.isFinite(u)) continue;
+                        globalXMin = Math.min(globalXMin, u);
+                        globalXMax = Math.max(globalXMax, u);
                     }
                 }
 
             if (globalXMin == Double.MAX_VALUE) {
-                drawMsg(g2, "No finite D values", px, py, pw, ph);
+                drawMsg(g2, logX ? "No positive D values" : "No finite D values", px, py, pw, ph);
                 drawFrame(g2, px, py, pw, ph); g2.dispose(); return;
             }
             if (globalXMin == globalXMax) {
@@ -663,8 +686,10 @@ public class DiffusionCoeffPanel extends JPanel {
                 for (double[] d : he.exp.dCoeffs.values()) {
                     double v = d[he.component] * units.diffusion(he.exp);
                     if (!Double.isFinite(v) || v < 0) continue;
+                    double u = toU(v);
+                    if (!Double.isFinite(u)) continue;
                     int bin = Math.min(nBins - 1, Math.max(0,
-                                (int) ((v - globalXMin) / binW)));
+                                (int) ((u - globalXMin) / binW)));
                     he.counts[bin]++;
                     sum += v; n++;
                 }
@@ -685,7 +710,8 @@ public class DiffusionCoeffPanel extends JPanel {
             renderPx = px; renderPy = py; renderPw = pw; renderPh = ph;
 
             // ── Draw ─────────────────────────────────────────────────────
-            drawLinearGrid(g2, dispXMin, dispXMax, 0, dispYMax, px, py, pw, ph, normalize);
+            double[] xTicks = xTicks(dispXMin, dispXMax);
+            drawLinearGrid(g2, xTicks, dispXMin, dispXMax, 0, dispYMax, px, py, pw, ph, normalize);
 
             g2.setClip(px, py, pw, ph);
             Stroke dashed = new BasicStroke(1.5f, BasicStroke.CAP_BUTT,
@@ -708,8 +734,9 @@ public class DiffusionCoeffPanel extends JPanel {
                     g2.setStroke(new BasicStroke(0.8f));
                     g2.drawRect(bx, by, Math.max(1, bx2 - bx), by0 - by);
                 }
-                if (Double.isFinite(he.avg)) {
-                    int ax = linPxX(he.avg, dispXMin, dispXMax, px, pw);
+                double avgU = toU(he.avg);   // the mean of D, drawn on the current axis
+                if (Double.isFinite(avgU)) {
+                    int ax = linPxX(avgU, dispXMin, dispXMax, px, pw);
                     g2.setColor(he.fillColor);
                     g2.setStroke(dashed);
                     g2.drawLine(ax, py, ax, py + ph);
@@ -719,7 +746,7 @@ public class DiffusionCoeffPanel extends JPanel {
             g2.setStroke(new BasicStroke(1f));
 
             drawFrame(g2, px, py, pw, ph);
-            drawXTicks(g2, dispXMin, dispXMax, px, py, pw, ph);
+            drawXTicks(g2, xTicks, dispXMin, dispXMax, px, py, pw, ph);
             drawYTicks(g2, 0, dispYMax, px, py, pw, ph, normalize);
             drawAxisTitles(g2, px, py, pw, ph, normalize);
             drawLegend(g2, entries, px, py, pw, ph);
@@ -738,7 +765,7 @@ public class DiffusionCoeffPanel extends JPanel {
             // ── Hover tooltip ─────────────────────────────────────────────
             if (hoverPx >= px && hoverPx <= px + pw
                     && hoverPy >= py && hoverPy <= py + ph) {
-                double dataX = pxToDataX(hoverPx);
+                double dataX = fromU(pxToDataX(hoverPx));
                 drawHoverTooltip(g2, "D = " + PlotUtils.fmtTick(dataX),
                                  hoverPx, hoverPy, W, H);
             }
@@ -759,16 +786,42 @@ public class DiffusionCoeffPanel extends JPanel {
 
         // -- grid ---
 
-        private static void drawLinearGrid(Graphics2D g2,
+        /**
+         * x-axis tick positions (axis coordinates) between {@code xMin} and {@code xMax}:
+         * nice steps on a linear axis; on a log axis, decades, or 1-2-5 × 10ⁿ when the
+         * range spans few decades.
+         */
+        private double[] xTicks(double xMin, double xMax) {
+            List<Double> t = new ArrayList<>();
+            if (!logX) {
+                double step = PlotUtils.niceStep(xMax - xMin, 6);
+                for (double v = Math.ceil(xMin / step) * step; v <= xMax + step * 0.01; v += step)
+                    t.add(v);
+            } else {
+                double decades = xMax - xMin;
+                double[] mults = decades <= 2 ? new double[]{1, 2, 5} : new double[]{1};
+                int every = decades > 8 ? (int) Math.ceil(decades / 6) : 1;
+                for (int k = (int) Math.floor(xMin); k <= (int) Math.ceil(xMax); k++) {
+                    if (Math.floorMod(k, every) != 0) continue;
+                    for (double m : mults) {
+                        double u = k + Math.log10(m);
+                        if (u >= xMin - 1e-9 && u <= xMax + 1e-9) t.add(u);
+                    }
+                }
+            }
+            double[] r = new double[t.size()];
+            for (int i = 0; i < r.length; i++) r[i] = t.get(i);
+            return r;
+        }
+
+        private static void drawLinearGrid(Graphics2D g2, double[] xTicks,
                                            double xMin, double xMax,
                                            double yMin, double yMax,
                                            int px, int py, int pw, int ph,
                                            boolean normalize) {
             g2.setColor(new Color(220, 220, 220));
             g2.setStroke(new BasicStroke(0.5f));
-            double xStep = PlotUtils.niceStep(xMax - xMin, 6);
-            for (double t = Math.ceil(xMin / xStep) * xStep;
-                 t <= xMax + xStep * 0.01; t += xStep) {
+            for (double t : xTicks) {
                 int p = linPxX(t, xMin, xMax, px, pw);
                 g2.drawLine(p, py, p, py + ph);
             }
@@ -783,17 +836,15 @@ public class DiffusionCoeffPanel extends JPanel {
 
         // -- tick marks ---
 
-        private static void drawXTicks(Graphics2D g2, double xMin, double xMax,
-                                       int px, int py, int pw, int ph) {
+        private void drawXTicks(Graphics2D g2, double[] xTicks, double xMin, double xMax,
+                                int px, int py, int pw, int ph) {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double step = PlotUtils.niceStep(xMax - xMin, 6);
-            for (double t = Math.ceil(xMin / step) * step;
-                 t <= xMax + step * 0.01; t += step) {
+            for (double t : xTicks) {
                 int p = linPxX(t, xMin, xMax, px, pw);
                 g2.drawLine(p, py + ph, p, py + ph + 4);
-                String lbl = PlotUtils.fmtTick(t);
+                String lbl = PlotUtils.fmtTick(fromU(t));
                 g2.drawString(lbl, p - fm.stringWidth(lbl) / 2, py + ph + 15);
             }
         }

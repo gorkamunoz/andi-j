@@ -14,9 +14,9 @@ import java.util.List;
  *
  * <p>Mirrors the Trajectory-Analysis "D vs α" tab (left experiment multi-select,
  * marginal KDE strips on the top/right edges) but, because the data are
- * per-frame predictions (far too many to scatter), the centre shows a
- * 2-D density histogram instead of individual points.  There is no point
- * selection / tagging.</p>
+ * per-frame or per-segment predictions (far too many to scatter), the centre
+ * shows a 2-D density histogram instead of individual points.  There is no
+ * point selection / tagging.</p>
  *
  * <ul>
  *   <li>X axis – anomalous exponent α ∈ [0, 2]  (fixed range)</li>
@@ -24,17 +24,22 @@ import java.util.List;
  *   <li>Centre – 2-D histogram heatmaps, one per selected experiment, overlaid
  *       in the experiment's colour with opacity encoding its own density</li>
  *   <li>Top / right – per-experiment marginal KDE of α and log₁₀(D)</li>
- *   <li>Far right – colour-scale bar mapping shade → frame count (only when a
- *       single experiment is selected)</li>
+ *   <li>Far right – colour-scale bar mapping shade → frame or segment count
+ *       (only when a single experiment is selected)</li>
  * </ul>
  *
- * Controls: per-experiment toggles (left), bin count, log-count colour scale.
+ * Controls: frames or segments, per-experiment toggles (left), bin count,
+ * log-count colour scale.
  */
 public class SegDvsAlphaPanel extends JPanel {
 
     private final List<ExperimentData>         experiments;
     private final Map<ExperimentData, Boolean> expVisible = new LinkedHashMap<>();
 
+    /** What one count of the histogram is: a frame or a segment. */
+    private static final String[] LEVELS = {"Frames", "Segments"};
+
+    private final JComboBox<String> levelBox;
     private final JSpinner       alphaBinsSpin, dBinsSpin;   // separate α / D bin counts
     private final JCheckBox      logCountBox;
     private final DensityCanvas  canvas;
@@ -52,6 +57,7 @@ public class SegDvsAlphaPanel extends JPanel {
         this.units       = units;
         for (ExperimentData exp : experiments) expVisible.put(exp, true);
 
+        levelBox      = new JComboBox<>(LEVELS);
         alphaBinsSpin = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
         dBinsSpin     = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
         logCountBox   = new JCheckBox("Log count scale", true);
@@ -71,6 +77,7 @@ public class SegDvsAlphaPanel extends JPanel {
         split.setOneTouchExpandable(true);
         add(split, BorderLayout.CENTER);
 
+        levelBox.addActionListener(e -> rebuild());
         alphaBinsSpin.addChangeListener(e -> rebuild());
         dBinsSpin.addChangeListener(e -> rebuild());
         logCountBox.addActionListener(e -> {
@@ -103,11 +110,14 @@ public class SegDvsAlphaPanel extends JPanel {
         panBtn .addActionListener(e -> canvas.setPanMode(true));
         resetViewBtn.addActionListener(e -> { canvas.resetViewport(); canvas.repaint(); });
 
+        levelBox.setToolTipText("Plot the α and D of every frame, or of every segment");
         alphaBinsSpin.setToolTipText("Number of α bins (histogram + heatmap x-axis)");
         dBinsSpin.setToolTipText("Number of log₁₀(D) bins (histogram + heatmap y-axis)");
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
+        bar.add(levelBox);
+        bar.add(Box.createHorizontalStrut(6));
         bar.add(new JLabel("α bins:"));
         bar.add(alphaBinsSpin);
         bar.add(new JLabel("D bins:"));
@@ -171,13 +181,15 @@ public class SegDvsAlphaPanel extends JPanel {
     private void rebuild() {
         int alphaBins = (Integer) alphaBinsSpin.getValue();
         int dBins     = (Integer) dBinsSpin.getValue();
+        boolean bySegment = levelBox.getSelectedIndex() == 1;
 
         List<ExperimentData> sel = new ArrayList<>();
         for (ExperimentData exp : experiments)
-            if (expVisible.getOrDefault(exp, true) && exp.hasStepPredictions())
+            if (expVisible.getOrDefault(exp, true)
+                    && (bySegment ? exp.hasSegments() : exp.hasStepPredictions()))
                 sel.add(exp);
 
-        // Gather per-experiment per-frame values and the global logD range
+        // Gather per-experiment per-frame (or per-segment) values and the global logD range
         Map<ExperimentData, double[]> alphaByExp = new LinkedHashMap<>();
         Map<ExperimentData, double[]> logdByExp  = new LinkedHashMap<>();
         double ldMin = Double.MAX_VALUE, ldMax = -Double.MAX_VALUE;
@@ -187,7 +199,16 @@ public class SegDvsAlphaPanel extends JPanel {
             List<Double> av = new ArrayList<>();
             List<Double> dv = new ArrayList<>();
             double off = Math.log10(units.diffusion(exp));   // log₁₀(D) in display units
-            for (Map.Entry<Integer, double[]> e : exp.stepAlpha.entrySet()) {
+            if (bySegment) {
+                for (List<Segment> segs : exp.segments.values())
+                    for (Segment s : segs)
+                        if (Double.isFinite(s.alpha) && Double.isFinite(s.logD)) {
+                            double d = s.logD + off;
+                            av.add(s.alpha); dv.add(d);
+                            ldMin = Math.min(ldMin, d);
+                            ldMax = Math.max(ldMax, d);
+                        }
+            } else for (Map.Entry<Integer, double[]> e : exp.stepAlpha.entrySet()) {
                 double[] al = e.getValue();
                 double[] ld = exp.stepLogD != null ? exp.stepLogD.get(e.getKey()) : null;
                 if (al == null || ld == null) continue;
@@ -240,7 +261,8 @@ public class SegDvsAlphaPanel extends JPanel {
             densities.add(new ExpHist2D(exp.color, h2, max2));
         }
 
-        canvas.setData(densities, alphaBins, dBins, aMin, aMax, ldMin, ldMax, total, margs);
+        canvas.setData(densities, alphaBins, dBins, aMin, aMax, ldMin, ldMax, total, margs,
+                       bySegment ? "segments" : "frames");
         canvas.logScale = logCountBox.isSelected();
         canvas.repaint();
     }
@@ -316,6 +338,7 @@ public class SegDvsAlphaPanel extends JPanel {
         private int            nbX, nbY;   // α bins × log₁₀(D) bins
         private double         aMin, aMax, ldMin, ldMax;
         private int            totalPts;
+        private String         countUnit = "frames";   // what one count is
         private List<ExpHist2D> densities = java.util.Collections.emptyList();
         private List<Marginal> marginals = java.util.Collections.emptyList();
         private boolean        hasData   = false;
@@ -449,12 +472,13 @@ public class SegDvsAlphaPanel extends JPanel {
 
         void setData(List<ExpHist2D> densities, int nbX, int nbY, double aMin, double aMax,
                      double ldMin, double ldMax, int totalPts,
-                     List<Marginal> marginals) {
+                     List<Marginal> marginals, String countUnit) {
             this.densities = densities; this.nbX = nbX; this.nbY = nbY;
             this.aMin = aMin; this.aMax = aMax;
             this.ldMin = ldMin; this.ldMax = ldMax;
             this.totalPts = totalPts;
             this.marginals = marginals;
+            this.countUnit = countUnit;
             this.hasData = true;
         }
 
@@ -720,7 +744,7 @@ public class SegDvsAlphaPanel extends JPanel {
             if (marginals.isEmpty()) { legend.clear(); return; }
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
-            String total = "N = " + String.format("%,d", totalPts) + " frames";
+            String total = "N = " + String.format("%,d", totalPts) + " " + countUnit;
             int lineH = 16, pad = 6;
             int maxW = fm.stringWidth(total);
             int rows = marginals.size() + 1;
@@ -744,7 +768,7 @@ public class SegDvsAlphaPanel extends JPanel {
                 g2.setColor(new Color(90, 90, 90));
                 g2.drawRect(lx + pad, ry - 9, 12, 10);
                 g2.setColor(Color.BLACK);
-                g2.drawString("(" + m.count + " frames)", lx + pad + 18, ry);
+                g2.drawString("(" + m.count + " " + countUnit + ")", lx + pad + 18, ry);
             }
         }
 

@@ -33,7 +33,7 @@ Example (analysis module):
     "alpha": { "url": "https://zenodo.org/records/.../alpha.onnx", "sha256": "..." },
     "model": { "url": "https://zenodo.org/records/.../model.onnx", "sha256": "..." }
   },
-  "min_plugin_version": "0.1.5"
+  "min_plugin_version": "0.1.4"
 }
 ```
 

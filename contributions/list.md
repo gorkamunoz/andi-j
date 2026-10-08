@@ -40,14 +40,14 @@ model does not do that task. To add a model, see
     </tr>
     <tr>
       <td>AnDi-J default (segmentation)</td>
-      <td>v2</td>
+      <td>v3</td>
       <td>–</td>
       <td>–</td>
       <td>0.684</td>
       <td>1.755</td>
       <td>0.193</td>
       <td>0.018</td>
-      <td>0.918</td>
+      <td>0.916</td>
       <td>Bundled with the plugin (<a href="https://github.com/gorkamunoz/andi-j/releases">Releases</a>)</td>
     </tr>
   </tbody>

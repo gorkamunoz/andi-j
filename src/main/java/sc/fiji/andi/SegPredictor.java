@@ -12,9 +12,8 @@ import java.util.*;
  * <h3>Model contract</h3>
  * The bundled model follows the same contract as user-supplied models (see the
  * <i>ML Models</i> wiki page): the raw trajectory goes in, with no preprocessing.
- * Two rules apply to its outputs only, never to custom models: α is clipped to
- * [0, {@value #ALPHA_MAX}] (NaN → 0), and frames and segments with
- * α &lt; {@value #IMMOBILE_ALPHA_MAX} are classified as immobile.
+ * Its α is clipped to [0, {@value #ALPHA_MAX}] (NaN → 0); custom models are read
+ * verbatim.
  *
  * <p><b>Required</b> outputs, each {@code (1, T)} — the input is {@code (1, T, 2)}
  * raw x,y positions:</p>
@@ -37,13 +36,6 @@ public class SegPredictor implements Closeable {
 
     /** α is clipped to [0, {@value #ALPHA_MAX}]. */
     private static final double ALPHA_MAX = 1.999;
-
-    /**
-     * Frames whose predicted α falls below this are classified as immobile
-     * (state 0) regardless of what the model reports, to compensate for
-     * under-detection of trapping.
-     */
-    static final double IMMOBILE_ALPHA_MAX = 0.1;
 
     /**
      * Segmentation runs executed at once. Each run of the bundled model holds its
@@ -109,7 +101,7 @@ public class SegPredictor implements Closeable {
             outState.put(id, o.state);
             outSegs.put(id,  o.alpha.length == 0 ? Collections.<Segment>emptyList()
                            : o.segments != null ? o.segments
-                           : withBundledRules(buildSegments(o.cpProb, o.alpha, o.logD, o.state)));
+                           : clipAlpha(buildSegments(o.cpProb, o.alpha, o.logD, o.state)));
         }
 
         exp.stepAlpha = outAlpha;
@@ -160,22 +152,19 @@ public class SegPredictor implements Closeable {
                 // averaged into a segment mean.
                 o.logD[t]  = Double.isFinite(logD[t]) ? logD[t] : Double.NaN;
             }
-            applyImmobileRule(o.alpha, o.state);
             if (useModelSegments) {
                 List<Segment> segs = readModelSegments(res, outNames, T);
-                o.segments = segs == null ? null : withBundledRules(segs);
+                o.segments = segs == null ? null : clipAlpha(segs);
             }
         }
         return o;
     }
 
-    /** Segments with α clipped and the immobile rule applied (bundled model only). */
-    private static List<Segment> withBundledRules(List<Segment> segs) {
+    /** Segments with α clipped to [0, {@value #ALPHA_MAX}] (bundled model only). */
+    private static List<Segment> clipAlpha(List<Segment> segs) {
         List<Segment> out = new ArrayList<>(segs.size());
-        for (Segment g : segs) {
-            double a = clamp(g.alpha, 0.0, ALPHA_MAX);
-            out.add(new Segment(g.start, g.length, a, g.logD, segmentState(a, g.state)));
-        }
+        for (Segment g : segs)
+            out.add(new Segment(g.start, g.length, clamp(g.alpha, 0.0, ALPHA_MAX), g.logD, g.state));
         return out;
     }
 
@@ -308,18 +297,6 @@ public class SegPredictor implements Closeable {
         double[] o = new double[a.length];
         for (int i = 0; i < a.length; i++) o[i] = a[i];
         return o;
-    }
-
-    /** Forces state 0 (immobile) on every frame whose α is below the threshold. */
-    private static void applyImmobileRule(double[] alpha, int[] state) {
-        if (alpha == null || state == null) return;
-        for (int t = 0; t < state.length && t < alpha.length; t++)
-            if (alpha[t] < IMMOBILE_ALPHA_MAX) state[t] = 0;
-    }
-
-    /** State of a segment, forced to immobile when its α is below the threshold. */
-    private static int segmentState(double alpha, int state) {
-        return (alpha < IMMOBILE_ALPHA_MAX) ? 0 : state;
     }
 
     /** Rounds a raw model state value to a class in [0, STATE_CLASSES-1]. */

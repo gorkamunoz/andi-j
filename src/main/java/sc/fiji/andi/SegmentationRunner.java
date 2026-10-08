@@ -17,8 +17,8 @@ import java.util.*;
  *   <li><b>Per-output</b> – a custom ONNX per output; α, log₁₀(D) and cp without a
  *       custom model come from the bundled one.</li>
  * </ul>
- * Custom outputs are used verbatim: the α clamp and the immobile rule of the
- * bundled model apply only to outputs it computes itself.
+ * Custom outputs are used verbatim: the α clip of the bundled model applies only
+ * to outputs it computes itself.
  * Change points are the interior frames where cp ≥ 0.5. Trajectories run in
  * parallel, {@link SegPredictor#MAX_PARALLEL_RUNS} at a time.
  */

@@ -10,6 +10,7 @@ Diffusion trajectory analysis and segmentation in Fiji
 
 
 <p align="center">
+<a href="https://doi.org/10.5281/zenodo.23147104"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.23147104.svg"></a>
 <a href="https://github.com/gorkamunoz/andi-j/releases"><img alt="Version" src="https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgorkamunoz%2Fandi-j%2Fmain%2Fpom.xml&query=%2F%2A%5Blocal-name%28%29%3D%27project%27%5D%2F%2A%5Blocal-name%28%29%3D%27version%27%5D&label=version&color=blue"></a>
 <a href="https://github.com/gorkamunoz/andi-j/wiki"><img alt="Documentation" src="https://img.shields.io/badge/documentation-wiki-green"></a>
 <a href="https://gorkamunoz.github.io/andi-j/"><img alt="Benchmarks" src="https://img.shields.io/badge/benchmarks-online-orange"></a>
@@ -46,7 +47,24 @@ Other installation options (manual installation, GPU acceleration, building from
 
 If you use this plugin in your work, please cite:
 
-> *soon*
+**Plugin**
+
+> G. Muñoz-Gil. *AnDi-J*. Zenodo (2026). https://doi.org/10.5281/zenodo.23147104
+
+```bibtex
+@software{andij,
+  author    = {Muñoz-Gil, Gorka},
+  title     = {{AnDi-J}},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.23147104},
+  url       = {https://doi.org/10.5281/zenodo.23147104}
+}
+```
+
+**Paper**
+
+> *coming soon*
 
 ---
 

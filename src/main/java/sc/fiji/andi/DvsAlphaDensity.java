@@ -35,25 +35,35 @@ final class DvsAlphaDensity {
 
     /**
      * Bins {@code series} into {@code canvas} (or leaves it empty when there are no
-     * values). α spans [0, 2]; the D range follows the data.
+     * values). The D range follows the data. α spans [0, 2], or, with
+     * {@code scatterRanges}, the ranges of the Trajectory Analysis scatter: the data padded by
+     * 5% on both axes (D in log space on a log axis).
      */
     static void show(DensityCanvas canvas, List<Series> series, int alphaBins, int dBins,
                      boolean logD, String yTitle, String countUnit, boolean immobileHidden,
-                     boolean logCount) {
+                     boolean logCount, boolean scatterRanges) {
         double ldMin = Double.MAX_VALUE, ldMax = -Double.MAX_VALUE;
+        double dataAMin = Double.MAX_VALUE, dataAMax = -Double.MAX_VALUE;
         int total = 0;
         for (Series se : series) {
             for (double v : se.d) { ldMin = Math.min(ldMin, v); ldMax = Math.max(ldMax, v); }
+            for (double v : se.alpha) { dataAMin = Math.min(dataAMin, v); dataAMax = Math.max(dataAMax, v); }
             total += se.alpha.length;
         }
         if (total == 0) { canvas.setEmpty(); return; }
 
+        double pad = scatterRanges ? 0.05 : 0.03;
         double lRng = ldMax - ldMin;
         if (lRng < 1e-6) { ldMin -= 0.5; ldMax += 0.5; lRng = 1; }
-        ldMin -= 0.03 * lRng;
-        ldMax += 0.03 * lRng;
-        if (!logD) ldMin = Math.max(0, ldMin);
-        final double aMin = 0.0, aMax = 2.0;
+        ldMin -= pad * lRng;
+        ldMax += pad * lRng;
+        if (!logD && !scatterRanges) ldMin = Math.max(0, ldMin);
+        double aMin = 0.0, aMax = 2.0;
+        if (scatterRanges) {
+            if (dataAMin == dataAMax) { dataAMin -= 0.1; dataAMax += 0.1; }
+            double aPad = (dataAMax - dataAMin) * 0.05;
+            aMin = dataAMin - aPad; aMax = dataAMax + aPad;
+        }
 
         // Per-experiment 2-D histograms (overlaid, each in its own colour) plus
         // per-experiment marginal KDEs / histograms.

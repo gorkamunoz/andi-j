@@ -247,7 +247,7 @@ public class SegDvsAlphaPanel extends JPanel {
         DvsAlphaDensity.show(canvas, series, alphaBins, dBins, logD,
                              "D  (" + units.diffusionLabel() + ")",
                              bySegment ? "segments" : "frames", !showImmobile,
-                             logCountBox.isSelected());
+                             logCountBox.isSelected(), false);
     }
 
     /** Frames of a track that belong to an immobile segment; null when it has no segments. */

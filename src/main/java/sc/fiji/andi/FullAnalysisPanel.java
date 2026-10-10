@@ -246,7 +246,7 @@ public class FullAnalysisPanel extends JPanel {
         DvsAlphaDensity.show(densityCanvas, scatterPanel.densitySeries(), (Integer) alphaBinsSpin.getValue(),
                              (Integer) dBinsSpin.getValue(), logD,
                              "D  (" + units.diffusionLabel() + ")", "trajectories", false,
-                             logCountBox.isSelected());
+                             logCountBox.isSelected(), true);
     }
 
     /** Collapse the population table (divider to the very bottom). */

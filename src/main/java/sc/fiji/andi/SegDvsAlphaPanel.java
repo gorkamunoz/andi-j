@@ -28,8 +28,8 @@ import java.util.List;
  *       (only when a single experiment is selected)</li>
  * </ul>
  * Immobile segments, and in frame mode the frames of immobile segments, are left
- * out unless "Show immobile" is ticked. The legend gives the number of frames or
- * segments and, below, how many are immobile.
+ * out unless "Show immobile" is ticked. The legend has one row per experiment: its
+ * number of frames or segments and how many of them are immobile.
  *
  * Controls: frames or segments, per-experiment toggles (left), bin count,
  * log-count colour scale.
@@ -200,7 +200,7 @@ public class SegDvsAlphaPanel extends JPanel {
         Map<ExperimentData, double[]> logdByExp  = new LinkedHashMap<>();
         double ldMin = Double.MAX_VALUE, ldMax = -Double.MAX_VALUE;
         int total = 0, immobileCount = 0;   // plotted values; immobile values (shown or not)
-        Map<ExperimentData, Integer> allByExp = new LinkedHashMap<>();
+        Map<ExperimentData, Integer> allByExp = new LinkedHashMap<>(), immobileByExp = new LinkedHashMap<>();
         boolean showImmobile = immobileBox.isSelected();
 
         for (ExperimentData exp : sel) {
@@ -246,13 +246,9 @@ public class SegDvsAlphaPanel extends JPanel {
             total += aArr.length;
             immobileCount += immobileExp;
             allByExp.put(exp, showImmobile ? aArr.length : aArr.length + immobileExp);
+            immobileByExp.put(exp, immobileExp);
         }
 
-        // The legend's N counts every value; the line below it, the immobile ones.
-        int all = showImmobile ? total : total + immobileCount;
-        String note = immobileCount == 0 ? null
-                : SegStatsPanel.immobileNote(immobileCount, all, bySegment ? "segments" : "frames",
-                                             !showImmobile);
         immobileBox.setImmobilePresent(immobileCount > 0);
         if (total == 0) { canvas.setEmpty(); return; }
 
@@ -280,15 +276,15 @@ public class SegDvsAlphaPanel extends JPanel {
                 dHist[li]++;
                 if (++h2[ai][li] > max2) max2 = h2[ai][li];
             }
-            margs.add(new Marginal(exp.color, a.length, allByExp.get(exp),
+            margs.add(new Marginal(exp.color, a.length, allByExp.get(exp), immobileByExp.get(exp),
                 Kde.gaussianKde1D(a, evalA, Kde.silvermanBw(a)),
                 Kde.gaussianKde1D(d, evalD, Kde.silvermanBw(d)),
                 aHist, dHist));
             densities.add(new ExpHist2D(exp.color, h2, max2));
         }
 
-        canvas.setData(densities, alphaBins, dBins, aMin, aMax, ldMin, ldMax, all, margs,
-                       bySegment ? "segments" : "frames", note);
+        canvas.setData(densities, alphaBins, dBins, aMin, aMax, ldMin, ldMax, margs,
+                       bySegment ? "segments" : "frames", !showImmobile);
         canvas.logScale = logCountBox.isSelected();
         canvas.repaint();
     }
@@ -342,13 +338,14 @@ public class SegDvsAlphaPanel extends JPanel {
         final Color    color;
         final int      count;       // plotted values
         final int      all;         // every value, immobile included (legend)
+        final int      immobile;    // immobile values (legend)
         final double[] alphaKde;    // over [aMin, aMax]
         final double[] logdKde;     // over [ldMin, ldMax]
         final int[]    alphaHist;   // over [aMin, aMax], α bins
         final int[]    dHist;       // over [ldMin, ldMax], D bins
-        Marginal(Color color, int count, int all, double[] alphaKde, double[] logdKde,
-                 int[] alphaHist, int[] dHist) {
-            this.color = color; this.count = count; this.all = all;
+        Marginal(Color color, int count, int all, int immobile, double[] alphaKde,
+                 double[] logdKde, int[] alphaHist, int[] dHist) {
+            this.color = color; this.count = count; this.all = all; this.immobile = immobile;
             this.alphaKde = alphaKde; this.logdKde = logdKde;
             this.alphaHist = alphaHist; this.dHist = dHist;
         }
@@ -376,9 +373,8 @@ public class SegDvsAlphaPanel extends JPanel {
         // ── Current dataset ───────────────────────────────────────────────
         private int            nbX, nbY;   // α bins × log₁₀(D) bins
         private double         aMin, aMax, ldMin, ldMax;
-        private int            totalPts;
         private String         countUnit = "frames";   // what one count is
-        private String         note;                   // hidden immobile data, or null
+        private boolean        immobileHidden;         // immobile data left out of the plot
         private List<ExpHist2D> densities = java.util.Collections.emptyList();
         private List<Marginal> marginals = java.util.Collections.emptyList();
         private boolean        hasData   = false;
@@ -511,15 +507,14 @@ public class SegDvsAlphaPanel extends JPanel {
         private static int clampPx(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
 
         void setData(List<ExpHist2D> densities, int nbX, int nbY, double aMin, double aMax,
-                     double ldMin, double ldMax, int totalPts,
-                     List<Marginal> marginals, String countUnit, String note) {
+                     double ldMin, double ldMax,
+                     List<Marginal> marginals, String countUnit, boolean immobileHidden) {
             this.densities = densities; this.nbX = nbX; this.nbY = nbY;
             this.aMin = aMin; this.aMax = aMax;
             this.ldMin = ldMin; this.ldMax = ldMax;
-            this.totalPts = totalPts;
             this.marginals = marginals;
             this.countUnit = countUnit;
-            this.note = note;
+            this.immobileHidden = immobileHidden;
             this.hasData = true;
         }
 
@@ -785,11 +780,17 @@ public class SegDvsAlphaPanel extends JPanel {
             if (marginals.isEmpty()) { legend.clear(); return; }
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
             FontMetrics fm = g2.getFontMetrics();
-            String total = "N = " + String.format("%,d", totalPts) + " " + countUnit;
+            String[] rows = new String[marginals.size()];
+            int maxW = 0;
+            for (int i = 0; i < rows.length; i++) {
+                Marginal m = marginals.get(i);
+                rows[i] = String.format("%,d %s", m.all, countUnit)
+                        + (m.immobile > 0 ? String.format(" | %,d immobile%s", m.immobile,
+                                                          immobileHidden ? " (hidden)" : "") : "");
+                maxW = Math.max(maxW, fm.stringWidth(rows[i]));
+            }
             int lineH = 16, pad = 6;
-            int maxW = Math.max(fm.stringWidth(total), note != null ? fm.stringWidth(note) : 0);
-            int rows = marginals.size() + (note != null ? 2 : 1);
-            int boxW = maxW + 22 + pad * 2, boxH = rows * lineH + pad * 2;
+            int boxW = maxW + 22 + pad * 2, boxH = rows.length * lineH + pad * 2;
             Point lp = legend.layout(px + 6, py + 6, boxW, boxH, px, py, pw, ph);
             int lx = lp.x, ly = lp.y;
 
@@ -799,18 +800,16 @@ public class SegDvsAlphaPanel extends JPanel {
             g2.setStroke(new BasicStroke(0.7f));
             g2.drawRoundRect(lx, ly, boxW, boxH, 6, 6);
 
-            int ry = ly + pad + lineH - 4;
-            g2.setColor(new Color(70, 70, 70));
-            g2.drawString(total, lx + pad, ry);
-            if (note != null) { ry += lineH; g2.drawString(note, lx + pad, ry); }
-            for (Marginal m : marginals) {
+            int ry = ly + pad - 4;
+            for (int i = 0; i < rows.length; i++) {
+                Marginal m = marginals.get(i);
                 ry += lineH;
                 g2.setColor(m.color);
                 g2.fillRect(lx + pad, ry - 9, 12, 10);
                 g2.setColor(new Color(90, 90, 90));
                 g2.drawRect(lx + pad, ry - 9, 12, 10);
                 g2.setColor(Color.BLACK);
-                g2.drawString("(" + String.format("%,d", m.all) + " " + countUnit + ")", lx + pad + 18, ry);
+                g2.drawString(rows[i], lx + pad + 18, ry);
             }
         }
 

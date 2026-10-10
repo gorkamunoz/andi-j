@@ -311,7 +311,7 @@ public class SegStatsPanel extends JPanel {
     }
 
     /** "120 immobile segments (12%)", plus " hidden" when the plot leaves them out. */
-    static String immobileNote(int immobile, int all, String what, boolean hidden) {
+    private static String immobileNote(int immobile, int all, String what, boolean hidden) {
         return String.format("%,d immobile %s (%.0f%%)%s", immobile, what,
                              100.0 * immobile / Math.max(1, all), hidden ? " hidden" : "");
     }

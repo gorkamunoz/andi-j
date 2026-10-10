@@ -2,6 +2,7 @@ package sc.fiji.andi;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.HierarchyEvent;
 import java.util.Collections;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -10,9 +11,9 @@ import java.util.WeakHashMap;
  * The "Show immobile" checkbox of the segmentation plots.
  *
  * <p>While immobile data is hidden (box unticked and the plot has immobile segments)
- * the box has a soft amber highlight. After each plot update it first pulses for a few
- * cycles, then stays steady. Once the user ticks any of these boxes, none of them pulses
- * again for the rest of the Fiji session; the steady highlight remains.</p>
+ * the box has a soft amber highlight. Each time the box comes into view or the plot
+ * updates, it pulses for a few cycles, then stays steady. Once the user ticks any of
+ * these boxes, none of them is highlighted again for the rest of the Fiji session.</p>
  */
 final class ImmobileBox extends JCheckBox {
 
@@ -23,7 +24,7 @@ final class ImmobileBox extends JCheckBox {
     private static final int   ALPHA_STEADY = 45;
     private static final Color GLOW        = new Color(255, 170, 0);
 
-    /** Set once any box is ticked; stops the pulsing everywhere for the session. */
+    /** Set once any box is ticked; removes the highlight everywhere for the session. */
     private static boolean ticked;
     private static final Set<ImmobileBox> BOXES =
             Collections.newSetFromMap(new WeakHashMap<ImmobileBox, Boolean>());
@@ -40,22 +41,33 @@ final class ImmobileBox extends JCheckBox {
         addActionListener(e -> {
             if (isSelected()) {
                 ticked = true;
-                for (ImmobileBox b : BOXES) b.timer.stop();
+                for (ImmobileBox b : BOXES) { b.timer.stop(); b.repaint(); }
             }
             repaint();
+        });
+        // Pulse when the box comes into view (e.g. its tab is opened), not only on updates
+        // that happen while it is hidden.
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) pulse();
         });
     }
 
     /** Called after each plot update: whether the plotted data has immobile segments. */
     void setImmobilePresent(boolean present) {
         this.present = present;
-        if (present && !isSelected() && !ticked) {
+        if (isShowing()) pulse(); else timer.stop();
+        repaint();
+    }
+
+    private boolean highlighted() { return present && !isSelected() && !ticked; }
+
+    private void pulse() {
+        if (highlighted()) {
             pulseStart = System.currentTimeMillis();
             timer.start();
         } else {
             timer.stop();
         }
-        repaint();
     }
 
     private void tick() {
@@ -65,7 +77,7 @@ final class ImmobileBox extends JCheckBox {
 
     @Override
     protected void paintComponent(Graphics g) {
-        if (present && !isSelected()) {
+        if (highlighted()) {
             int alpha = ALPHA_STEADY;
             if (timer.isRunning()) {
                 double phase = (System.currentTimeMillis() - pulseStart) % PULSE_MS / (double) PULSE_MS;

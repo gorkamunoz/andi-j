@@ -20,10 +20,11 @@ import java.util.List;
  *
  * <ul>
  *   <li>X axis – anomalous exponent α ∈ [0, 2]  (fixed range)</li>
- *   <li>Y axis – log₁₀(D), auto-ranged from the selected data</li>
+ *   <li>Y axis – D in the display units, auto-ranged from the selected data; a log
+ *       axis with log-spaced bins ("Log D axis", default) or a linear one</li>
  *   <li>Centre – 2-D histogram heatmaps, one per selected experiment, overlaid
  *       in the experiment's colour with opacity encoding its own density</li>
- *   <li>Top / right – per-experiment marginal KDE of α and log₁₀(D)</li>
+ *   <li>Top / right – per-experiment marginal KDE of α and D (on the D axis scale)</li>
  *   <li>Far right – colour-scale bar mapping shade → frame or segment count
  *       (only when a single experiment is selected)</li>
  * </ul>
@@ -46,6 +47,7 @@ public class SegDvsAlphaPanel extends JPanel {
     private final JSpinner       alphaBinsSpin, dBinsSpin;   // separate α / D bin counts
     private final JCheckBox      logCountBox;
     private final ImmobileBox    immobileBox = new ImmobileBox();
+    private final JCheckBox      logDBox     = new JCheckBox("Log D axis", true);
     private final DensityCanvas  canvas;
 
     // ═════════════════════════════════════════════════════════════════════
@@ -83,6 +85,7 @@ public class SegDvsAlphaPanel extends JPanel {
 
         levelBox.addActionListener(e -> rebuild());
         immobileBox.addActionListener(e -> rebuild());
+        logDBox.addActionListener(e -> { canvas.resetViewport(); rebuild(); });
         alphaBinsSpin.addChangeListener(e -> rebuild());
         dBinsSpin.addChangeListener(e -> rebuild());
         logCountBox.addActionListener(e -> {
@@ -117,7 +120,8 @@ public class SegDvsAlphaPanel extends JPanel {
 
         levelBox.setToolTipText("Plot the α and D of every frame, or of every segment");
         alphaBinsSpin.setToolTipText("Number of α bins (histogram + heatmap x-axis)");
-        dBinsSpin.setToolTipText("Number of log₁₀(D) bins (histogram + heatmap y-axis)");
+        dBinsSpin.setToolTipText("Number of D bins (histogram + heatmap y-axis)");
+        logDBox.setToolTipText("Logarithmic D axis, with log-spaced bins");
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
@@ -127,6 +131,7 @@ public class SegDvsAlphaPanel extends JPanel {
         bar.add(alphaBinsSpin);
         bar.add(new JLabel("D bins:"));
         bar.add(dBinsSpin);
+        bar.add(logDBox);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(logCountBox);
         bar.add(immobileBox);
@@ -195,7 +200,9 @@ public class SegDvsAlphaPanel extends JPanel {
                     && (bySegment ? exp.hasSegments() : exp.hasStepPredictions()))
                 sel.add(exp);
 
-        // Gather per-experiment per-frame (or per-segment) values and the global logD range
+        // Gather per-experiment per-frame (or per-segment) values and the global D range.
+        // The D coordinate (ld*) is log₁₀(D) on a log axis and D on a linear one.
+        boolean logD = logDBox.isSelected();
         Map<ExperimentData, double[]> alphaByExp = new LinkedHashMap<>();
         Map<ExperimentData, double[]> logdByExp  = new LinkedHashMap<>();
         double ldMin = Double.MAX_VALUE, ldMax = -Double.MAX_VALUE;
@@ -216,7 +223,7 @@ public class SegDvsAlphaPanel extends JPanel {
                                 immobileExp++;
                                 if (!showImmobile) continue;
                             }
-                            double d = s.logD + off;
+                            double d = logD ? s.logD + off : Math.pow(10, s.logD + off);
                             av.add(s.alpha); dv.add(d);
                             ldMin = Math.min(ldMin, d);
                             ldMax = Math.max(ldMax, d);
@@ -233,7 +240,7 @@ public class SegDvsAlphaPanel extends JPanel {
                             immobileExp++;
                             if (!showImmobile) continue;
                         }
-                        double d = ld[t] + off;
+                        double d = logD ? ld[t] + off : Math.pow(10, ld[t] + off);
                         av.add(al[t]); dv.add(d);
                         ldMin = Math.min(ldMin, d);
                         ldMax = Math.max(ldMax, d);
@@ -256,6 +263,7 @@ public class SegDvsAlphaPanel extends JPanel {
         if (lRng < 1e-6) { ldMin -= 0.5; ldMax += 0.5; lRng = 1; }
         ldMin -= 0.03 * lRng;
         ldMax += 0.03 * lRng;
+        if (!logD) ldMin = Math.max(0, ldMin);
         final double aMin = 0.0, aMax = 2.0;
 
         // Per-experiment 2-D histograms (overlaid, each in its own colour) plus
@@ -284,7 +292,8 @@ public class SegDvsAlphaPanel extends JPanel {
         }
 
         canvas.setData(densities, alphaBins, dBins, aMin, aMax, ldMin, ldMax, margs,
-                       bySegment ? "segments" : "frames", !showImmobile);
+                       bySegment ? "segments" : "frames", !showImmobile,
+                       logD, "D  (" + units.diffusionLabel() + ")");
         canvas.logScale = logCountBox.isSelected();
         canvas.repaint();
     }
@@ -301,7 +310,7 @@ public class SegDvsAlphaPanel extends JPanel {
         return immobile;
     }
 
-    /** One experiment's 2-D (α × log₁₀D) histogram, for the overlaid heatmap. */
+    /** One experiment's 2-D (α × D) histogram, for the overlaid heatmap. */
     static class ExpHist2D {
         final Color   color;
         final int[][] hist;
@@ -371,7 +380,9 @@ public class SegDvsAlphaPanel extends JPanel {
         private int mr() { return margW + 8 + CBAR_W + 66; } // right margin (strip + colour bar + labels)
 
         // ── Current dataset ───────────────────────────────────────────────
-        private int            nbX, nbY;   // α bins × log₁₀(D) bins
+        private int            nbX, nbY;   // α bins × D bins
+        private boolean        logD = true;            // y coordinate is log₁₀(D), else D
+        private String         yTitle = "D";
         private double         aMin, aMax, ldMin, ldMax;
         private String         countUnit = "frames";   // what one count is
         private boolean        immobileHidden;         // immobile data left out of the plot
@@ -508,7 +519,9 @@ public class SegDvsAlphaPanel extends JPanel {
 
         void setData(List<ExpHist2D> densities, int nbX, int nbY, double aMin, double aMax,
                      double ldMin, double ldMax,
-                     List<Marginal> marginals, String countUnit, boolean immobileHidden) {
+                     List<Marginal> marginals, String countUnit, boolean immobileHidden,
+                     boolean logD, String yTitle) {
+            this.logD = logD; this.yTitle = yTitle;
             this.densities = densities; this.nbX = nbX; this.nbY = nbY;
             this.aMin = aMin; this.aMax = aMax;
             this.ldMin = ldMin; this.ldMax = ldMax;
@@ -629,7 +642,8 @@ public class SegDvsAlphaPanel extends JPanel {
             if (!dragging && !panning && hoverPx >= px && hoverPx <= px + pw
                     && hoverPy >= py && hoverPy <= py + ph) {
                 double ax = pxToDataX(hoverPx), lyv = pxToDataY(hoverPy);
-                drawHoverTip(g2, String.format("α = %.3f   log₁₀(D) = %.3f", ax, lyv),
+                drawHoverTip(g2, String.format("α = %.3f   D = %s", ax,
+                                 PlotUtils.fmtTick(logD ? Math.pow(10, lyv) : lyv)),
                              hoverPx, hoverPy, W, H);
             }
 
@@ -868,7 +882,7 @@ public class SegDvsAlphaPanel extends JPanel {
 
         // ── Grid / ticks / titles ───────────────────────────────────────────
 
-        private static void drawGrid(Graphics2D g2, double xMin, double xMax,
+        private void drawGrid(Graphics2D g2, double xMin, double xMax,
                                      double yMin, double yMax,
                                      int px, int py, int pw, int ph) {
             g2.setColor(new Color(0, 0, 0, 40));
@@ -878,8 +892,7 @@ public class SegDvsAlphaPanel extends JPanel {
                 int xp = mapXPx(t, xMin, xMax, px, pw);
                 g2.drawLine(xp, py, xp, py + ph);
             }
-            double yStep = PlotUtils.niceStep(yMax - yMin, 5);
-            for (double t = Math.ceil(yMin / yStep) * yStep; t <= yMax + yStep * 0.01; t += yStep) {
+            for (double t : PlotUtils.axisTicks(yMin, yMax, logD, 5)) {
                 int yp = mapYPx(t, yMin, yMax, py, ph);
                 g2.drawLine(px, yp, px + pw, yp);
             }
@@ -900,27 +913,25 @@ public class SegDvsAlphaPanel extends JPanel {
             }
         }
 
-        private static void drawYTicks(Graphics2D g2, double yMin, double yMax,
-                                       int px, int py, int pw, int ph) {
+        private void drawYTicks(Graphics2D g2, double yMin, double yMax,
+                                int px, int py, int pw, int ph) {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             FontMetrics fm = g2.getFontMetrics();
-            double step = PlotUtils.niceStep(yMax - yMin, 5);
-            for (double t = Math.ceil(yMin / step) * step; t <= yMax + step * 0.01; t += step) {
+            for (double t : PlotUtils.axisTicks(yMin, yMax, logD, 5)) {
                 int yp = mapYPx(t, yMin, yMax, py, ph);
                 g2.drawLine(px - 4, yp, px, yp);
-                String lbl = PlotUtils.fmtTick(t, 0.01, 1000);
+                String lbl = PlotUtils.fmtTick(logD ? Math.pow(10, t) : t);
                 g2.drawString(lbl, px - 6 - fm.stringWidth(lbl), yp + fm.getAscent() / 2 - 1);
             }
         }
 
-        private static void drawAxisTitles(Graphics2D g2, int px, int py, int pw, int ph) {
+        private void drawAxisTitles(Graphics2D g2, int px, int py, int pw, int ph) {
             g2.setColor(Color.BLACK);
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             FontMetrics fm = g2.getFontMetrics();
             String xTitle = "α  (anomalous exponent)";
             g2.drawString(xTitle, px + (pw - fm.stringWidth(xTitle)) / 2, py + ph + MB - 8);
-            String yTitle = "log₁₀(D)";
             AffineTransform orig = g2.getTransform();
             g2.translate(12, py + ph / 2.0);
             g2.rotate(-Math.PI / 2);

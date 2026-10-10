@@ -19,7 +19,8 @@ import java.util.List;
  *       one outlined curve per experiment.</li>
  *   <li><b>Segment length vs α</b> – 2-D density heatmap, one point per segment
  *       (length, segment α), with a marginal KDE of α.</li>
- *   <li><b>Segment length vs D</b> – same, with the segment's log₁₀(D).</li>
+ *   <li><b>Segment length vs D</b> – same, with the segment's D in the display units, on a
+ *       log axis with log-spaced bins ("Log D axis", default) or a linear one.</li>
  * </ul>
  * The two heatmaps leave out immobile segments unless "Show immobile" is ticked; each
  * gives the number of segments and, below, how many are immobile.
@@ -38,12 +39,13 @@ public class SegStatsPanel extends JPanel {
     private final JSpinner   dBinsSpin     = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
     private final JCheckBox  logCountBox   = new JCheckBox("Log count scale", true);
     private final ImmobileBox immobileBox  = new ImmobileBox();
+    private final JCheckBox  logDBox       = new JCheckBox("Log D axis", true);
 
     private static final int NEVAL = 100;   // marginal-KDE grid resolution
 
     private final Hist1D  lengthHist = new Hist1D();
     private final Heat2D  timeAlpha  = new Heat2D("Segment length", "α",         true);
-    private final Heat2D  timeD      = new Heat2D("Segment length", "log₁₀(D)",  false);
+    private final Heat2D  timeD      = new Heat2D("Segment length", "D",         false);
     /** The three plots together — what "Save plot" exports. */
     private JComponent plotArea;
 
@@ -88,6 +90,7 @@ public class SegStatsPanel extends JPanel {
         alphaBinsSpin.addChangeListener(e -> rebuild());
         dBinsSpin.addChangeListener(e -> rebuild());
         immobileBox.addActionListener(e -> rebuild());
+        logDBox.addActionListener(e -> { timeD.resetViewport(); rebuild(); });
         logCountBox.addActionListener(e -> {
             timeAlpha.logScale = logCountBox.isSelected();
             timeD.logScale     = logCountBox.isSelected();
@@ -118,7 +121,8 @@ public class SegStatsPanel extends JPanel {
 
         lenBinsSpin.setToolTipText("Number of segment-length bins (length histogram + heatmap x-axis)");
         alphaBinsSpin.setToolTipText("Number of α bins (α heatmap y-axis)");
-        dBinsSpin.setToolTipText("Number of log₁₀(D) bins (D heatmap y-axis)");
+        dBinsSpin.setToolTipText("Number of D bins (D heatmap y-axis)");
+        logDBox.setToolTipText("Logarithmic D axis, with log-spaced bins");
         immobileBox.setToolTipText("Include the immobile segments in the α and D plots");
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
@@ -129,6 +133,7 @@ public class SegStatsPanel extends JPanel {
         bar.add(alphaBinsSpin);
         bar.add(new JLabel("D bins:"));
         bar.add(dBinsSpin);
+        bar.add(logDBox);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(logCountBox);
         bar.add(immobileBox);
@@ -203,8 +208,9 @@ public class SegStatsPanel extends JPanel {
                 sel.add(exp);
 
         // ── gather ──────────────────────────────────────────────────────
-        // Segment lengths are counted in frames and shown in the display time unit;
-        // log₁₀(D) is shifted to the display units.
+        // Segment lengths are counted in frames and shown in the display time unit. The D
+        // coordinate (ld*) is log₁₀(D) on a log axis and D on a linear one, in display units.
+        boolean logD = logDBox.isSelected();
         int maxLen = 1, maxTime = 1;
         double tMin = Double.MAX_VALUE, tMax = 0;
         double ldMin = Double.MAX_VALUE, ldMax = -Double.MAX_VALUE;
@@ -217,8 +223,9 @@ public class SegStatsPanel extends JPanel {
                     maxLen  = Math.max(maxLen, s.length);
                     maxTime = Math.max(maxTime, s.start + s.length - 1);
                     if (Double.isFinite(s.logD) && (s.state != 0 || immobileBox.isSelected())) {
-                        ldMin = Math.min(ldMin, s.logD + off);
-                        ldMax = Math.max(ldMax, s.logD + off);
+                        double d = logD ? s.logD + off : Math.pow(10, s.logD + off);
+                        ldMin = Math.min(ldMin, d);
+                        ldMax = Math.max(ldMax, d);
                     }
                 }
             }
@@ -228,6 +235,7 @@ public class SegStatsPanel extends JPanel {
         double lRng = ldMax - ldMin;
         if (lRng < 1e-6) { ldMin -= 0.5; ldMax += 0.5; lRng = 1; }
         ldMin -= 0.03 * lRng; ldMax += 0.03 * lRng;
+        if (!logD) ldMin = Math.max(0, ldMin);
 
         final double aMin = 0.0, aMax = 2.0;
 
@@ -250,6 +258,8 @@ public class SegStatsPanel extends JPanel {
         lengthHist.setData(lenMin, lenMax, lenBins, lenCounts, lenColors, lenNames);
         timeAlpha.setXUnit(units.timeAxisLabel());
         timeD.setXUnit(units.timeAxisLabel());
+        timeD.setYUnit(units.diffusionLabel());
+        timeD.setLogY(logD);
 
         // ── length-vs-α and length-vs-D 2-D histograms (overlaid per exp) ──
         // One point per segment: x = segment length, y = segment mean.
@@ -281,9 +291,10 @@ public class SegStatsPanel extends JPanel {
                         totA++; aVals.add(s.alpha);
                     }
                     if (Double.isFinite(s.logD)) {
-                        int li = bin(s.logD + off, ldMin, ldMax, dBins);
+                        double d = logD ? s.logD + off : Math.pow(10, s.logD + off);
+                        int li = bin(d, ldMin, ldMax, dBins);
                         if (++hD[xi][li] > maxD) maxD = hD[xi][li];
-                        totD++; dVals.add(s.logD + off);
+                        totD++; dVals.add(d);
                     }
                 }
             }
@@ -632,6 +643,10 @@ public class SegStatsPanel extends JPanel {
         private final String  xLabel, yLabel;
         /** Unit appended to the x-axis label, e.g. {@code s}; null for none. */
         private String xUnit;
+        /** Unit appended to the y-axis label (D plot); null for none. */
+        private String yUnit;
+        /** The y coordinate is log₁₀ of the plotted quantity (ticks labelled 10ⁿ). */
+        private boolean logY;
         private final boolean leftMarginal;     // KDE strip on the left (else right)
 
         private List<ExpHist2D> densities = java.util.Collections.emptyList();
@@ -654,6 +669,8 @@ public class SegStatsPanel extends JPanel {
         private int hoverPx = -1, hoverPy = -1;
 
         void setXUnit(String u) { this.xUnit = u; }
+        void setYUnit(String u) { this.yUnit = u; }
+        void setLogY(boolean on) { this.logY = on; }
         void setNote(String n) { this.note = n; }
 
         Heat2D(String xLabel, String yLabel, boolean leftMarginal) {
@@ -853,7 +870,9 @@ public class SegStatsPanel extends JPanel {
             if (!dragging && !panning && hoverPx >= px && hoverPx <= px + pw
                     && hoverPy >= py && hoverPy <= py + ph) {
                 double dx = pxToDataX(hoverPx), dy = pxToDataY(hoverPy);
-                String tip = String.format("len = %d   %s = %.3f", Math.round(dx), yLabel, dy);
+                String yv = yUnit == null ? String.format("%.3f", dy)
+                          : PlotUtils.fmtTick(logY ? Math.pow(10, dy) : dy);
+                String tip = String.format("len = %d   %s = %s", Math.round(dx), yLabel, yv);
                 drawHoverTip(g2, tip, hoverPx, hoverPy, W, H);
             }
 
@@ -951,8 +970,7 @@ public class SegStatsPanel extends JPanel {
                 int xp = mapXpix(t, px, pw);
                 g2.drawLine(xp, py, xp, py + ph);
             }
-            double yStep = PlotUtils.niceStep(dvYMax - dvYMin, 5);
-            for (double t = Math.ceil(dvYMin / yStep) * yStep; t <= dvYMax + yStep * 0.01; t += yStep) {
+            for (double t : PlotUtils.axisTicks(dvYMin, dvYMax, logY, 5)) {
                 int yp = mapYpix(t, py, ph);
                 g2.drawLine(px, yp, px + pw, yp);
             }
@@ -969,11 +987,11 @@ public class SegStatsPanel extends JPanel {
                 String lbl = PlotUtils.fmtTick(t, 0.01, 10000);
                 g2.drawString(lbl, xp - fm.stringWidth(lbl) / 2, py + ph + 15);
             }
-            double yStep = PlotUtils.niceStep(dvYMax - dvYMin, 5);
-            for (double t = Math.ceil(dvYMin / yStep) * yStep; t <= dvYMax + yStep * 0.01; t += yStep) {
+            for (double t : PlotUtils.axisTicks(dvYMin, dvYMax, logY, 5)) {
                 int yp = mapYpix(t, py, ph);
                 g2.drawLine(px - 4, yp, px, yp);
-                String lbl = PlotUtils.fmtTick(t, 0.01, 10000);
+                String lbl = yUnit == null ? PlotUtils.fmtTick(t, 0.01, 10000)
+                           : PlotUtils.fmtTick(logY ? Math.pow(10, t) : t);
                 g2.drawString(lbl, px - 6 - fm.stringWidth(lbl), yp + fm.getAscent() / 2 - 1);
             }
         }
@@ -986,7 +1004,8 @@ public class SegStatsPanel extends JPanel {
             AffineTransform orig = g2.getTransform();
             int yTitleX = leftMarginal ? (MARGW + GAP + 12) : 12;
             g2.translate(yTitleX, py + ph / 2.0); g2.rotate(-Math.PI / 2);
-            g2.drawString(yLabel, -fm.stringWidth(yLabel) / 2, fm.getAscent() / 2);
+            String yl = yUnit == null ? yLabel : yLabel + " (" + yUnit + ")";
+            g2.drawString(yl, -fm.stringWidth(yl) / 2, fm.getAscent() / 2);
             g2.setTransform(orig);
         }
 

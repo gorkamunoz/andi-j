@@ -792,26 +792,7 @@ public class DiffusionCoeffPanel extends JPanel {
          * range spans few decades.
          */
         private double[] xTicks(double xMin, double xMax) {
-            List<Double> t = new ArrayList<>();
-            if (!logX) {
-                double step = PlotUtils.niceStep(xMax - xMin, 6);
-                for (double v = Math.ceil(xMin / step) * step; v <= xMax + step * 0.01; v += step)
-                    t.add(v);
-            } else {
-                double decades = xMax - xMin;
-                double[] mults = decades <= 2 ? new double[]{1, 2, 5} : new double[]{1};
-                int every = decades > 8 ? (int) Math.ceil(decades / 6) : 1;
-                for (int k = (int) Math.floor(xMin); k <= (int) Math.ceil(xMax); k++) {
-                    if (Math.floorMod(k, every) != 0) continue;
-                    for (double m : mults) {
-                        double u = k + Math.log10(m);
-                        if (u >= xMin - 1e-9 && u <= xMax + 1e-9) t.add(u);
-                    }
-                }
-            }
-            double[] r = new double[t.size()];
-            for (int i = 0; i < r.length; i++) r[i] = t.get(i);
-            return r;
+            return PlotUtils.axisTicks(xMin, xMax, logX, 6);
         }
 
         private static void drawLinearGrid(Graphics2D g2, double[] xTicks,

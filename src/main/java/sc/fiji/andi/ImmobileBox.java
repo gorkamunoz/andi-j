@@ -12,8 +12,9 @@ import java.util.WeakHashMap;
  *
  * <p>While immobile data is hidden (box unticked and the plot has immobile segments)
  * the box has a soft amber highlight. Each time the box comes into view or the plot
- * updates, it pulses for a few cycles, then stays steady. Once the user ticks any of
- * these boxes, none of them is highlighted again for the rest of the Fiji session.</p>
+ * updates, it pulses for a few cycles, then stays steady. Once the user ticks one of
+ * these boxes, none of the boxes of that window is highlighted again. Each Perform
+ * Analysis opens a new window, so the highlight starts over.</p>
  */
 final class ImmobileBox extends JCheckBox {
 
@@ -24,8 +25,9 @@ final class ImmobileBox extends JCheckBox {
     private static final int   ALPHA_STEADY = 45;
     private static final Color GLOW        = new Color(255, 170, 0);
 
-    /** Set once any box is ticked; removes the highlight everywhere for the session. */
-    private static boolean ticked;
+    /** Windows in which a box has been ticked: their boxes are no longer highlighted. */
+    private static final Set<Window> TICKED =
+            Collections.newSetFromMap(new WeakHashMap<Window, Boolean>());
     private static final Set<ImmobileBox> BOXES =
             Collections.newSetFromMap(new WeakHashMap<ImmobileBox, Boolean>());
 
@@ -39,9 +41,11 @@ final class ImmobileBox extends JCheckBox {
         setToolTipText("Include the immobile segments (or their frames) in the plot");
         BOXES.add(this);
         addActionListener(e -> {
-            if (isSelected()) {
-                ticked = true;
-                for (ImmobileBox b : BOXES) { b.timer.stop(); b.repaint(); }
+            Window window = SwingUtilities.getWindowAncestor(this);
+            if (isSelected() && window != null) {
+                TICKED.add(window);
+                for (ImmobileBox b : BOXES)
+                    if (SwingUtilities.getWindowAncestor(b) == window) { b.timer.stop(); b.repaint(); }
             }
             repaint();
         });
@@ -59,7 +63,9 @@ final class ImmobileBox extends JCheckBox {
         repaint();
     }
 
-    private boolean highlighted() { return present && !isSelected() && !ticked; }
+    private boolean highlighted() {
+        return present && !isSelected() && !TICKED.contains(SwingUtilities.getWindowAncestor(this));
+    }
 
     private void pulse() {
         if (highlighted()) {

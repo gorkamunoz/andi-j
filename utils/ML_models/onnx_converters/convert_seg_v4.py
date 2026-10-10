@@ -41,8 +41,9 @@ What the graph does
   5. Segments: per segment, the median of each per-frame channel; seg_alpha blends
      the two alpha medians as in step 3, seg_logD is clipped to [-12, 6] and
      seg_state is the argmax of the median state probabilities (directed when
-     seg_alpha > 1.9). Immobile segments get seg_alpha = 0; the per-frame alpha is
-     left as predicted.
+     seg_alpha > 1.9).
+  6. Immobile segments have alpha = 0: seg_alpha, and the per-frame alpha of every frame
+     of the segment. log(D) and the per-frame diffusive state are left as predicted.
 
 The batch axis is fixed at 1 (the plugin runs one trajectory per call), so there is no
 batched-vs-single check; trajectories run in parallel instead.
@@ -177,8 +178,11 @@ class AndiJSegmentationModel(nn.Module):
         seg_log_d = (median[2] / torch.log(torch.tensor(10.0))).clamp(-12.0, 6.0)
         seg_state = median[3:7].argmax(dim=0)
         seg_state = torch.where(seg_alpha > 1.9, torch.full_like(seg_state, 3), seg_state)
-        # Immobile segments have alpha = 0 (the 2nd AnDi Challenge labels them so).
+        # Immobile segments have alpha = 0 (the 2nd AnDi Challenge labels them so), for
+        # the segment and for each of its frames.
         seg_alpha = torch.where(seg_state == 0, torch.zeros_like(seg_alpha), seg_alpha)
+        frame_state = torch.gather(seg_state, 0, belongs_to[0].to(torch.int64)).unsqueeze(0)
+        alpha = torch.where(frame_state == 0, torch.zeros_like(alpha), alpha)
 
         return (alpha, log_d, cp, diffusive_state,
                 seg_start.to(torch.int64).unsqueeze(0), seg_length.to(torch.int64).unsqueeze(0),
@@ -239,6 +243,18 @@ def verify(model, session):
         print(f'   {label:9s}: max|Δ| = {drift:.1e}')
         if drift > 1e-3:
             failures.append(f'{label}: prediction changes by {drift:.2e}')
+
+    # Immobile rule: a particle that barely moves for its first half, then diffuses.
+    steps = np.random.randn(1, 300, 2) * np.where(np.arange(300) < 150, 0.001, 1.0)[None, :, None]
+    out = session.run(None, {'input': np.cumsum(steps, axis=1).astype('float32')})
+    start, length, seg_alpha, seg_state = out[4][0], out[5][0], out[6][0], out[8][0]
+    immobile = [i for i in np.flatnonzero(length > 0) if seg_state[i] == 0]
+    frames = [t for i in immobile for t in range(start[i], start[i] + length[i])]
+    print(f'   immobile rule: {len(immobile)} immobile segment(s), {len(frames)} frames')
+    if not immobile:
+        failures.append('immobile rule: no immobile segment on a static trajectory')
+    if np.any(seg_alpha[immobile] != 0.0) or np.any(out[0][0][frames] != 0.0):
+        failures.append('immobile rule: alpha is not 0 inside an immobile segment')
 
     for length in (20, 200, 1000):
         x = np.cumsum(np.random.randn(1, length, 2), axis=1).astype('float32')

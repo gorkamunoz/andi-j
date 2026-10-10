@@ -7,7 +7,7 @@ result folder (submissions, per-experiment scores, references) and `andi_dataset
     conda run -n andi python build_segmentation_data.py [--source /path/to/challenge_phase/]
 
 Everything is Task 1 (single trajectory) of track 2 (trajectories), which is what AnDi-J's
-Segmentation Analysis tab does. The AnDi-J default model is the `model_v3` submission and is
+Segmentation Analysis tab does. The AnDi-J default model is the `model_v4` submission and is
 treated as one more entry, ranked together with the challenge teams.
 """
 
@@ -27,7 +27,7 @@ OUT = pathlib.Path(__file__).parent / 'data' / 'segmentation'
 
 TRACK = 2          # trajectories
 NUM_FOVS = 30
-ANDIJ = 'model_v3'            # submission folder / score file of the AnDi-J default model
+ANDIJ = 'model_v4'            # submission folder / score file of the AnDi-J default model
 ANDIJ_NAME = 'AnDi-J default'
 
 # Experiments kept in the analysis (0, 1 and 5 failed) in the order used in the paper figures:

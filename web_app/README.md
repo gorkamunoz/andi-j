@@ -90,7 +90,7 @@ experiment scores and references of the challenge phase) with `andi_datasets` in
 `--only truth` rebuilds just the ground truth the Submit page needs.
 It also reads `assets/df_single_state.csv` (per-team scores on the single state experiment) and takes about five minutes, most of it rescoring the submissions by number of
 changepoints. `--only leaderboard per_experiment single_state` rebuilds just the light files.
-The AnDi-J default model is the `model_v3` submission and is ranked together with the
+The AnDi-J default model is the `model_v4` submission and is ranked together with the
 participants; the five best challenge teams are the ones shown in the panels that only keep the top
 performers.
 

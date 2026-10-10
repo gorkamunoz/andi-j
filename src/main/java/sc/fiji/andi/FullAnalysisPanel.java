@@ -36,6 +36,11 @@ import javax.swing.filechooser.FileNameExtensionFilter;
  *
  * <p>Marginal KDE strips along the top (α) and right (D) edges track zoom/pan
  * and are recomputed every repaint, so tagged populations appear automatically.</p>
+ *
+ * <h3>Density view</h3>
+ * The dropdown at the start of the toolbar switches between the scatter and a
+ * density heatmap of the same points ({@link DvsAlphaDensity}), with bin counts and
+ * a log count scale. Selection and tagging are only available in the scatter.
  */
 public class FullAnalysisPanel extends JPanel {
 
@@ -51,7 +56,14 @@ public class FullAnalysisPanel extends JPanel {
     /** Sink that receives each new population as an ExperimentData (Angles + Diffusion tabs). */
     private final Consumer<ExperimentData> populationSink;
 
+    private final Units        units;
     private final ScatterPanel scatterPanel;
+    private final DvsAlphaDensity.DensityCanvas densityCanvas = new DvsAlphaDensity.DensityCanvas();
+    private final JComboBox<String> viewBox = new JComboBox<>(new String[]{"Scatter", "Density"});
+    private final JSpinner   alphaBinsSpin = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
+    private final JSpinner   dBinsSpin     = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
+    private final JCheckBox  logCountBox   = new JCheckBox("Log count scale", true);
+    private final JCheckBox  logYBox       = new JCheckBox("Log D axis", true);
     private final JTextField   tagField;
     private final JLabel       selStatus;
     private final PopulationTableModel populationModel = new PopulationTableModel();
@@ -65,6 +77,7 @@ public class FullAnalysisPanel extends JPanel {
         super(new BorderLayout(0, 4));
         this.experiments    = experiments;
         this.populationSink = populationSink;
+        this.units          = units;
         setBorder(new EmptyBorder(6, 6, 6, 6));
 
         for (ExperimentData exp : experiments) {
@@ -86,7 +99,7 @@ public class FullAnalysisPanel extends JPanel {
         scatterPanel = new ScatterPanel(experiments, componentSelection, populations, units);
         units.addListener(() -> {
             scatterPanel.clearPending(); updateSelStatus();
-            scatterPanel.resetViewport(); scatterPanel.repaint();
+            resetViews(); refreshPlot();
         });
         scatterPanel.setSelectionListener(this::updateSelStatus);
 
@@ -95,31 +108,59 @@ public class FullAnalysisPanel extends JPanel {
         JToggleButton panBtn       = new JToggleButton("✥ Pan",   false);
         JToggleButton selectBtn    = new JToggleButton("◌ Select", false);
         JButton       resetViewBtn = new JButton("↺ Reset view");
-        JCheckBox     logYBox      = new JCheckBox("Log D axis", true);
         ButtonGroup   bg           = new ButtonGroup();
         bg.add(zoomBtn); bg.add(panBtn); bg.add(selectBtn);
         for (AbstractButton b : new AbstractButton[]{zoomBtn, panBtn, selectBtn, resetViewBtn, logYBox}) {
             b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
             b.setFocusPainted(false);
         }
+        viewBox.setToolTipText("Scatter: one point per trajectory, with selection and tagging. "
+            + "Density: 2-D histogram of the same points");
+        alphaBinsSpin.setToolTipText("Number of α bins (histogram + heatmap x-axis)");
+        dBinsSpin.setToolTipText("Number of D bins (histogram + heatmap y-axis)");
+        JLabel alphaBinsLbl = new JLabel("α bins:"), dBinsLbl = new JLabel("D bins:");
+        for (JComponent c : new JComponent[]{viewBox, alphaBinsLbl, alphaBinsSpin, dBinsLbl, dBinsSpin, logCountBox})
+            c.setFont(c.getFont().deriveFont(Font.PLAIN, 11f));
+        logCountBox.setFocusPainted(false);
+        JComponent[] scatterOnly = {selectBtn};
+        JComponent[] densityOnly = {alphaBinsLbl, alphaBinsSpin, dBinsLbl, dBinsSpin, logCountBox};
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        toolbar.add(zoomBtn); toolbar.add(panBtn); toolbar.add(selectBtn);
-        toolbar.add(resetViewBtn);
+        toolbar.add(viewBox);
+        toolbar.add(Box.createHorizontalStrut(6));
+        toolbar.add(zoomBtn); toolbar.add(panBtn); toolbar.add(resetViewBtn);
+        toolbar.add(selectBtn);
+        for (JComponent c : densityOnly) toolbar.add(c);
         toolbar.add(Box.createHorizontalStrut(12));
         toolbar.add(logYBox);
         toolbar.add(Box.createHorizontalStrut(8));
         toolbar.add(units.button());
 
-        zoomBtn  .addActionListener(e -> { scatterPanel.setPanMode(false); scatterPanel.setSelectMode(false); });
-        panBtn   .addActionListener(e -> scatterPanel.setPanMode(true));
+        zoomBtn  .addActionListener(e -> {
+            scatterPanel.setPanMode(false); scatterPanel.setSelectMode(false);
+            densityCanvas.setPanMode(false);
+        });
+        panBtn   .addActionListener(e -> { scatterPanel.setPanMode(true); densityCanvas.setPanMode(true); });
         selectBtn.addActionListener(e -> scatterPanel.setSelectMode(true));
-        resetViewBtn.addActionListener(e -> { scatterPanel.resetViewport(); scatterPanel.repaint(); });
-        logYBox  .addActionListener(e -> { scatterPanel.setLogY(logYBox.isSelected()); scatterPanel.repaint(); });
+        resetViewBtn.addActionListener(e -> { resetViews(); refreshPlot(); });
+        logYBox  .addActionListener(e -> {
+            scatterPanel.setLogY(logYBox.isSelected()); densityCanvas.resetViewport(); refreshPlot();
+        });
+        alphaBinsSpin.addChangeListener(e -> refreshPlot());
+        dBinsSpin.addChangeListener(e -> refreshPlot());
+        logCountBox.addActionListener(e -> {
+            densityCanvas.logScale = logCountBox.isSelected(); densityCanvas.repaint();
+        });
+
+        // Scatter and density share the centre; the dropdown picks one.
+        CardLayout views = new CardLayout();
+        JPanel viewCards = new JPanel(views);
+        viewCards.add(scatterPanel, "Scatter");
+        viewCards.add(densityCanvas, "Density");
 
         JPanel centerArea = new JPanel(new BorderLayout(0, 2));
-        toolbar.add(SvgExport.button(() -> scatterPanel, "d_vs_alpha"));
+        toolbar.add(SvgExport.button(() -> density() ? densityCanvas : scatterPanel, "d_vs_alpha"));
         centerArea.add(Toolbars.makeScrollable(toolbar), BorderLayout.NORTH);
-        centerArea.add(scatterPanel, BorderLayout.CENTER);
+        centerArea.add(viewCards, BorderLayout.CENTER);
 
         // ── left experiment selector ──────────────────────────────────────
         JScrollPane leftScroll = new JScrollPane(buildExperimentsPanel());
@@ -150,6 +191,22 @@ public class FullAnalysisPanel extends JPanel {
         mainArea.add(split,  BorderLayout.CENTER);
         mainArea.add(tagRow, BorderLayout.SOUTH);
 
+        viewBox.addActionListener(e -> {
+            boolean dens = density();
+            if (dens && selectBtn.isSelected()) zoomBtn.doClick();   // no selection in the density
+            for (JComponent c : scatterOnly) c.setVisible(!dens);
+            for (JComponent c : densityOnly) c.setVisible(dens);
+            tagRow.setVisible(!dens);
+            views.show(viewCards, dens ? "Density" : "Scatter");
+            refreshPlot();
+        });
+        for (JComponent c : densityOnly) c.setVisible(false);
+        // D and α are recomputed in other tabs: refresh the density when this tab is shown.
+        densityCanvas.addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0
+                    && densityCanvas.isShowing()) refreshPlot();
+        });
+
         // ── collapsible population-management table (hidden until first tag) ─
         JTable popTable = buildPopulationTable();
         JScrollPane tableScroll = new JScrollPane(popTable);
@@ -176,6 +233,20 @@ public class FullAnalysisPanel extends JPanel {
 
         if (experiments.stream().anyMatch(exp -> exp.hasD() && exp.hasAlpha()))
             scatterPanel.repaint();
+    }
+
+    private boolean density() { return viewBox.getSelectedIndex() == 1; }
+
+    private void resetViews() { scatterPanel.resetViewport(); densityCanvas.resetViewport(); }
+
+    /** Redraws the current view: the scatter, or the density rebuilt from the scatter's points. */
+    private void refreshPlot() {
+        if (!density()) { scatterPanel.repaint(); return; }
+        boolean logD = logYBox.isSelected();
+        DvsAlphaDensity.show(densityCanvas, scatterPanel.densitySeries(), (Integer) alphaBinsSpin.getValue(),
+                             (Integer) dBinsSpin.getValue(), logD,
+                             "D  (" + units.diffusionLabel() + ")", "trajectories", false,
+                             logCountBox.isSelected());
     }
 
     /** Collapse the population table (divider to the very bottom). */
@@ -218,7 +289,7 @@ public class FullAnalysisPanel extends JPanel {
                 if (c != null) {
                     p.color = c;
                     populationModel.fireTableRowsUpdated(row, row);
-                    scatterPanel.repaint();
+                    refreshPlot();
                 }
             }
         });
@@ -414,7 +485,7 @@ public class FullAnalysisPanel extends JPanel {
         scatterPanel.clearPending();
         tagField.setText("");
         updateSelStatus();
-        scatterPanel.repaint();
+        refreshPlot();
 
         if (populationSink != null)
             populationSink.accept(buildPopulationDataset(pop));
@@ -470,8 +541,8 @@ public class FullAnalysisPanel extends JPanel {
         deselectAll.addActionListener(e -> {
             for (ExperimentData exp : experiments) componentSelection.get(exp).clear();
             for (JToggleButton btn : allCompButtons) btn.setSelected(false);
-            scatterPanel.resetViewport();
-            scatterPanel.repaint();
+            resetViews();
+            refreshPlot();
         });
         panel.add(deselectAll);
         panel.add(Box.createVerticalStrut(6));
@@ -506,9 +577,9 @@ public class FullAnalysisPanel extends JPanel {
         styleToggle(btn2D); styleToggle(btnX); styleToggle(btnY);
 
         Set<Integer> sel = componentSelection.get(exp);
-        btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); scatterPanel.resetViewport(); scatterPanel.repaint(); });
-        btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); scatterPanel.resetViewport(); scatterPanel.repaint(); });
-        btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); scatterPanel.resetViewport(); scatterPanel.repaint(); });
+        btn2D.addActionListener(e -> { if (btn2D.isSelected()) sel.add(0); else sel.remove(0); resetViews(); refreshPlot(); });
+        btnX .addActionListener(e -> { if (btnX .isSelected()) sel.add(1); else sel.remove(1); resetViews(); refreshPlot(); });
+        btnY .addActionListener(e -> { if (btnY .isSelected()) sel.add(2); else sel.remove(2); resetViews(); refreshPlot(); });
         allCompButtons.add(btn2D); allCompButtons.add(btnX); allCompButtons.add(btnY);
 
         JPanel compRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
@@ -847,6 +918,20 @@ public class FullAnalysisPanel extends JPanel {
                 }
             }
             return seriesList;
+        }
+
+        /** The plotted points as density series (D as log₁₀(D) on a log axis). */
+        List<DvsAlphaDensity.Series> densitySeries() {
+            List<DvsAlphaDensity.Series> out = new ArrayList<>();
+            for (Series s : buildSeries()) {
+                double[] a = new double[s.pts.size()], d = new double[s.pts.size()];
+                for (int i = 0; i < a.length; i++) {
+                    a[i] = s.pts.get(i)[0];
+                    d[i] = logY ? Math.log10(s.pts.get(i)[1]) : s.pts.get(i)[1];
+                }
+                out.add(new DvsAlphaDensity.Series(s.color, a, d, a.length, 0));
+            }
+            return out;
         }
 
         private void addPoint(Series s, ExperimentData exp, int id, int comp) {

@@ -681,13 +681,12 @@ public class FullAnalysisPanel extends JPanel {
         private static class Series {
             final ExperimentData parentExp;  // underlying experiment (selection + lookup)
             final Object         groupKey;   // exp (untagged) or Population (tagged)
-            final String         label;      // legend
             final int            comp;
             final Color          color;
             final List<double[]> pts = new ArrayList<>(); // {alpha, D, id}
-            Series(ExperimentData parentExp, Object groupKey, String label, int comp, Color color) {
+            Series(ExperimentData parentExp, Object groupKey, int comp, Color color) {
                 this.parentExp = parentExp; this.groupKey = groupKey;
-                this.label = label; this.comp = comp; this.color = color;
+                this.comp = comp; this.color = color;
             }
         }
 
@@ -895,7 +894,7 @@ public class FullAnalysisPanel extends JPanel {
                 if (!exp.hasD() || !exp.hasAlpha()) continue;
                 Set<Integer> tagged = taggedIds(exp);
                 for (int comp : componentSel.getOrDefault(exp, Collections.emptySet())) {
-                    Series s = new Series(exp, exp, exp.name, comp, compColor(exp.color, comp));
+                    Series s = new Series(exp, exp, comp, compColor(exp.color, comp));
                     for (Integer id : exp.dCoeffs.keySet()) {
                         if (tagged.contains(id)) continue;
                         addPoint(s, exp, id, comp);
@@ -910,7 +909,7 @@ public class FullAnalysisPanel extends JPanel {
                     ExperimentData exp = me.getKey();
                     if (!exp.hasD() || !exp.hasAlpha()) continue;
                     for (int comp : componentSel.getOrDefault(exp, Collections.emptySet())) {
-                        Series s = new Series(exp, pop, pop.tag, comp, compColor(pop.color, comp));
+                        Series s = new Series(exp, pop, comp, compColor(pop.color, comp));
                         for (Integer id : me.getValue())
                             addPoint(s, exp, id, comp);
                         if (!s.pts.isEmpty()) seriesList.add(s);
@@ -1331,14 +1330,15 @@ public class FullAnalysisPanel extends JPanel {
 
         // ── Legend ────────────────────────────────────────────────────────
 
-        private static final String[] COMP_LABELS = {"2D", "X", "Y"};
-
         /** One legend entry per (group, component) — so a multi-dataset population shows once. */
         private static class LegendEntry {
-            final String label; final int comp; final Color color; int count;
-            LegendEntry(String label, int comp, Color color) {
-                this.label = label; this.comp = comp; this.color = color;
-            }
+            final Color color; int count;
+            LegendEntry(Color color) { this.color = color; }
+        }
+
+        /** Legend row: the number of trajectories (the colour identifies the series). */
+        private static String legendText(LegendEntry le) {
+            return String.format("%,d trajectories", le.count);
         }
 
         private void drawLegend(Graphics2D g2, List<Series> seriesList,
@@ -1351,7 +1351,7 @@ public class FullAnalysisPanel extends JPanel {
             for (Series s : seriesList) {
                 List<Object> key = Arrays.asList(s.groupKey, s.comp);
                 LegendEntry le = agg.get(key);
-                if (le == null) { le = new LegendEntry(s.label, s.comp, s.color); agg.put(key, le); }
+                if (le == null) { le = new LegendEntry(s.color); agg.put(key, le); }
                 le.count += s.pts.size();
             }
             List<LegendEntry> entries = new ArrayList<>(agg.values());
@@ -1361,8 +1361,7 @@ public class FullAnalysisPanel extends JPanel {
             int lineH = 18, pad = 6;
             int maxW = 0;
             for (LegendEntry le : entries) {
-                String lbl = le.label + " (" + COMP_LABELS[le.comp] + ", " + le.count + ")";
-                maxW = Math.max(maxW, fm.stringWidth(lbl));
+                maxW = Math.max(maxW, fm.stringWidth(legendText(le)));
             }
             int boxW = maxW + 28 + pad*2, boxH = entries.size()*lineH + pad*2;
             // Default top-right, or the user-dragged position (clamped to the plot).
@@ -1387,8 +1386,7 @@ public class FullAnalysisPanel extends JPanel {
                 g2.drawOval(lx+pad, ry-9, 12, 12);
                 g2.setColor(Color.BLACK);
                 g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
-                g2.drawString(le.label + " (" + COMP_LABELS[le.comp] + ", " + le.count + ")",
-                              lx+pad+18, ry);
+                g2.drawString(legendText(le), lx+pad+18, ry);
             }
             g2.setStroke(new BasicStroke(1f));
         }

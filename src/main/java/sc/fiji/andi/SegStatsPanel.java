@@ -18,7 +18,8 @@ import java.util.List;
  *   <li><b>Segment-length histogram</b> – 1-D distribution of segment durations,
  *       one outlined curve per experiment.</li>
  *   <li><b>Segment length vs α</b> – 2-D density heatmap, one point per segment
- *       (length, segment α), with a marginal KDE of α.</li>
+ *       (length, segment α), with a marginal KDE of α. Immobile segments are left
+ *       out unless "Show immobile" is ticked; the plot gives how many are hidden.</li>
  *   <li><b>Segment length vs D</b> – same, with the segment's log₁₀(D).</li>
  * </ul>
  * The two heatmaps follow the same style as the "D vs α" tab.
@@ -35,6 +36,7 @@ public class SegStatsPanel extends JPanel {
     private final JSpinner   alphaBinsSpin = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
     private final JSpinner   dBinsSpin     = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
     private final JCheckBox  logCountBox   = new JCheckBox("Log count scale", true);
+    private final JCheckBox  immobileBox   = new JCheckBox("Show immobile", false);
 
     private static final int NEVAL = 100;   // marginal-KDE grid resolution
 
@@ -84,6 +86,7 @@ public class SegStatsPanel extends JPanel {
         lenBinsSpin.addChangeListener(e -> rebuild());
         alphaBinsSpin.addChangeListener(e -> rebuild());
         dBinsSpin.addChangeListener(e -> rebuild());
+        immobileBox.addActionListener(e -> rebuild());
         logCountBox.addActionListener(e -> {
             timeAlpha.logScale = logCountBox.isSelected();
             timeD.logScale     = logCountBox.isSelected();
@@ -115,6 +118,7 @@ public class SegStatsPanel extends JPanel {
         lenBinsSpin.setToolTipText("Number of segment-length bins (length histogram + heatmap x-axis)");
         alphaBinsSpin.setToolTipText("Number of α bins (α heatmap y-axis)");
         dBinsSpin.setToolTipText("Number of log₁₀(D) bins (D heatmap y-axis)");
+        immobileBox.setToolTipText("Include the immobile segments in the α plot");
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
@@ -126,6 +130,7 @@ public class SegStatsPanel extends JPanel {
         bar.add(dBinsSpin);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(logCountBox);
+        bar.add(immobileBox);
         bar.add(Box.createHorizontalStrut(6));
         bar.add(refreshBtn);
         bar.add(Box.createHorizontalStrut(12));
@@ -248,7 +253,8 @@ public class SegStatsPanel extends JPanel {
         // ── length-vs-α and length-vs-D 2-D histograms (overlaid per exp) ──
         // One point per segment: x = segment length, y = segment mean.
         // Shares the x-axis (segment length) with the histogram above.
-        int totA = 0, totD = 0;
+        int totA = 0, totD = 0, hiddenA = 0;
+        boolean showImmobile = immobileBox.isSelected();
         List<ExpHist2D> densA = new ArrayList<>(), densD = new ArrayList<>();
         // Per-experiment y-marginal KDEs (α for the left plot, D for the right)
         List<double[]> kdeA = new ArrayList<>(), kdeD = new ArrayList<>();
@@ -264,7 +270,9 @@ public class SegStatsPanel extends JPanel {
             for (List<Segment> segs : exp.segments.values()) {
                 for (Segment s : segs) {
                     int xi = bin(s.length * units.time(exp), lenMin, lenMax, lenBins);
-                    if (Double.isFinite(s.alpha)) {
+                    if (Double.isFinite(s.alpha) && !showImmobile && s.state == 0) {
+                        hiddenA++;
+                    } else if (Double.isFinite(s.alpha)) {
                         int ai = bin(s.alpha, aMin, aMax, alphaBins);
                         if (++hA[xi][ai] > maxA) maxA = hA[xi][ai];
                         totA++; aVals.add(s.alpha);
@@ -284,6 +292,7 @@ public class SegStatsPanel extends JPanel {
             densD.add(new ExpHist2D(exp.color, hD, maxD));
         }
 
+        timeAlpha.setNote(hiddenA == 0 ? null : immobileNote(hiddenA, totA + hiddenA, "segments"));
         boolean log = logCountBox.isSelected();
         if (totA > 0) timeAlpha.setHist(densA, lenBins, alphaBins, lenMin, lenMax, aMin, aMax, totA, kdeA, kdeColors);
         else          timeAlpha.setEmpty();
@@ -292,6 +301,12 @@ public class SegStatsPanel extends JPanel {
         timeAlpha.logScale = log; timeD.logScale = log;
 
         lengthHist.repaint(); timeAlpha.repaint(); timeD.repaint();
+    }
+
+    /** "+ 120 immobile segments (12%) hidden": what a plot says when it leaves them out. */
+    static String immobileNote(int hidden, int all, String what) {
+        return String.format("+ %,d immobile %s (%.0f%%) hidden", hidden, what,
+                             100.0 * hidden / Math.max(1, all));
     }
 
     private static int bin(double v, double vMin, double vMax, int n) {
@@ -616,6 +631,7 @@ public class SegStatsPanel extends JPanel {
         private int     nbX, nbY;   // x bins (length) × y bins (α or D)
         private double  xMin, xMax, yMin, yMax;
         private int     total;
+        private String  note;       // second line under "N = …", or null
         private List<double[]> kde   = java.util.Collections.emptyList();
         private List<Color>    kdeCol = java.util.Collections.emptyList();
         private boolean hasData = false;
@@ -631,6 +647,7 @@ public class SegStatsPanel extends JPanel {
         private int hoverPx = -1, hoverPy = -1;
 
         void setXUnit(String u) { this.xUnit = u; }
+        void setNote(String n) { this.note = n; }
 
         Heat2D(String xLabel, String yLabel, boolean leftMarginal) {
             this.xLabel = xLabel; this.yLabel = yLabel; this.leftMarginal = leftMarginal;
@@ -813,6 +830,8 @@ public class SegStatsPanel extends JPanel {
             g2.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
             String nlab = "N = " + String.format("%,d", total);
             g2.drawString(nlab, px + pw - g2.getFontMetrics().stringWidth(nlab) - 5, py + 13);
+            if (note != null)
+                g2.drawString(note, px + pw - g2.getFontMetrics().stringWidth(note) - 5, py + 26);
 
             if (dragging) {
                 int rx = Math.min(dragX0, dragX1), ry = Math.min(dragY0, dragY1);

@@ -28,7 +28,8 @@ import java.util.List;
  *       (only when a single experiment is selected)</li>
  * </ul>
  * Immobile segments, and in frame mode the frames of immobile segments, are left
- * out unless "Show immobile" is ticked; the legend gives how many are hidden.
+ * out unless "Show immobile" is ticked. The legend gives the number of frames or
+ * segments and, below, how many are immobile.
  *
  * Controls: frames or segments, per-experiment toggles (left), bin count,
  * log-count colour scale.
@@ -44,7 +45,7 @@ public class SegDvsAlphaPanel extends JPanel {
     private final JComboBox<String> levelBox;
     private final JSpinner       alphaBinsSpin, dBinsSpin;   // separate α / D bin counts
     private final JCheckBox      logCountBox;
-    private final JCheckBox      immobileBox = new JCheckBox("Show immobile", false);
+    private final ImmobileBox    immobileBox = new ImmobileBox();
     private final DensityCanvas  canvas;
 
     // ═════════════════════════════════════════════════════════════════════
@@ -117,7 +118,6 @@ public class SegDvsAlphaPanel extends JPanel {
         levelBox.setToolTipText("Plot the α and D of every frame, or of every segment");
         alphaBinsSpin.setToolTipText("Number of α bins (histogram + heatmap x-axis)");
         dBinsSpin.setToolTipText("Number of log₁₀(D) bins (histogram + heatmap y-axis)");
-        immobileBox.setToolTipText("Include the immobile segments (or their frames) in the plot");
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
@@ -199,18 +199,23 @@ public class SegDvsAlphaPanel extends JPanel {
         Map<ExperimentData, double[]> alphaByExp = new LinkedHashMap<>();
         Map<ExperimentData, double[]> logdByExp  = new LinkedHashMap<>();
         double ldMin = Double.MAX_VALUE, ldMax = -Double.MAX_VALUE;
-        int total = 0, hidden = 0;
+        int total = 0, immobileCount = 0;   // plotted values; immobile values (shown or not)
+        Map<ExperimentData, Integer> allByExp = new LinkedHashMap<>();
         boolean showImmobile = immobileBox.isSelected();
 
         for (ExperimentData exp : sel) {
             List<Double> av = new ArrayList<>();
             List<Double> dv = new ArrayList<>();
+            int immobileExp = 0;
             double off = Math.log10(units.diffusion(exp));   // log₁₀(D) in display units
             if (bySegment) {
                 for (List<Segment> segs : exp.segments.values())
                     for (Segment s : segs)
                         if (Double.isFinite(s.alpha) && Double.isFinite(s.logD)) {
-                            if (!showImmobile && s.state == 0) { hidden++; continue; }
+                            if (s.state == 0) {
+                                immobileExp++;
+                                if (!showImmobile) continue;
+                            }
                             double d = s.logD + off;
                             av.add(s.alpha); dv.add(d);
                             ldMin = Math.min(ldMin, d);
@@ -221,10 +226,13 @@ public class SegDvsAlphaPanel extends JPanel {
                 double[] ld = exp.stepLogD != null ? exp.stepLogD.get(e.getKey()) : null;
                 if (al == null || ld == null) continue;
                 int len = Math.min(al.length, ld.length);
-                boolean[] immobile = showImmobile ? null : immobileFrames(exp, e.getKey(), len);
+                boolean[] immobile = immobileFrames(exp, e.getKey(), len);
                 for (int t = 0; t < len; t++) {
                     if (Double.isFinite(al[t]) && Double.isFinite(ld[t])) {
-                        if (immobile != null && immobile[t]) { hidden++; continue; }
+                        if (immobile != null && immobile[t]) {
+                            immobileExp++;
+                            if (!showImmobile) continue;
+                        }
                         double d = ld[t] + off;
                         av.add(al[t]); dv.add(d);
                         ldMin = Math.min(ldMin, d);
@@ -236,10 +244,16 @@ public class SegDvsAlphaPanel extends JPanel {
             alphaByExp.put(exp, aArr);
             logdByExp.put(exp, dArr);
             total += aArr.length;
+            immobileCount += immobileExp;
+            allByExp.put(exp, showImmobile ? aArr.length : aArr.length + immobileExp);
         }
 
-        String note = hidden == 0 ? null
-                : SegStatsPanel.immobileNote(hidden, total + hidden, bySegment ? "segments" : "frames");
+        // The legend's N counts every value; the line below it, the immobile ones.
+        int all = showImmobile ? total : total + immobileCount;
+        String note = immobileCount == 0 ? null
+                : SegStatsPanel.immobileNote(immobileCount, all, bySegment ? "segments" : "frames",
+                                             !showImmobile);
+        immobileBox.setImmobilePresent(immobileCount > 0);
         if (total == 0) { canvas.setEmpty(); return; }
 
         double lRng = ldMax - ldMin;
@@ -266,14 +280,14 @@ public class SegDvsAlphaPanel extends JPanel {
                 dHist[li]++;
                 if (++h2[ai][li] > max2) max2 = h2[ai][li];
             }
-            margs.add(new Marginal(exp.color, a.length,
+            margs.add(new Marginal(exp.color, a.length, allByExp.get(exp),
                 Kde.gaussianKde1D(a, evalA, Kde.silvermanBw(a)),
                 Kde.gaussianKde1D(d, evalD, Kde.silvermanBw(d)),
                 aHist, dHist));
             densities.add(new ExpHist2D(exp.color, h2, max2));
         }
 
-        canvas.setData(densities, alphaBins, dBins, aMin, aMax, ldMin, ldMax, total, margs,
+        canvas.setData(densities, alphaBins, dBins, aMin, aMax, ldMin, ldMax, all, margs,
                        bySegment ? "segments" : "frames", note);
         canvas.logScale = logCountBox.isSelected();
         canvas.repaint();
@@ -326,14 +340,15 @@ public class SegDvsAlphaPanel extends JPanel {
     /** One experiment's precomputed marginal KDE curves and histograms. */
     static class Marginal {
         final Color    color;
-        final int      count;
+        final int      count;       // plotted values
+        final int      all;         // every value, immobile included (legend)
         final double[] alphaKde;    // over [aMin, aMax]
         final double[] logdKde;     // over [ldMin, ldMax]
         final int[]    alphaHist;   // over [aMin, aMax], α bins
         final int[]    dHist;       // over [ldMin, ldMax], D bins
-        Marginal(Color color, int count, double[] alphaKde, double[] logdKde,
+        Marginal(Color color, int count, int all, double[] alphaKde, double[] logdKde,
                  int[] alphaHist, int[] dHist) {
-            this.color = color; this.count = count;
+            this.color = color; this.count = count; this.all = all;
             this.alphaKde = alphaKde; this.logdKde = logdKde;
             this.alphaHist = alphaHist; this.dHist = dHist;
         }
@@ -795,7 +810,7 @@ public class SegDvsAlphaPanel extends JPanel {
                 g2.setColor(new Color(90, 90, 90));
                 g2.drawRect(lx + pad, ry - 9, 12, 10);
                 g2.setColor(Color.BLACK);
-                g2.drawString("(" + m.count + " " + countUnit + ")", lx + pad + 18, ry);
+                g2.drawString("(" + String.format("%,d", m.all) + " " + countUnit + ")", lx + pad + 18, ry);
             }
         }
 

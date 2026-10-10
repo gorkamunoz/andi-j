@@ -18,10 +18,11 @@ import java.util.List;
  *   <li><b>Segment-length histogram</b> – 1-D distribution of segment durations,
  *       one outlined curve per experiment.</li>
  *   <li><b>Segment length vs α</b> – 2-D density heatmap, one point per segment
- *       (length, segment α), with a marginal KDE of α. Immobile segments are left
- *       out unless "Show immobile" is ticked; the plot gives how many are hidden.</li>
+ *       (length, segment α), with a marginal KDE of α.</li>
  *   <li><b>Segment length vs D</b> – same, with the segment's log₁₀(D).</li>
  * </ul>
+ * The two heatmaps leave out immobile segments unless "Show immobile" is ticked; each
+ * gives the number of segments and, below, how many are immobile.
  * The two heatmaps follow the same style as the "D vs α" tab.
  *
  * <p>Segments come from {@link ExperimentData#segments} (computed by the
@@ -36,7 +37,7 @@ public class SegStatsPanel extends JPanel {
     private final JSpinner   alphaBinsSpin = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
     private final JSpinner   dBinsSpin     = new JSpinner(new SpinnerNumberModel(40, 5, 200, 1));
     private final JCheckBox  logCountBox   = new JCheckBox("Log count scale", true);
-    private final JCheckBox  immobileBox   = new JCheckBox("Show immobile", false);
+    private final ImmobileBox immobileBox  = new ImmobileBox();
 
     private static final int NEVAL = 100;   // marginal-KDE grid resolution
 
@@ -118,7 +119,7 @@ public class SegStatsPanel extends JPanel {
         lenBinsSpin.setToolTipText("Number of segment-length bins (length histogram + heatmap x-axis)");
         alphaBinsSpin.setToolTipText("Number of α bins (α heatmap y-axis)");
         dBinsSpin.setToolTipText("Number of log₁₀(D) bins (D heatmap y-axis)");
-        immobileBox.setToolTipText("Include the immobile segments in the α plot");
+        immobileBox.setToolTipText("Include the immobile segments in the α and D plots");
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         bar.setBorder(BorderFactory.createEtchedBorder());
@@ -215,7 +216,7 @@ public class SegStatsPanel extends JPanel {
                 for (Segment s : segs) {
                     maxLen  = Math.max(maxLen, s.length);
                     maxTime = Math.max(maxTime, s.start + s.length - 1);
-                    if (Double.isFinite(s.logD)) {
+                    if (Double.isFinite(s.logD) && (s.state != 0 || immobileBox.isSelected())) {
                         ldMin = Math.min(ldMin, s.logD + off);
                         ldMax = Math.max(ldMax, s.logD + off);
                     }
@@ -253,7 +254,7 @@ public class SegStatsPanel extends JPanel {
         // ── length-vs-α and length-vs-D 2-D histograms (overlaid per exp) ──
         // One point per segment: x = segment length, y = segment mean.
         // Shares the x-axis (segment length) with the histogram above.
-        int totA = 0, totD = 0, hiddenA = 0;
+        int totA = 0, totD = 0, immA = 0, immD = 0;   // plotted segments, immobile segments
         boolean showImmobile = immobileBox.isSelected();
         List<ExpHist2D> densA = new ArrayList<>(), densD = new ArrayList<>();
         // Per-experiment y-marginal KDEs (α for the left plot, D for the right)
@@ -270,9 +271,11 @@ public class SegStatsPanel extends JPanel {
             for (List<Segment> segs : exp.segments.values()) {
                 for (Segment s : segs) {
                     int xi = bin(s.length * units.time(exp), lenMin, lenMax, lenBins);
-                    if (Double.isFinite(s.alpha) && !showImmobile && s.state == 0) {
-                        hiddenA++;
-                    } else if (Double.isFinite(s.alpha)) {
+                    boolean immobile = s.state == 0;
+                    if (immobile && Double.isFinite(s.alpha)) immA++;
+                    if (immobile && Double.isFinite(s.logD))  immD++;
+                    if (immobile && !showImmobile) continue;
+                    if (Double.isFinite(s.alpha)) {
                         int ai = bin(s.alpha, aMin, aMax, alphaBins);
                         if (++hA[xi][ai] > maxA) maxA = hA[xi][ai];
                         totA++; aVals.add(s.alpha);
@@ -292,21 +295,25 @@ public class SegStatsPanel extends JPanel {
             densD.add(new ExpHist2D(exp.color, hD, maxD));
         }
 
-        timeAlpha.setNote(hiddenA == 0 ? null : immobileNote(hiddenA, totA + hiddenA, "segments"));
+        // N counts every segment; the line below it, the immobile ones.
+        int allA = showImmobile ? totA : totA + immA, allD = showImmobile ? totD : totD + immD;
+        timeAlpha.setNote(immA == 0 ? null : immobileNote(immA, allA, "segments", !showImmobile));
+        timeD.setNote(immD == 0 ? null : immobileNote(immD, allD, "segments", !showImmobile));
+        immobileBox.setImmobilePresent(immA + immD > 0);
         boolean log = logCountBox.isSelected();
-        if (totA > 0) timeAlpha.setHist(densA, lenBins, alphaBins, lenMin, lenMax, aMin, aMax, totA, kdeA, kdeColors);
+        if (totA > 0) timeAlpha.setHist(densA, lenBins, alphaBins, lenMin, lenMax, aMin, aMax, allA, kdeA, kdeColors);
         else          timeAlpha.setEmpty();
-        if (totD > 0) timeD.setHist(densD, lenBins, dBins, lenMin, lenMax, ldMin, ldMax, totD, kdeD, kdeColors);
+        if (totD > 0) timeD.setHist(densD, lenBins, dBins, lenMin, lenMax, ldMin, ldMax, allD, kdeD, kdeColors);
         else          timeD.setEmpty();
         timeAlpha.logScale = log; timeD.logScale = log;
 
         lengthHist.repaint(); timeAlpha.repaint(); timeD.repaint();
     }
 
-    /** "+ 120 immobile segments (12%) hidden": what a plot says when it leaves them out. */
-    static String immobileNote(int hidden, int all, String what) {
-        return String.format("+ %,d immobile %s (%.0f%%) hidden", hidden, what,
-                             100.0 * hidden / Math.max(1, all));
+    /** "120 immobile segments (12%)", plus " hidden" when the plot leaves them out. */
+    static String immobileNote(int immobile, int all, String what, boolean hidden) {
+        return String.format("%,d immobile %s (%.0f%%)%s", immobile, what,
+                             100.0 * immobile / Math.max(1, all), hidden ? " hidden" : "");
     }
 
     private static int bin(double v, double vMin, double vMax, int n) {

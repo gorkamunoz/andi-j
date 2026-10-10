@@ -18,15 +18,15 @@ import java.util.List;
  *
  * Opened by AnDi-J > Trajectory Analysis and > Trajectory Segmentation (one
  * window per command) and by the "Manage Data" button of their windows.  State
- * (loaded files, tags, cut lengths) is preserved across show/hide cycles.
+ * (loaded files, tags, length filters) is preserved across show/hide cycles.
  *
  * Workflow:
  *   1. Click "Choose Files…" to pick one or more CSV files.
- *   2. Choose "Load as separate" or "Merge", optionally fill Tag / Cut length, and
- *      click "Load Data" to add them to the table.
- *   3. Review the file table; edit Tag or Cut length cells, remove rows.
+ *   2. Choose "Load as separate" or "Merge", optionally fill Tag / Min. length /
+ *      Max. length, and click "Load Data" to add them to the table.
+ *   3. Review the file table; edit Tag, Min. length or Max. length cells, remove rows.
  *   4. Click "Perform Analysis" → files that share a tag are merged into one
- *      ExperimentData, cut-length filters are applied per file, and the
+ *      ExperimentData, the length filters are applied per file, and the
  *      command's launcher runs (pre-computing tMSD / D / α, or the
  *      segmentation) and opens its window.
  */
@@ -60,7 +60,7 @@ public class DataManagerWindow extends JFrame {
 
     // ── UI ───────────────────────────────────────────────────────────────────
     private final JRadioButton  separateBtn, mergeBtn;
-    private final JTextField    tagField, cutField;
+    private final JTextField    tagField, minLenField, maxLenField;
     private final FileRowModel  model;
     private final JTable        table;
     private final JLabel        chosenLabel;
@@ -105,11 +105,13 @@ public class DataManagerWindow extends JFrame {
         tagField.setToolTipText(
             "Separate: leave blank to use filename; provide a name to group files under it.\n" +
             "Merge: leave blank for auto \"Exp N\"; provide a name to use it.");
-        cutField = new JTextField(5);
-        cutField.setToolTipText("Blank = no filtering");
+        minLenField = new JTextField(4);
+        minLenField.setToolTipText(MIN_TIP);
+        maxLenField = new JTextField(4);
+        maxLenField.setToolTipText(MAX_TIP);
 
         JButton chooseBtn = new JButton("Choose Files…");
-        chooseBtn.setToolTipText("Pick the CSV files; then set Tag / Cut length and click Load Data");
+        chooseBtn.setToolTipText("Pick the CSV files; then set Tag / Min. length / Max. length and click Load Data");
         chooseBtn.addActionListener(e -> chooseFiles());
 
         chosenLabel = new JLabel("No files chosen");
@@ -129,15 +131,17 @@ public class DataManagerWindow extends JFrame {
         loadBar.add(new JLabel("Tag:"));
         loadBar.add(tagField);
         loadBar.add(Box.createHorizontalStrut(4));
-        loadBar.add(new JLabel("Cut length:"));
-        loadBar.add(cutField);
+        loadBar.add(new JLabel("Min. length:"));
+        loadBar.add(minLenField);
+        loadBar.add(new JLabel("Max. length:"));
+        loadBar.add(maxLenField);
         loadBar.add(Box.createHorizontalStrut(8));
         loadBar.add(loadBtn);
 
         // ── table ─────────────────────────────────────────────────────────
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createTitledBorder(
-            "Loaded files  (double-click Tag, Cut length or the units to edit)"));
+            "Loaded files  (double-click Tag, Min. length, Max. length or the units to edit)"));
 
         // ── bottom buttons ────────────────────────────────────────────────
         JButton removeBtn  = new JButton("Remove selected");
@@ -208,22 +212,27 @@ public class DataManagerWindow extends JFrame {
         table.getColumnModel().getColumn(2).setPreferredWidth(220);
         table.getColumnModel().getColumn(2).setCellRenderer(new ReadOnlyRenderer(SwingConstants.LEFT));
 
-        // Numeric: # trajs, min length, max length (read-only → grey + centered)
-        for (int c : new int[]{3, 4, 5}) {
-            table.getColumnModel().getColumn(c).setPreferredWidth(75);
-            table.getColumnModel().getColumn(c).setCellRenderer(new ReadOnlyRenderer(SwingConstants.CENTER));
-        }
+        // Length range of the file and trajectories kept / in the file (read-only → grey)
+        table.getColumnModel().getColumn(3).setPreferredWidth(95);
+        table.getColumnModel().getColumn(3).setCellRenderer(new ReadOnlyRenderer(SwingConstants.CENTER,
+            "Shortest – longest trajectory in the file"));
+        table.getColumnModel().getColumn(6).setPreferredWidth(95);
+        table.getColumnModel().getColumn(6).setCellRenderer(new ReadOnlyRenderer(SwingConstants.CENTER,
+            "Trajectories kept by Min. length / trajectories in the file"));
 
-        // Cut length (editable – default white background)
-        table.getColumnModel().getColumn(6).setPreferredWidth(80);
+        // Length filters (editable – default white background)
+        table.getColumnModel().getColumn(4).setPreferredWidth(80);
+        table.getColumnModel().getColumn(5).setPreferredWidth(80);
+        table.getColumnModel().getColumn(4).setCellRenderer(new EditableRenderer(MIN_TIP));
+        table.getColumnModel().getColumn(5).setCellRenderer(new EditableRenderer(MAX_TIP));
 
         // Units (editable): μm per position unit, μs per frame; empty = unknown
         table.getColumnModel().getColumn(7).setPreferredWidth(100);
         table.getColumnModel().getColumn(8).setPreferredWidth(110);
-        table.getColumnModel().getColumn(7).setCellRenderer(new UnitRenderer(
+        table.getColumnModel().getColumn(7).setCellRenderer(new EditableRenderer(
             "Size of one position unit in μm: 1 for data in μm, the pixel size for data in "
             + "pixels. Read from the CSV units row; empty when unknown."));
-        table.getColumnModel().getColumn(8).setCellRenderer(new UnitRenderer(
+        table.getColumnModel().getColumn(8).setCellRenderer(new EditableRenderer(
             "Time between frames in μs. Read from POSITION_T and the CSV units row; empty "
             + "when unknown."));
 
@@ -253,7 +262,7 @@ public class DataManagerWindow extends JFrame {
 
         chosenFiles = files;
         // Keep the label no wider than the original "No files chosen" text so it
-        // never pushes the Tag / Cut length / Load Data controls out of view.
+        // never pushes the Tag / length / Load Data controls out of view.
         String text = files.length == 1
             ? truncateName(files[0].getName(), 10)
             : files.length + " files chosen";
@@ -270,7 +279,7 @@ public class DataManagerWindow extends JFrame {
         return name.substring(0, Math.max(1, max - 1)) + "…";
     }
 
-    /** Step 2 – add the chosen files with the current Tag / Cut length settings. */
+    /** Step 2 – add the chosen files with the current Tag / length settings. */
     private void loadData() {
         if (chosenFiles == null || chosenFiles.length == 0) {
             JOptionPane.showMessageDialog(this,
@@ -281,19 +290,21 @@ public class DataManagerWindow extends JFrame {
 
         boolean merge  = mergeBtn.isSelected();
         String  tagTxt = tagField.getText().trim();
-        int     cut    = parseCut(cutField.getText());
+        int     minLen = parseLength(minLenField.getText());
+        int     maxLen = parseLength(maxLenField.getText());
+        if (!lengthsValid(minLen, maxLen)) return;
 
         if (merge) {
             String tag = tagTxt.isEmpty() ? nextExpTag() : tagTxt;
             ensureColor(tag);
-            for (File f : chosenFiles) addFile(f, tag, cut);
+            for (File f : chosenFiles) addFile(f, tag, minLen, maxLen);
         } else {
             for (File f : chosenFiles) {
                 String tag = tagTxt.isEmpty()
                     ? f.getName().replaceFirst("\\.[^.]+$", "")
                     : tagTxt;
                 ensureColor(tag);
-                addFile(f, tag, cut);
+                addFile(f, tag, minLen, maxLen);
             }
         }
         model.fireTableDataChanged();
@@ -304,10 +315,10 @@ public class DataManagerWindow extends JFrame {
         chosenLabel.setForeground(new Color(130, 130, 130));
     }
 
-    private void addFile(File f, String tag, int cut) {
+    private void addFile(File f, String tag, int minLen, int maxLen) {
         try {
             TrajectoryIO.ParseResult parsed = TrajectoryIO.parseCsv(f);
-            rows.add(new FileRow(f, parsed, tag, cut));
+            rows.add(new FileRow(f, parsed, tag, minLen, maxLen));
         } catch (IOException e) {
             IJ.error("AnDi-J – Load error",
                 "Could not parse " + f.getName() + ":\n" + e.getMessage());
@@ -354,7 +365,7 @@ public class DataManagerWindow extends JFrame {
             for (FileRow row : group) {
                 // Deep-copy so filters never corrupt the stored originals
                 Map<Integer, List<double[]>> copy = deepCopy(row.originalTracks);
-                if (row.cutLength > 0) applyTrajLengthFilter(copy, row.cutLength);
+                applyLengthFilters(copy, row.minLength, row.maxLength);
                 for (Map.Entry<Integer, List<double[]>> te : copy.entrySet())
                     allTracks.put(te.getKey() + idOffset, te.getValue());
                 idOffset += row.originalTracks.size() + 1;
@@ -472,9 +483,24 @@ public class DataManagerWindow extends JFrame {
         return tagColors.get(tag);
     }
 
-    private static int parseCut(String s) {
+    private static final String MIN_TIP =
+        "Minimum length: trajectories with fewer frames are left out. Blank = no minimum";
+    private static final String MAX_TIP =
+        "Maximum length: longer trajectories are cut to their first N frames. Blank = no maximum";
+
+    /** A length filter value: a positive integer, or -1 (blank or invalid = off). */
+    private static int parseLength(String s) {
         try { int n = Integer.parseInt(s.trim()); return n >= 1 ? n : -1; }
         catch (NumberFormatException e) { return -1; }
+    }
+
+    /** False, after telling the user, when both filters are set and min > max. */
+    private boolean lengthsValid(int minLen, int maxLen) {
+        if (minLen < 0 || maxLen < 0 || minLen <= maxLen) return true;
+        JOptionPane.showMessageDialog(this,
+            "Min. length (" + minLen + ") is larger than Max. length (" + maxLen + ").",
+            "Length filters", JOptionPane.WARNING_MESSAGE);
+        return false;
     }
 
     private static Map<Integer, List<double[]>> deepCopy(
@@ -485,17 +511,19 @@ public class DataManagerWindow extends JFrame {
         return copy;
     }
 
-    private static void applyTrajLengthFilter(
-            Map<Integer, List<double[]>> tracks, int n) {
+    /** Drops trajectories shorter than minLen and cuts longer than maxLen to their
+     *  first maxLen frames; -1 switches a filter off. */
+    private static void applyLengthFilters(
+            Map<Integer, List<double[]>> tracks, int minLen, int maxLen) {
         Iterator<Map.Entry<Integer, List<double[]>>> it = tracks.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<Integer, List<double[]>> e = it.next();
             List<double[]> spots = e.getValue();
-            if (spots.size() < n) {
+            if (minLen > 0 && spots.size() < minLen) {
                 it.remove();
-            } else if (spots.size() > n) {
+            } else if (maxLen > 0 && spots.size() > maxLen) {
                 spots.sort(Comparator.comparingDouble(s -> s[0]));
-                e.setValue(new ArrayList<>(spots.subList(0, n)));
+                e.setValue(new ArrayList<>(spots.subList(0, maxLen)));
             }
         }
     }
@@ -510,17 +538,19 @@ public class DataManagerWindow extends JFrame {
         final Map<Integer, List<double[]>>   originalTracks;
         final int                            minLen, maxLen;
         String  tag;
-        int     cutLength;  // -1 = no filter
+        int     minLength;  // -1 = no minimum
+        int     maxLength;  // -1 = no maximum
         Double  spaceUm;    // μm per position unit; null = unknown
         Double  frameUs;    // μs per frame; null = unknown
 
-        FileRow(File f, TrajectoryIO.ParseResult p, String tag, int cutLength) {
+        FileRow(File f, TrajectoryIO.ParseResult p, String tag, int minLength, int maxLength) {
             this.file              = f;
             this.originalTracks   = p.tracks;
             this.spaceUm           = p.spaceUm;
             this.frameUs           = p.frameUs;
             this.tag               = tag;
-            this.cutLength         = cutLength;
+            this.minLength         = minLength;
+            this.maxLength         = maxLength;
             int mn = Integer.MAX_VALUE, mx = 0;
             for (List<double[]> s : p.tracks.values()) {
                 mn = Math.min(mn, s.size());
@@ -528,6 +558,14 @@ public class DataManagerWindow extends JFrame {
             }
             this.minLen = p.tracks.isEmpty() ? 0 : mn;
             this.maxLen = mx;
+        }
+
+        /** Trajectories that pass the minimum length. */
+        int kept() {
+            if (minLength <= 0) return originalTracks.size();
+            int n = 0;
+            for (List<double[]> s : originalTracks.values()) if (s.size() >= minLength) n++;
+            return n;
         }
     }
 
@@ -537,8 +575,8 @@ public class DataManagerWindow extends JFrame {
     private class FileRowModel extends AbstractTableModel {
 
         private final String[] COLS = {
-            "", "Tag", "File Name", "# Trajs",
-            "Min. length", "Max. length", "Cut length",
+            "", "Tag", "File Name", "Length range",
+            "Min. length", "Max. length", "Trajectories",
             "Space unit (μm)", "Frame interval (μs)"
         };
 
@@ -549,12 +587,11 @@ public class DataManagerWindow extends JFrame {
         @Override
         public Class<?> getColumnClass(int c) {
             if (c == 0) return Color.class;
-            if (c >= 3 && c <= 5) return Integer.class;
             return String.class;
         }
 
         @Override
-        public boolean isCellEditable(int r, int c) { return c == 1 || c >= 6; }
+        public boolean isCellEditable(int r, int c) { return c == 1 || c == 4 || c == 5 || c >= 7; }
 
         @Override
         public Object getValueAt(int r, int c) {
@@ -563,10 +600,10 @@ public class DataManagerWindow extends JFrame {
                 case 0: return colorForTag(row.tag);
                 case 1: return row.tag;
                 case 2: return row.file.getName();
-                case 3: return row.originalTracks.size();
-                case 4: return row.minLen;
-                case 5: return row.maxLen;
-                case 6: return row.cutLength > 0 ? String.valueOf(row.cutLength) : "";
+                case 3: return row.minLen + " – " + row.maxLen;
+                case 4: return row.minLength > 0 ? String.valueOf(row.minLength) : "";
+                case 5: return row.maxLength > 0 ? String.valueOf(row.maxLength) : "";
+                case 6: return row.kept() + " / " + row.originalTracks.size();
                 case 7: return fmtUnit(row.spaceUm);
                 case 8: return fmtUnit(row.frameUs);
                 default: return null;
@@ -583,9 +620,13 @@ public class DataManagerWindow extends JFrame {
                 row.tag = newTag;
                 ensureColor(newTag);
                 fireTableRowsUpdated(r, r);   // refresh colour swatch in col 0 too
-            } else if (c == 6) {
-                row.cutLength = parseCut(val.toString());
-                fireTableCellUpdated(r, c);
+            } else if (c == 4 || c == 5) {
+                int n = parseLength(val.toString());
+                int minLen = c == 4 ? n : row.minLength, maxLen = c == 5 ? n : row.maxLength;
+                if (!lengthsValid(minLen, maxLen)) return;
+                row.minLength = minLen;
+                row.maxLength = maxLen;
+                fireTableRowsUpdated(r, r);   // Trajectories follows Min. length
             } else if (c == 7) {
                 row.spaceUm = parseUnit(val.toString());
                 fireTableCellUpdated(r, c);
@@ -609,10 +650,10 @@ public class DataManagerWindow extends JFrame {
         return String.format(Locale.ROOT, "%.6g", v).replaceAll("\\.?0+$", "").replaceAll("\\.?0+(e)", "$1");
     }
 
-    /** Editable unit cell, with its meaning as tooltip. */
-    private static class UnitRenderer extends DefaultTableCellRenderer {
+    /** Editable, centred cell with its meaning as tooltip. */
+    private static class EditableRenderer extends DefaultTableCellRenderer {
         private final String tip;
-        UnitRenderer(String tip) { this.tip = tip; setHorizontalAlignment(SwingConstants.CENTER); }
+        EditableRenderer(String tip) { this.tip = tip; setHorizontalAlignment(SwingConstants.CENTER); }
 
         @Override
         public Component getTableCellRendererComponent(JTable t, Object v,
@@ -626,13 +667,16 @@ public class DataManagerWindow extends JFrame {
     /** Grey background for read-only (non-editable) cells. */
     private static class ReadOnlyRenderer extends DefaultTableCellRenderer {
         private static final Color READONLY_BG = new Color(240, 240, 240);
-        ReadOnlyRenderer(int alignment) { setHorizontalAlignment(alignment); }
+        private final String tip;
+        ReadOnlyRenderer(int alignment) { this(alignment, null); }
+        ReadOnlyRenderer(int alignment, String tip) { setHorizontalAlignment(alignment); this.tip = tip; }
 
         @Override
         public Component getTableCellRendererComponent(JTable t, Object v,
                 boolean sel, boolean focus, int r, int c) {
-            Component comp = super.getTableCellRendererComponent(t, v, sel, focus, r, c);
+            JLabel comp = (JLabel) super.getTableCellRendererComponent(t, v, sel, focus, r, c);
             if (!sel) comp.setBackground(READONLY_BG);
+            comp.setToolTipText(tip);
             return comp;
         }
     }

@@ -138,11 +138,11 @@ class AndiJSegmentationModel(nn.Module):
         # ── the four required per-frame outputs ──────────────────────────────────────
         alpha = ((1.0 - ALPHA_BRANCH_W) * alpha_log_d_state[..., 7]
                  + ALPHA_BRANCH_W * alpha_log_d_state[..., 0]).clamp(0.0, 1.999)
-        log_d = alpha_log_d_state[..., 1] / torch.log(torch.tensor(10.0))
+        log_d = alpha_log_d_state[..., 1] / torch.log(positions.new_tensor(10.0))
         state_probability = alpha_log_d_state[..., 3:7]
         # Frames with alpha above 1.9 are directed (one-hot vote for class 3).
         diffusive_state = torch.where(alpha.unsqueeze(-1) > 1.9,
-                                      torch.tensor([0.0, 0.0, 0.0, 1.0]), state_probability)
+                                      positions.new_tensor([0.0, 0.0, 0.0, 1.0]), state_probability)
 
         # Change points: strict local maxima above the threshold (they are therefore at
         # least 2 frames apart), one flag at the first frame of each new segment.
@@ -175,7 +175,7 @@ class AndiJSegmentationModel(nn.Module):
         seg_alpha = ((1.0 - ALPHA_BRANCH_W) * median[0]
                      + ALPHA_BRANCH_W * median[1]).clamp(0.0, 1.999)
         # D clipped to [1e-12, 1e6], i.e. log10(D) to [-12, 6].
-        seg_log_d = (median[2] / torch.log(torch.tensor(10.0))).clamp(-12.0, 6.0)
+        seg_log_d = (median[2] / torch.log(positions.new_tensor(10.0))).clamp(-12.0, 6.0)
         seg_state = median[3:7].argmax(dim=0)
         seg_state = torch.where(seg_alpha > 1.9, torch.full_like(seg_state, 3), seg_state)
         # Immobile segments have alpha = 0 (the 2nd AnDi Challenge labels them so), for
